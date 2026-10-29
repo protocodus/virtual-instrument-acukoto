@@ -64,21 +64,44 @@ constexpr double lengthFor(int midiNote)
     return waveSpeed / (2.0 * frequency);
 }
 
-constexpr StringSpec koto(int midiNote) { return { midiNote, lengthFor(midiNote), 1.225e-3 }; }
+constexpr StringSpec koto(int midiNote, double cents, double spread)
+{
+    StringSpec string { midiNote, lengthFor(midiNote), 1.225e-3 };
+    string.cents = cents;
+    string.centsSpread = spread;
+    return string;
+}
 
-// Hirajoshi in D: string 1 at D3, 2 a fourth above, 3 a fifth, 4 a minor
-// second above 3, 5 an octave above 1, 6 a minor second above 5, then
-// octaves (Ando 1989, Fig. 4).
+// Hirajoshi in D as professional players tune it. Ando (1989, Sec. 2.3,
+// Fig. 4) describes the method: string 1 is set to D3; 2 is tuned a perfect
+// fourth above it and 3 a perfect fifth; 4 a minor second above 3 and 6 a
+// minor second above 5, by ear; 5 and 7 to 13 an octave above 1 and 2 to 8.
+// Ando recorded six professional players of the Ikuta school tuning a
+// professional koto to it, three times each (Sec. 3.1), and the cents are
+// their average against equal temperament (Fig. 7, read from the figure to
+// about half a cent): the fourths and fifths near pure, the octaves widening
+// up the instrument as a piano's do, and the minor seconds near the
+// Pythagorean 90 cents (Sec. 3.2(7)), so E-flat 4 sits 11.3 cents flat. The
+// spreads are the standard deviation among the six (Fig. 8), largest at the
+// minor seconds; string 1 is everyone's reference.
 constexpr std::array<StringSpec, maxStrings> hirajoshi {{
-    koto(50), koto(55), koto(57), koto(58), koto(62), koto(63), koto(67),
-    koto(69), koto(70), koto(74), koto(75), koto(79), koto(81)
+    koto(50, 0.0, 0.0), koto(55, -1.7, 0.8), koto(57, 0.9, 1.8), koto(58, -5.1, 2.7),
+    koto(62, 1.0, 2.0), koto(63, -11.3, 4.2), koto(67, -1.1, 2.0), koto(69, 2.1, 1.7),
+    koto(70, -4.6, 2.8), koto(74, 2.0, 2.0), koto(75, -9.7, 4.3), koto(79, 2.2, 2.6),
+    koto(81, 5.3, 2.1)
 }};
 
-// Hankumoijoshi: hirajoshi with string 8 a semitone lower and string 9 a
-// whole tone higher (Ando 1989).
+// Hankumoijoshi: hirajoshi with string 8 lowered a semitone and string 9
+// raised a whole tone (Ando 1989, Fig. 3). Ando measured hirajoshi alone, so
+// these two follow its method (estimated): 8, A-flat 4, a minor second above
+// 7 of the size the two minor seconds tuned directly averaged, 90.9 cents;
+// 9, C5, a perfect fourth above 7. Their spreads add 7's to a minor second's
+// own (4's and 6's over 3's and 5's, 2.9 cents) and to a fourth's (2's, 0.8).
 constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
-    koto(50), koto(55), koto(57), koto(58), koto(62), koto(63), koto(67),
-    koto(68), koto(72), koto(74), koto(75), koto(79), koto(81)
+    koto(50, 0.0, 0.0), koto(55, -1.7, 0.8), koto(57, 0.9, 1.8), koto(58, -5.1, 2.7),
+    koto(62, 1.0, 2.0), koto(63, -11.3, 4.2), koto(67, -1.1, 2.0), koto(68, -10.2, 3.5),
+    koto(72, -3.1, 2.2), koto(74, 2.0, 2.0), koto(75, -9.7, 4.3), koto(79, 2.2, 2.6),
+    koto(81, 5.3, 2.1)
 }};
 
 // The body. Coaldrake's koto is 1.83 m long (ICA 2019); a 1981 Yamada-style
@@ -136,15 +159,17 @@ constexpr BodySpec kotoBody {
 // The pluck point, 0.075 of the length from the ryukaku, is where the player
 // of three CC0 koto sessions (Freesound 364807 and 365215, RutgerMuller)
 // plucks: fitted to the first 60 ms of 109 isolated notes, the medians by
-// register fall at 0.073-0.080 from D3 to D5. outputGain is the free gain.
+// register fall at 0.073-0.080 from D3 to D5. outputGain is the free gain:
+// 2.4 since the microphones moved from 0.5 m to 1.2 m, which keeps the demos
+// within about 2 dB of their earlier level.
 inline constexpr InstrumentSpec kotoHirajoshi {
     "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.0, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.4, 0.0
 };
 
 inline constexpr InstrumentSpec kotoHankumoijoshi {
     "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.0, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.4, 0.0
 };
 
 inline constexpr std::array<const InstrumentSpec*, 2> presets {{

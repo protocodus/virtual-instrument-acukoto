@@ -18,7 +18,8 @@ that uses them (`Source/DSP/AcukotoPresets.h`,
 `Source/DSP/AcukotoEngine.cpp`). No text, figure or table is reproduced.
 
 - M. Ando, "Koto scales and tuning", J. Acoust. Soc. Jpn. (E) 10(5) (1989)
-  279: the strings' common gauge and tension, the tunings, and silk and
+  279: the strings' common gauge and tension, the tunings, six professional
+  players' tuning of hirajoshi and its spread (Figs. 7 and 8), and silk and
   ivory as the original materials.
 - K. Coaldrake, "A finite element model of the Japanese koto constructed from
   computed tomography scans", J. Acoust. Soc. Am. 148 (2020) 3153:
@@ -34,8 +35,7 @@ that uses them (`Source/DSP/AcukotoPresets.h`,
   Soc. Am. 133 (2013) 2444: harpists' release velocities, their spread and
   the fingertip's slip, which set the pluck's release and its variation.
 - C. Valette, in *Mechanics of Musical Instruments* (Springer, 1995): the
-  air damping law, and J. Woodhouse, Acta Acustica united with Acustica 90
-  (2004) 945: the string's end correction.
+  air damping law.
 - J. Dattorro, J. Audio Eng. Soc. 45(9) (1997): the room's input diffusers.
 
 ## Robert Mores guitar-measurement archive: derived statistics only
@@ -57,10 +57,6 @@ for the air modes. No table or response from the archive is included.
   (<https://freesound.org/s/364807/>, <https://freesound.org/s/365215/>),
   [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/): the pluck
   point, fitted to the first 60 ms of 109 isolated notes.
-- A lyre harp phrase, Freesound sound 649925 (<https://freesound.org/s/649925/>,
-  its uploader as named there),
-  [CC BY](https://creativecommons.org/licenses/by/4.0/): the 4.1-cent spread
-  of hand-tuned strings, inherited from Aculyre.
 
 ## Professional koto recordings: measured values only, not distributed
 
@@ -82,6 +78,10 @@ Both licences are non-commercial. What Acukoto carries from them is a few
 fitted numbers, each recorded with its method beside the code; whether such
 values need the recordings' licence for a commercial build is for the owner
 to decide before any release.
+
+A performance of Sakura that the owner shared for comparison was measured
+the same way, by its stereo, spectrum and tuning. The microphone pair was set
+beside it, but nothing is fitted to it, and it is not distributed.
 
 ## Trademarks
 

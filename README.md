@@ -11,6 +11,12 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.2.0 — 2026-10-29 — Tuned as koto players tune, heard from in front
+
+- **Tuning.** The strings are tuned as six professional players tuned hirajoshi in Ando's measurements. The fourths and fifths are near pure, the octaves widen up the instrument, and the minor seconds are narrow, so E♭4 sits 11 cents flat. Each instrument draws its own player's scatter about that.
+- **No more beating on the top strings.** A string's two planes of vibration now share its length. Until now one plane was a string's diameter longer, so the top strings beat at 4-5 Hz and settled up to 13 cents flat. A press up a whole tone now lands within a cent of its note, where it fell about 13 cents short.
+- **A new microphone pair.** Two cardioids in an ORTF pair, 1.2 m in front of the koto and 40° above it, replace the two microphones 0.5 m over the top. Each body mode reaches each microphone with its own phase. Against a recording of Sakura, the left-right correlation by octave band now falls with frequency as the recording's does. The fundamentals now fall a median 0.5 dB short of the five professional recordings' balance against the second partial, where they fell 3.5 dB short.
+
 ### 0.1.1 — 2026-10-29 — A host rate Acukoto cannot run at plays at 48 kHz
 
 A sample rate outside 22.05-192 kHz, or one that is not a number, now runs the whole instrument at 48 kHz, as the engine already did. The output stage no longer takes such a rate alone. Rates a host offers are unchanged.
@@ -47,8 +53,8 @@ The engine is Aculyre's dual-polarisation stiff-string waveguide and modal body,
   - The modes' damping comes from wooden-box statistics, the Q spread of Acustra's measured guitar bridge, not from a koto measurement.
 - **Played with tsume.** The ivory picks on the thumb and two fingers have an estimated rounded edge of 2 mm, released over 0.05 ms. A harder stroke slips off faster and leaves brighter, as harpists' strings do (Chadefaux et al., JASA 131 (2012) 844). The pluck lands 0.075 of the speaking length from the ryukaku. That is fitted to the first 60 ms of 109 isolated notes from three CC0 koto sessions, whose medians by register fall at 0.073-0.080. Each pluck draws its own force, place and angle within the spreads Chadefaux measured on harpists.
 - **Oshide.** A note one or two semitones above a string's own note, which no string is tuned to, presses the nearest string below it behind its ji before the pluck. The press raises the string's tension and so its pitch, and the note's key-up lets the press go. `RenderAcukotoPhrase` also plays ato-oshi (a press after the pluck) and yuri (a pulsing press) from a script.
-- **The hand by tuning.** Each string is tuned a few cents from equal temperament, the same few cents every time, as strings tuned by ear are. The spread is 4.1 cents, taken from a lyre harp phrase (Freesound 649925); see Known gaps.
-- **Microphones and room.** Two microphones stand 0.5 m above the top, one over the playing end and one over the middle. Each mode's radiation over the box's surface and from its holes is summed at each microphone as free-field monopoles. A small room, authored rather than measured, is the space the demos are heard in. Width sets the stereo image, from mono to twice the microphones' spread.
+- **Tuned by ear, as players tune.** Ando recorded six professional players of the Ikuta school tuning hirajoshi on one koto, three times each (Sec. 3.1, Figs. 7 and 8). Each string sits at their mean offset from equal temperament. The fourths and fifths are near pure, the octaves widen up the instrument, and the minor seconds sit near the Pythagorean 90 cents, so E♭4 is 11.3 cents flat. Each instrument then draws its own scatter about that from the players' spread, the same every time it is set up. Hankumoijoshi's two retuned strings follow the same method; Ando measured hirajoshi only, so they are estimated.
+- **Microphones and room.** An ORTF pair stands 1.2 m in front of the koto and 40° above it, with the head on the listener's left: two cardioids 17 cm apart with 110° between them. Each mode's radiation over the box's surface and from its holes is summed at each microphone as free-field monopoles, with each patch's own delay. The pair is authored, then set beside a recording of Sakura (see Known gaps). A small room, authored rather than measured, is the space the demos are heard in. Width sets the stereo image, from mono to twice the pair's spread.
 - **Playing.** A note plucks the string tuned to it. Its key-up lifts the hand and the string rings on, as a koto's does, and CC64 holds every string. A palm laid across the strings (`PlayingControls::mute`) stops them. The Performer runs at 1, 2 or 4 times the host rate and ends in the portfolio's shared output stage (`Source/DSP/OutputStage.h`).
 
 ### Presets
@@ -60,22 +66,16 @@ The engine is Aculyre's dual-polarisation stiff-string waveguide and modal body,
 
 ## Known gaps
 
-- **The tuning is not yet a koto player's.** The strings sit within 4.1 cents of equal temperament, a spread taken from a lyre harp. In the five recordings, the semitone steps of hirajoshi are tuned narrow:
-  - E♭4 and E♭5 sit 14-27 cents flat;
-  - A♭4 sits about 15 cents flat;
-  - pressed notes sit 11-18 cents sharp;
-  - each recording's strings spread by 8-11 cents.
-
-  Which of those is the tuning and which is the player has not been separated.
-- **A press lands a little flat.** String 9 pressed up a whole tone sounds about 13 cents under its target. The press corrects for the string's stiffness, but not fully.
-- **The attack is sharper than recorded.** A note rises to its peak in 1-3 ms; the recordings' notes take 39-44 ms. Part of that is their rooms and microphones, which have not been separated from the pluck.
-- **Single notes vary from the recordings.** Each partial lands on or between body modes, so one string's balance of fundamental against second partial can sit up to 17 dB either side of the recordings' median. A4 and B♭4 are thin, and D5 and G5 full. A real koto does this too, but at other notes.
-- **D3, string 1, sounds thin.** Its fundamental sits 16 dB further under its second partial than recorded, as that partial sits on the shell's breathing at 293 Hz.
+- **The tuning is one school's.** It is the Ikuta school players' tuning that Ando measured. In the five professional recordings, E♭4 and E♭5 sit 14-27 cents flat and pressed notes 11-18 cents sharp. A recording of Sakura is tuned near equal temperament, within 6 cents.
+- **The low fundamentals fade too soon.** D3, G3 and D4 sit on the body's own resonances: the 146 Hz air mode, the 195 Hz twist Coaldrake measured, and the shell's breathing at 293 Hz. Each lends its fundamental to the body, so the fundamental falls about 17 dB in its first half second and then decays as recorded. Measured from 80 ms, the fundamentals of G3 and D4 die about twice as fast as in the five recordings. A real koto does this too, on the strings that meet its modes, but these are the model's modes, not a measured koto's.
+- **The attack is a little sharper than recorded.** Against the recording of Sakura, played softly, a note's first peak stands about 2 dB higher over what follows. Played at matched softness, the model's brightness matches the recording's: the spectral centroid sits at 4.0-6.3 times the fundamental, against 4.2-6.9.
+- **Single notes vary from the recordings.** Each partial lands on or between body modes, so one string's balance of fundamental against second partial can sit up to 23 dB either side of the recordings' median. A3, B♭3 and E♭5 are thin, and G3 and G5 full. A real koto does this too, but at other notes.
+- **D3, string 1, sounds thin.** Its fundamental sits 23 dB further under its second partial than in the three recorded D3 notes, as that partial sits on the shell's breathing at 293 Hz.
 - **The silk's loss lies between two kinds of recording.** Against the four recordings that sound alike, the third to eighth partials die 1.1-1.3 times more slowly than recorded (median over the strings); against Omoigawa, faster. The fitted loss sits between them.
 - **The silk's stiffness is one number.** One bending modulus makes the inharmonicity rise as the square of the pitch. The recordings' rises more slowly, so the strings from G3 to E4 are about 1.6 times less inharmonic than recorded, and those from E♭5 up about 2.4 times more.
 - **The body is lighter than a real koto.** It weighs 5.2 kg; a measured koto with its fittings, legs and struts weighs 7.5 kg. The four struts inside are left out, and the wall thickness is fitted, not measured.
 - **Only the plucks a MIDI note can name.** The MIDI map plays plucks and oshide; ato-oshi and yuri are reached only through `RenderAcukotoPhrase`. Hiki-iro, sukui-zume, glissandi and scraped strokes are not modelled.
-- **It is heavy on the CPU.** A demo takes about 45% of one 2.1 GHz Xeon core, and its worst 256-sample block takes up to 1.5 times the block's 5.3 ms. These are development-machine figures, not a DAW's or Reason's.
+- **It is heavy on the CPU.** A demo takes 46-49% of one 2.1 GHz Xeon core, and its worst 256-sample block takes up to 1.7 times the block's 5.3 ms. These are development-machine figures, not a DAW's or Reason's.
 - **Aculyre's pickup is still in the engine.** Its piezo path and sharping-lever state are not used by any preset and do not sound.
 - The demo levels are not yet calibrated to Reason's meter.
 - There is no plug-in, editor, screenshot, main build or release yet.

@@ -19,9 +19,23 @@ using Complex = std::complex<double>;
 constexpr double airDensity = 1.204;      // kg/m^3
 constexpr double airViscosity = 1.81e-5;  // Pa s
 constexpr double soundSpeed = 343.0;      // m/s
-// The microphones' distance from the soundbox, for the far-field monopole
-// pressure rho/(4 pi r) dQ/dt.
-constexpr double microphoneDistance = 0.5;
+// The microphones: an ORTF pair, two cardioids 17 cm apart with 110 degrees
+// between them, the French broadcasters' near-coincident standard. It stands
+// 1.2 m from the middle of the top, in front of the koto and 40 degrees above
+// it, aimed there, the head on the left as a listener facing the player hears
+// it. Authored, like the room. Set beside the owner's Sakura reference by the
+// same notes (2026-10-29), its left-right correlation by octave band over
+// each note's first 25 ms, 0.92, 0.59 and 0.26 at 250, 500 and 1000 Hz,
+// falls as the recording's does (0.84, 0.63, 0.30). The two omnidirectional
+// microphones it replaced, 70 cm apart and 0.5 m over the top, gave 0.02,
+// -0.20 and -0.41, and heard the walls' local modes so closely that the
+// fundamentals sat 3.5 dB further under the second partials than in five
+// professional recordings; from here they sit 0.5 dB under
+// (Tools/measure_koto_notes.py --compare).
+constexpr double pairDistance = 1.2;
+constexpr double pairElevation = 40.0 * pi / 180.0;
+constexpr double pairSpacing = 0.17;
+constexpr double pairAngle = 55.0 * pi / 180.0;
 
 // Loss at the yoke end (tuning pin and crossbar), per round trip. Authored:
 // no lyre measurement separates it, and it only matters where the air and
@@ -1061,8 +1075,10 @@ struct Mode
     double q { 1.0 };
     double b0 { 0.0 }, a1 { 0.0 }, a2 { 0.0 };
     BarVector participation {};  // each ji's heave, then each ji's tip
-    double radiationLeft { 0.0 };
-    double radiationRight { 0.0 };
+    // Each microphone's pressure per unit of the mode's volume acceleration,
+    // W = in phase + j quadrature at the mode's frequency.
+    double radiationLeft { 0.0 }, radiationLeftQuadrature { 0.0 };
+    double radiationRight { 0.0 }, radiationRightQuadrature { 0.0 };
     double monopole { 0.0 };
     // Each part's share of the mode's kinetic energy (ModeReport).
     double airShare { 0.0 };
@@ -1084,15 +1100,17 @@ struct ModeBank
     static constexpr int capacity = maxModes + 3 * lanes;
     int evenEnd { 0 }, oddEnd { 0 }, count { 0 };
     std::array<std::array<double, capacity>, barCoordinates> drive {}, pull {};
-    std::array<double, capacity> a1 {}, a2 {}, left {}, right {}, s1 {}, s2 {};
+    std::array<double, capacity> a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
 };
 
 // Runs the bank's modes [from, to) one sample on over the coordinates C,
-// adding what they radiate to each microphone and their pull on the bar's
-// next velocity, each lane in its own sum so that a group runs as one vector.
+// adding what they radiate to each microphone (in phase and in quadrature)
+// and their pull on the bar's next velocity, each lane in its own sum so that
+// a group runs as one vector.
 template <std::size_t... C>
 void runModes(ModeBank& bank, int from, int to, const BarVector& force, double (&left)[ModeBank::lanes],
-              double (&right)[ModeBank::lanes], double (&past)[barCoordinates][ModeBank::lanes],
+              double (&right)[ModeBank::lanes], double (&leftQuadrature)[ModeBank::lanes],
+              double (&rightQuadrature)[ModeBank::lanes], double (&past)[barCoordinates][ModeBank::lanes],
               std::index_sequence<C...>) noexcept
 {
     for (int group = from; group < to; group += ModeBank::lanes)
@@ -1106,6 +1124,8 @@ void runModes(ModeBank& bank, int from, int to, const BarVector& force, double (
             bank.s1[k] = s1;
             left[lane] += bank.left[k] * y;
             right[lane] += bank.right[k] * y;
+            leftQuadrature[lane] += bank.leftQuadrature[k] * y;
+            rightQuadrature[lane] += bank.rightQuadrature[k] * y;
             ((past[C][lane] += bank.pull[C][k] * s1), ...);
         }
 }
@@ -2047,7 +2067,7 @@ struct BodyWork
     std::array<std::array<double, wallSamples>, maxWallModes> wallAcross {};
     std::array<std::array<double, wallSamples>, maxWallOrder + 1> orderSum {};
     std::array<double, gridPoints> area {}, displacement {};
-    std::array<std::array<double, gridPoints>, 2> distance {};
+    std::array<std::array<double, gridPoints>, 2> distance {}, directivity {};
 };
 
 // The rigid box on its rests: 20-40 Hz, which Coaldrake found in every
@@ -2562,20 +2582,45 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
     symmetricEigen(work.matrix.data(), n, work.values.data(), work.scratch.data());
 
     // ---- Radiation: each mode's normal velocity over the box's surface,
-    // summed at two microphones as free-field monopoles, rho / (4 pi r) times
-    // each patch's volume acceleration, with its delay at the mode's own
-    // frequency (Kirchhoff's approximation with no baffle and no shadow).
-    // The top and the back move with the box's bending and twist and with
-    // their own modes, the sides with its sway and twist, and each hole
-    // breathes at a point. The microphones stand microphoneDistance above
-    // the top's crown halfway along, one over the playing end and one over
-    // the middle; each mode's weight is its sum's magnitude, signed as its
-    // real part, so that the modes radiate in phase where the body is small
-    // against the wavelength. Pressure is referred to microphoneDistance.
+    // summed at each microphone as free-field monopoles, rho / (4 pi r)
+    // times each patch's volume acceleration, with its delay at the mode's
+    // own frequency (Kirchhoff's approximation with no baffle and no shadow),
+    // and weighed by the cardioid's (1 + cos a) / 2 toward the patch. The top
+    // and the back move with the box's bending and twist and with their own
+    // modes, the sides with its sway and twist, and each hole breathes at a
+    // point. The delays are taken from the pair's distance, so a mode keeps
+    // both its phase between the microphones and its phase across the body.
     const double station = length / gridAlong;
     const double gridWidth = body.headWidth + (body.tailWidth - body.headWidth) * 0.5;
-    const double microphoneHeight = body.middleDepth + microphoneDistance;
-    const double microphoneX[2] { 0.25 * length, 0.63 * length };
+    // x runs from the head, y across the top toward the player, z up from
+    // the back; the pair faces the player across the koto.
+    const double middleX = 0.5 * length, middleZ = body.middleDepth;
+    std::array<std::array<double, 3>, 2> microphone {}, aim {};
+    for (int mic = 0; mic < 2; ++mic)
+    {
+        const double side = mic == 0 ? -1.0 : 1.0;  // the left one toward the head
+        microphone[static_cast<std::size_t>(mic)] = { middleX + 0.5 * side * pairSpacing,
+                                                      -pairDistance * std::cos(pairElevation),
+                                                      middleZ + pairDistance * std::sin(pairElevation) };
+        // Toward the middle of the top, turned pairAngle toward its own side.
+        const double turn = -side * pairAngle;
+        aim[static_cast<std::size_t>(mic)] = { -std::cos(pairElevation) * std::sin(turn),
+                                               std::cos(pairElevation) * std::cos(turn),
+                                               -std::sin(pairElevation) };
+    }
+    const auto hear = [&] (int p, double x, double y, double z)
+    {
+        for (int mic = 0; mic < 2; ++mic)
+        {
+            const auto& at = microphone[static_cast<std::size_t>(mic)];
+            const auto& toward = aim[static_cast<std::size_t>(mic)];
+            const double dx = x - at[0], dy = y - at[1], dz = z - at[2];
+            const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
+            work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)] = r;
+            work.directivity[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)]
+                = 0.5 * (1.0 + (dx * toward[0] + dy * toward[1] + dz * toward[2]) / r);
+        }
+    };
     std::array<double, gridAlong> centroid {}, sideHeight {};
     for (int ix = 0; ix < gridAlong; ++ix)
     {
@@ -2593,11 +2638,7 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
         const auto place = [&] (int p, double y, double z, double area)
         {
             work.area[static_cast<std::size_t>(p)] = area;
-            for (int mic = 0; mic < 2; ++mic)
-            {
-                const double dx = x - microphoneX[mic], dz = z - microphoneHeight;
-                work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)] = std::sqrt(dx * dx + y * y + dz * dz);
-            }
+            hear(p, x, y, z);
         };
         for (int iy = 0; iy < gridAcross; ++iy)
         {
@@ -2652,11 +2693,7 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
     {
         const double x = body.holes[static_cast<std::size_t>(h)].position;
         work.area[static_cast<std::size_t>(holePoint + h)] = 1.0;
-        for (int mic = 0; mic < 2; ++mic)
-        {
-            const double dx = x - microphoneX[mic], dz = microphoneHeight;
-            work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(holePoint + h)] = std::sqrt(dx * dx + dz * dz);
-        }
+        hear(holePoint + h, x, 0.0, 0.0);
     }
 
     int count = 0;
@@ -2772,23 +2809,28 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
             monopole += psi(holeBase + h);
         }
         const double wavenumber = 2.0 * pi * frequency / soundSpeed;
-        double radiation[2] {};
+        double radiation[2][2] {};
         for (int mic = 0; mic < 2; ++mic)
         {
             double re = 0.0, im = 0.0;
             for (int p = 0; p < gridPoints; ++p)
             {
                 const double r = work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)];
-                const double weight = u[static_cast<std::size_t>(p)] * work.area[static_cast<std::size_t>(p)] * microphoneDistance / r;
-                const double phase = wavenumber * (r - microphoneDistance);
+                const double weight = u[static_cast<std::size_t>(p)] * work.area[static_cast<std::size_t>(p)]
+                                    * work.directivity[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)]
+                                    * pairDistance / r;
+                const double phase = wavenumber * (r - pairDistance);
                 re += weight * std::cos(phase);
                 im -= weight * std::sin(phase);
             }
-            radiation[mic] = std::copysign(std::sqrt(re * re + im * im), re);
+            radiation[mic][0] = re;
+            radiation[mic][1] = im;
         }
         mode.monopole = monopole;
-        mode.radiationLeft = radiation[0];
-        mode.radiationRight = radiation[1];
+        mode.radiationLeft = radiation[0][0];
+        mode.radiationLeftQuadrature = radiation[0][1];
+        mode.radiationRight = radiation[1][0];
+        mode.radiationRightQuadrature = radiation[1][1];
     }
     return count;
 }
@@ -2805,7 +2847,6 @@ struct AcukotoEngine::State
     {
         std::array<LoopDesign, 2> planes {};  // normal, parallel
         double length { 0.0 };
-        double parallelLength { 0.0 };
         double inharmonicity { 0.0 };
         double intrinsicT60 { 0.0 };
         double glidePerEnergy { 0.0 };
@@ -2826,9 +2867,7 @@ struct AcukotoEngine::State
         double leftLength { 0.0 };
         // The sounding pitch (pitch[raised ? 1 : 0]).
         double frequency { 0.0 };
-        double parallelFrequency { 0.0 };
         double length { 0.0 };
-        double parallelLength { 0.0 };
         double inharmonicity { 0.0 };
         double intrinsicT60 { 0.0 };
         // Delta f / f per unit of the loop's mean squared wave velocity.
@@ -2985,14 +3024,14 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         mode.a1 = 2.0 * (omega * omega - k * k) / d0;
         mode.a2 = (k * k - damping * k + omega * omega) / d0;
     }
-    s.radiationScale = airDensity / (4.0 * pi * microphoneDistance) * 2.0 * fs;
+    s.radiationScale = airDensity / (4.0 * pi * pairDistance) * 2.0 * fs;
 
     // ---- The strings ----------------------------------------------------
     const StringMaterial& material = instrument.material;
-    // Strings tuned by hand each sit a few cents off, the same ones every
-    // time this instrument is set up: the six strings of a lyre harp phrase
-    // (Freesound 649925) spread by 4.1 cents about their mean, while
-    // repeated notes on one string agree within half a cent.
+    // The player's tuning (StringSpec::cents), and this player's own scatter
+    // about it, the same every time this instrument is set up. The scatter
+    // moves the tension, as a ji moved by a millimetre or two would move the
+    // pitch: a few cents is under 1.5% of it.
     std::array<double, maxStrings> detune {};
     {
         std::uint64_t hash = 0xcbf29ce484222325ull;  // FNV-1a of the name
@@ -3000,15 +3039,11 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             hash = (hash ^ static_cast<unsigned char>(*c)) * 0x100000001b3ull;
         Random tuning;
         tuning.seed(hash);
-        double mean = 0.0;
         for (int index = 0; index < stringCount_; ++index)
         {
-            detune[static_cast<std::size_t>(index)] = 4.1 * tuning.gaussian();
-            mean += detune[static_cast<std::size_t>(index)];
+            const StringSpec& spec = instrument.strings[static_cast<std::size_t>(index)];
+            detune[static_cast<std::size_t>(index)] = spec.cents + spec.centsSpread * tuning.gaussian();
         }
-        mean /= stringCount_;
-        for (int index = 0; index < stringCount_; ++index)
-            detune[static_cast<std::size_t>(index)] -= mean;
     }
     for (int index = 0; index < stringCount_; ++index)
     {
@@ -3053,10 +3088,15 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         {
             const double frequency = waveSpeed / (2.0 * stretch);
             const double inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * stretch * stretch);
-            // The plane parallel to the top is longer by about one string
-            // diameter (Woodhouse, Acta Acustica 90 (2004) 945, Sec. 4.3;
-            // Acustra ships the same end correction).
-            const double parallelStretch = stretch + spec.diameter;
+            // Both planes share the stretch's length, so only the ji's pull
+            // on each (the junction, below) separates their pitches. Until
+            // 0.2.0 the parallel plane was one string diameter longer, a
+            // guitar's end correction after Woodhouse (Acta Acustica 90
+            // (2004) 945, Sec. 4.3). On a koto's short top strings that put
+            // it 7-10 cents low, so a note beat at 4-5 Hz and settled up to
+            // 13 cents flat. No koto measurement supports it, and Acustra
+            // dropped the same correction by ear (Docs/decisions.md,
+            // 2026-10-29).
             // Air damping (Valette, in Mechanics of Musical Instruments,
             // 1995): R = 2 pi eta + 2 pi d sqrt(pi eta rho f), decay rate
             // R / (2 mu).
@@ -3064,36 +3104,30 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 + 2.0 * pi * spec.diameter * std::sqrt(pi * airViscosity * airDensity * frequency);
             const double airDecay = material.measuredAirDamping ? airRoot * std::sqrt(frequency)
                                                                 : airResistance / (2.0 * voice.linearMass);
-            // The parallel plane, 0.1 to 0.3% lower, takes the normal
-            // plane's dispersion: fitted on its own it settled no closer (the
-            // steel G3's partials to the 21st 7.0 cents out at worst, against
-            // 5.5 shared) and doubled the design time.
             DispersionDesign design {};
             for (int plane = 0; plane < 2; ++plane)
             {
                 LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
-                const double f0 = plane == 0 ? frequency : frequency * stretch / parallelStretch;
-                loop.frequency = f0;
-                loop.gain = std::exp(-airDecay / f0) * yokeRoundTripGain;
-                loop.constantDesign = constantLossSection(constantLoss, airRoot, inharmonicity, f0, fs);
-                loop.bendingDesign = bendingLossSection(bendingLoss, inharmonicity, f0, fs);
+                loop.frequency = frequency;
+                loop.gain = std::exp(-airDecay / frequency) * yokeRoundTripGain;
+                loop.constantDesign = constantLossSection(constantLoss, airRoot, inharmonicity, frequency, fs);
+                loop.bendingDesign = bendingLossSection(bendingLoss, inharmonicity, frequency, fs);
                 // Dispersion (designDispersion), the line then solved so the
                 // fundamental is exact once the junction exists and the
                 // ji's reflection phase is known (tuning below).
                 if (plane == 0)
-                    design = designDispersion(f0, inharmonicity, fs);
+                    design = designDispersion(frequency, inharmonicity, fs);
                 loop.dispersionStages = design.stages;
                 loop.dispersion = design.coefficient;
                 loop.dispersionPairs = design.pairs;
                 loop.pair = design.pair;
                 loop.dispersionCents = design.worstCents;
-                loop.loopDelay = fs / f0;
+                loop.loopDelay = fs / frequency;
             }
             return airDecay;
         };
         State::PitchDesign& pitch = voice.pitch[0];
         pitch.length = spec.length;
-        pitch.parallelLength = spec.length + spec.diameter;
         pitch.inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * spec.length * spec.length);
         pitch.glidePerEnergy = modulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
         const double frequency = waveSpeed / (2.0 * spec.length);
@@ -3131,11 +3165,16 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         bank.a1[k] = mode.a1;
         bank.a2[k] = mode.a2;
         // Its share of the volume acceleration (process()) carries the
-        // k / 2fs of its bilinear design, k = w / tan(w / 2fs).
+        // k / 2fs of its bilinear design, k = w / tan(w / 2fs), so the shared
+        // differentiator, j tan(w / 2fs), gives it j w / 2fs. The part in
+        // quadrature bypasses that differentiator: j w / 2fs times j Im W is
+        // -w / 2fs Im W, in phase with the velocity.
         const double omega = 2.0 * pi * mode.frequency;
         const double warp = omega / std::tan(omega / (2.0 * fs)) / (2.0 * fs);
         bank.left[k] = mode.radiationLeft * warp;
         bank.right[k] = mode.radiationRight * warp;
+        bank.leftQuadrature[k] = -omega / (2.0 * fs) * mode.radiationLeftQuadrature;
+        bank.rightQuadrature[k] = -omega / (2.0 * fs) * mode.radiationRightQuadrature;
     }
     bank.count = (bank.count + ModeBank::lanes - 1) / ModeBank::lanes * ModeBank::lanes;
     bank.evenEnd = bank.oddEnd = 0;
@@ -3367,9 +3406,7 @@ void AcukotoEngine::applyPitch(int string, bool raised) noexcept
     const State::PitchDesign& pitch = voice.pitch[raised ? 1u : 0u];
     voice.raised = raised;
     voice.frequency = pitch.planes[0].frequency;
-    voice.parallelFrequency = pitch.planes[1].frequency;
     voice.length = pitch.length;
-    voice.parallelLength = pitch.parallelLength;
     voice.inharmonicity = pitch.inharmonicity;
     voice.intrinsicT60 = pitch.intrinsicT60;
     voice.glidePerEnergy = pitch.glidePerEnergy;
@@ -3398,7 +3435,7 @@ void AcukotoEngine::updateDamping(int string) noexcept
     if (!voice.keyDown && !voice.sustained)
         rate += voice.plucked ? s.releaseRate : s.sympathyRate;
     voice.normal.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
-    voice.parallel.setDamping(rate > 0.0 ? std::exp(-rate / voice.parallelFrequency) : 1.0);
+    voice.parallel.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
     // Beyond the ji only the palm reaches the string, and the left hand
     // while it presses there, as a hand resting on it (handRate(0)).
     const double left = s.muteRate + (voice.pressTarget > 1.0 ? handRate(0.0) : 0.0);
@@ -3612,10 +3649,10 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     for (int k = 1; k <= voice.roundTrip; ++k)
         releasedEnergy += voice.squares[static_cast<std::size_t>((voice.squaresIndex - k) & (delayCapacity - 1))];
     releasedEnergy /= voice.roundTrip;
+    const double length = voice.length;
+    const double frequency = voice.frequency;
     for (int plane = 0; plane < 2; ++plane)
     {
-        const double length = plane == 0 ? voice.length : voice.parallelLength;
-        const double frequency = plane == 0 ? voice.frequency : voice.parallelFrequency;
         const double pluckPoint = position * length;
         const double amplitude = force * pluckPoint * (length - pluckPoint) / (voice.tension * length)
                                * std::sqrt(plane == 0 ? normalShare : 1.0 - normalShare);
@@ -3627,8 +3664,6 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     for (int plane = 0; plane < 2; ++plane)
     {
         Loop& loop = plane == 0 ? voice.normal : voice.parallel;
-        const double length = plane == 0 ? voice.length : voice.parallelLength;
-        const double frequency = plane == 0 ? voice.frequency : voice.parallelFrequency;
         const double waveSpeed = 2.0 * length * frequency;
         const double pluckPoint = position * length;
         // The displacement the held force sets, A = F x (L - x) / (T L).
@@ -3919,15 +3954,18 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             plateForce[i] = drive[i] - stringLoad[i];
 
         constexpr int lanes = ModeBank::lanes;
-        double laneLeft[lanes] {}, laneRight[lanes] {}, lanePast[barCoordinates][lanes] {};
-        runModes(bank, bank.oddEnd, bank.count, plateForce, laneLeft, laneRight, lanePast,
-                 std::make_index_sequence<barCoordinates> {});
-        double radiatedLeft = 0.0, radiatedRight = 0.0;
+        double laneLeft[lanes] {}, laneRight[lanes] {}, laneLeftQuadrature[lanes] {}, laneRightQuadrature[lanes] {},
+            lanePast[barCoordinates][lanes] {};
+        runModes(bank, bank.oddEnd, bank.count, plateForce, laneLeft, laneRight, laneLeftQuadrature,
+                 laneRightQuadrature, lanePast, std::make_index_sequence<barCoordinates> {});
+        double radiatedLeft = 0.0, radiatedRight = 0.0, quadratureLeft = 0.0, quadratureRight = 0.0;
         s.modalPast = {};
         for (int lane = 0; lane < lanes; ++lane)
         {
             radiatedLeft += laneLeft[lane];
             radiatedRight += laneRight[lane];
+            quadratureLeft += laneLeftQuadrature[lane];
+            quadratureRight += laneRightQuadrature[lane];
             for (std::size_t c = 0; c < barCoordinates; ++c)
                 s.modalPast[c] += lanePast[c][lane];
         }
@@ -3952,13 +3990,16 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // missed the acceleration of the modes' tails, which the bilinear
         // transform compresses toward Nyquist: at 48 kHz each instrument's
         // 10 to 16 kHz fell 3.4 to 3.6 dB below its 4x sound, and the
-        // acceleration brought it to 1.7 to 2.0.
-        const double pressureLeft = (radiatedLeft - s.previousLeft) * s.radiationScale - s.pressureLeft;
-        const double pressureRight = (radiatedRight - s.previousRight) * s.radiationScale - s.pressureRight;
+        // acceleration brought it to 1.7 to 2.0. The parts in quadrature
+        // join after the recursion (the bank's weights).
+        const double inPhaseLeft = (radiatedLeft - s.previousLeft) * s.radiationScale - s.pressureLeft;
+        const double inPhaseRight = (radiatedRight - s.previousRight) * s.radiationScale - s.pressureRight;
         s.previousLeft = radiatedLeft;
         s.previousRight = radiatedRight;
-        s.pressureLeft = pressureLeft;
-        s.pressureRight = pressureRight;
+        s.pressureLeft = inPhaseLeft;
+        s.pressureRight = inPhaseRight;
+        const double pressureLeft = inPhaseLeft + s.radiationScale * quadratureLeft;
+        const double pressureRight = inPhaseRight + s.radiationScale * quadratureRight;
         for (std::size_t i = 0; i < s.output.size(); ++i)
             s.output[i] += (s.outputTarget[i] - s.output[i]) * s.outputSmoothing;
         // The room runs even unsent, so turning it up meets a live tail.

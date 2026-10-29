@@ -72,6 +72,11 @@ struct StringSpec
     // adding mass but almost no stiffness. Zero for plain wire.
     double woundMass { 0.0 };
     double coreDiameter { 0.0 };
+    // How the player tunes it by ear: cents from the equal-tempered note,
+    // and one player's scatter about that (a standard deviation). Each
+    // instrument draws its own scatter once, from its name.
+    double cents { 0.0 };
+    double centsSpread { 0.0 };
 };
 
 // An orthotropic wood: L along the grain, R radial, T tangential to the

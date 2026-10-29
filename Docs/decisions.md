@@ -8,6 +8,37 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-10-29 — Both planes of a string share its length
+
+**Decided:** whether a string's plane of vibration parallel to the top is
+longer than the plane normal to it. Two formulations were each derivable:
+
+- **A**, the shipping 0.1.1: the parallel plane one string diameter (1.225
+  mm) longer, the end correction Aculyre carried over from the guitar
+  (Woodhouse, Acta Acustica 90 (2004) 945, Sec. 4.3). On the short top
+  strings it puts that plane 7-10 cents below the normal one, so each top
+  note beats at 4-5 Hz and settles up to 13 cents flat once the normal plane
+  has given its energy to the body.
+- **B**, no end correction: both planes share the string's length, and only
+  the ji's pull on each separates them. No koto measurement supports the
+  correction, and Acustra's owner removed the same correction by ear for high
+  guitar notes (Acustra `Docs/decisions.md`, 2026-09-24, set 4).
+
+**Test:** Koto Hirajoshi with tsume, strings 10 to 13 alone, then a slow
+phrase over them. The script, preset, controls, 48 kHz rate and blocks of at
+most 64 samples were identical, rendered through the engine and the
+portfolio output stage. Both were set to -31 dBFS whole-file RMS before the
+stage, which kept them below its limiter; after it A read -31.10 dBFS and B
+-31.11, so no further trim was applied. It was not committed.
+
+**Chosen:** B, adopted under the owner's standing rule that the candidate
+wins unless the owner says otherwise; the owner had not yet listened.
+
+**Licensed:** the shared length (`designPlanes` in
+`Source/DSP/AcukotoEngine.cpp`) and the tighter sounded-pitch limit in
+`Acukoto.Tuning`, 6 cents where it was 12. A measured koto string's
+polarisations would reopen it.
+
 ## 2026-10-29 — The walls are thinner than a measured koto's weight suggests
 
 **Decided:** how thick the top, sides and back are. Coaldrake's measured
