@@ -3,7 +3,7 @@
 //
 //   RenderAcukotoPhrase <preset> <script.txt> <output.wav>
 //       [--technique finger|nail|plectrum] [--position m] [--room 0-1]
-//       [--release 0-1] [--rms dBFS] [--tail s] [--rate hz] [--seed n]
+//       [--release 0-1] [--rms dBFS] [--tail s] [--rate hz]
 //
 // A script line is `<seconds> <command> <arguments>`, '#' starts a comment:
 //   note <midi> <velocity 0-1>      the string tuned to it (oshide if needed)
