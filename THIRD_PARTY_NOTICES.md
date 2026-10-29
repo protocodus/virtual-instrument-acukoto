@@ -23,7 +23,7 @@ that uses them (`Source/DSP/AcukotoPresets.h`,
   ivory as the original materials.
 - K. Coaldrake, "A finite element model of the Japanese koto constructed from
   computed tomography scans", J. Acoust. Soc. Am. 148 (2020) 3153:
-  paulownia's density and elastic constants (Table I), and the measured
+  paulownia's density, elastic constants and Q (Table I), and the measured
   bending, twist and air modes (Table III). Coaldrake's ICA 2019 paper, "Measurement
   and modelling of the Japanese koto: Problems and solutions", gives the
   instrument's length, its ji's height and its internal struts.
@@ -46,10 +46,10 @@ and romantic guitars from private and public collections – bridge mobility*
 (2021), <https://doi.org/10.5281/zenodo.4604577>, licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-The body's mode damping (`woodQ` and `airQ` in `Source/DSP/AcukotoEngine.cpp`)
-is anchored on the spread of mode Qs in Acustra's fit to the archive's guitar
-g21, as summary statistics: 16-75 below 1.5 kHz, 5-36 above 2 kHz, and 16-21
-for the air modes. No table or response from the archive is included.
+The body's mode damping above 2 kHz and the air modes' (`woodQ` and `airQ`
+in `Source/DSP/AcukotoEngine.cpp`) are anchored on the spread of mode Qs in
+Acustra's fit to the archive's guitar g21, as summary statistics: 5-36 above
+2 kHz and 16-21 for the air modes. No table or response from the archive is included.
 
 ## Freesound recordings: derived values only
 

@@ -30,8 +30,8 @@ constexpr double soundSpeed = 343.0;      // m/s
 // microphones it replaced, 70 cm apart and 0.5 m over the top, gave 0.02,
 // -0.20 and -0.41, and heard the walls' local modes so closely that the
 // fundamentals sat 3.5 dB further under the second partials than in five
-// professional recordings; from here they sit 0.5 dB under
-// (Tools/measure_koto_notes.py --compare).
+// professional recordings; from here they sat 0.5 dB under, with 0.2.0's
+// body (Tools/measure_koto_notes.py --compare).
 constexpr double pairDistance = 1.2;
 constexpr double pairElevation = 40.0 * pi / 180.0;
 constexpr double pairSpacing = 0.17;
@@ -1371,16 +1371,22 @@ struct Room
     }
 };
 
-// The body's mode damping. Wooden-box statistics, not a lyre measurement:
-// Acustra's measured guitar bridge (g21, MeasuredBridgeData.h) holds mode Qs
-// of 16-75 (median about 35) below 1.5 kHz and 5-36 above 2 kHz. The anchors
-// sit at that spread's lower quartile below 1 kHz and its median above
-// 2 kHz, chosen by ear over 40-32 below and 18-12 above (Docs/decisions.md,
-// 2026-10-28).
+// The walls' mode damping. Below 1 kHz, paulownia's own Q across the grain,
+// 60, the lower of the two Coaldrake measured (JASA 148 (2020) 3153, Table
+// I; 140 along it): the wood's loss alone, as no koto measurement separates
+// what its joints and its radiation add. Above 2 kHz, where the modes
+// overlap, the median of Acustra's measured guitar bridge (g21,
+// MeasuredBridgeData.h), whose Qs there span 5-36; the top strings' upper
+// partials, which the silk's loss is fitted to, decay there. Until 0.3.0 the
+// walls also took that bridge's lower quartile below 1 kHz, 23, as Aculyre's
+// lyre does (chosen by ear for the lyre, Aculyre's Docs/decisions.md,
+// 2026-10-28). D4, on the shell's breathing at 293 Hz, then died 2.3 times
+// as fast as recorded, and dies 1.7 times as fast with 60
+// (Docs/decisions.md, 2026-10-29).
 double woodQ(double frequency) noexcept
 {
     constexpr double anchorsHz[] { 300.0, 1000.0, 2000.0, 10000.0 };
-    constexpr double anchorsQ[] { 23.0, 23.0, 10.0, 9.0 };
+    constexpr double anchorsQ[] { 60.0, 60.0, 10.0, 9.0 };
     if (frequency <= anchorsHz[0])
         return anchorsQ[0];
     for (int index = 1; index < 4; ++index)
