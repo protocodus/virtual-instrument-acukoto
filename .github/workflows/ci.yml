@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch cancels the older, still-running check.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dsp-tests:
+    name: DSP unit, audio and perf tiers, Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Set up Python for the demo-source check
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-dsp -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          "-DPython3_EXECUTABLE=${{ steps.python.outputs.python-path }}" -DACUKOTO_REQUIRE_PYTHON_TESTS=ON
+
+      # The default build includes AcukotoDSPCxx17, the Rack toolchain's C++17 check.
+      - name: Build
+        run: cmake --build build-dsp --parallel
+
+      - name: Unit tier
+        run: ctest --test-dir build-dsp -L '^unit$' --no-tests=error --output-on-failure
+
+      - name: Audio tier
+        run: ctest --test-dir build-dsp -L '^audio$' --no-tests=error --output-on-failure
+
+      - name: Perf tier
+        run: ctest --test-dir build-dsp -L '^perf$' --no-tests=error --output-on-failure
+
+      - name: Render the demos for review
+        run: ./build-dsp/RenderAcukotoPresetDemos --jobs 4 Docs/audio/midi build-dsp/demo-audio
+
+      - name: Upload demo audio and CPU figures
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-audio-acukoto-build-${{ github.run_number }}
+          path: |
+            build-dsp/demo-audio
+            build-dsp/cpu.json
+          if-no-files-found: error
+          retention-days: 7
+
+  dsp-tests-macos:
+    name: DSP unit tier, macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configure, build and run the unit tier
+        run: |
+          cmake -S . -B build-dsp -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DACUKOTO_REQUIRE_PYTHON_TESTS=ON
+          cmake --build build-dsp --parallel
+          ctest --test-dir build-dsp -L '^unit$' --no-tests=error --output-on-failure
+
+  dsp-tests-windows:
+    name: DSP unit tier, Windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: |
+          cmake -S "." -B "build-win" -A x64 -DBUILD_TESTING=ON "-DCMAKE_EXE_LINKER_FLAGS=/STACK:33554432" -DACUKOTO_REQUIRE_PYTHON_TESTS=ON
+
+      - name: Build and run the unit tier
+        run: |
+          cmake --build "build-win" --config Release --parallel
+          ctest --test-dir "build-win" -C Release -L "^unit$" --no-tests=error --output-on-failure
+
+  sanitizers:
+    name: Unit and fuzz tiers under ASan + UBSan, Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Clang's sanitizer and libFuzzer runtimes ship in libclang-rt-18-dev.
+      - name: Install Ninja and Clang's runtimes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libclang-rt-18-dev
+
+      # The fuzz tier is Acukoto.DspFuzz, a two-minute fixed-seed libFuzzer run.
+      - name: Configure the instrumented DSP, tests and libFuzzer target
+        run: >-
+          cmake -S . -B build-san -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER=clang++
+          -DACUKOTO_ENABLE_SANITIZERS=ON -DACUKOTO_BUILD_FUZZER=ON -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build-san --parallel
+
+      - name: Unit and fuzz tiers
+        run: ctest --test-dir build-san -L '^(unit|fuzz)$' --no-tests=error --output-on-failure --parallel 2
+
+      - name: Upload fuzz reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-fuzz-reproducers-acukoto-build-${{ github.run_number }}
+          path: build-san/fuzz-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7

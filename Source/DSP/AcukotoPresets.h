@@ -1,0 +1,154 @@
+// Acukoto's proof-of-concept instruments. Every value is a published
+// measurement, a dimension typical of the instrument, or marked as
+// estimated; none is a measurement of a particular koto.
+
+#pragma once
+
+#include "AcukotoEngine.h"
+
+#include <cmath>
+
+namespace acukoto
+{
+
+// Silk, the koto's original string: twisted filament, its tone generally held
+// above tetron's and nylon's though it is replaced before each performance
+// (Ando, J. Acoust. Soc. Jpn. (E) 10 (1989) 279). Raw silk's density is 1330
+// kg/m^3. A twisted bundle bends far more easily than a solid rod of its
+// diameter, as its filaments slide, so its bending modulus is no fibre's: it
+// is fitted to the inharmonicity of 566 isolated notes in the professional
+// recordings (Rokudan, Godan, Kudan, Kumoi Rokudan and Etsuko Chida's
+// Omoigawa, whose strings are not stated), 4.15 GPa, the median (4.16) over
+// the notes of B L^2 T / (pi^3 d^4 / 64) for this gauge and tension. One modulus
+// sets B rising as the square of the pitch; the recordings' B rises more
+// slowly, so the strings from G3 to E4 come out about 1.6 times less
+// inharmonic than recorded and those from E-flat 5 up about 2.4 times more
+// (Docs/validation/recording-comparison-2026-10-29.md).
+// No loss modulus is published for a silk string, so it too is fitted, to the
+// same recordings' decay of partials 4 to 8 on the strings from B-flat 4 to
+// A5, where bending loss is the largest: 0.008 GPa sets the median log ratio
+// of the model's decay rates to the recordings' to zero (the four recordings
+// other than Omoigawa alone give 0.022 GPa; Omoigawa alone decays more slowly
+// than this body allows with none). Nylon's loss tangent, its measured E'' of
+// 0.25 GPa over its E' at this stress, 11.6 GPa (Woodhouse and Lynch-Aird,
+// Acta Acustica 105 (2019) 516), would give 0.089 GPa here, and those
+// partials died two to three times faster than recorded: the single modulus
+// that overstates the top strings' stiffness overstates their bending loss
+// with it. With a small constant loss for the friction between the twisted
+// filaments (estimated).
+inline constexpr StringMaterial silk { "silk", 1330.0, 4.15e9, 0.0, 1.0 / 20000.0, 0.008e9, true };
+
+// Paulownia (kiri), the koto's wood, as Coaldrake measured it for a finite
+// element model of a professional koto (JASA 148 (2020) 3153, Table I):
+// 277 kg/m^3; E_L 5.6, E_R 0.63, E_T 0.26 GPa; G_LR 0.52, G_LT 0.37 GPa;
+// Poisson's ratio 0.37 (Coaldrake's, assumed as for spruce).
+inline constexpr WoodSpec paulownia { 277.0, 5.6e9, 0.63e9, 0.26e9, 0.52e9, 0.37e9, 0.37 };
+
+namespace detail
+{
+// All thirteen strings share one gauge and about one tension, so a ji's
+// distance from the ryukaku sets the pitch (Ando 1989). A string of 1.567
+// g/m (1.225 mm of silk) at 216 N, about 22 kgf: the figures this model was
+// built on, typical of a koto but not checked against one instrument.
+// Its waves travel at sqrt(216 / 1.567e-3) = 371.3 m/s, so D3 speaks over
+// 1.264 m and A5 over 0.211 m.
+constexpr double waveSpeed = 371.27;
+
+constexpr double lengthFor(int midiNote)
+{
+    double frequency = 440.0;
+    for (int k = 69; k > midiNote; --k)
+        frequency /= 1.0594630943592953;
+    for (int k = 69; k < midiNote; ++k)
+        frequency *= 1.0594630943592953;
+    return waveSpeed / (2.0 * frequency);
+}
+
+constexpr StringSpec koto(int midiNote) { return { midiNote, lengthFor(midiNote), 1.225e-3 }; }
+
+// Hirajoshi in D: string 1 at D3, 2 a fourth above, 3 a fifth, 4 a minor
+// second above 3, 5 an octave above 1, 6 a minor second above 5, then
+// octaves (Ando 1989, Fig. 4).
+constexpr std::array<StringSpec, maxStrings> hirajoshi {{
+    koto(50), koto(55), koto(57), koto(58), koto(62), koto(63), koto(67),
+    koto(69), koto(70), koto(74), koto(75), koto(79), koto(81)
+}};
+
+// Hankumoijoshi: hirajoshi with string 8 a semitone lower and string 9 a
+// whole tone higher (Ando 1989).
+constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
+    koto(50), koto(55), koto(57), koto(58), koto(62), koto(63), koto(67),
+    koto(68), koto(72), koto(74), koto(75), koto(79), koto(81)
+}};
+
+// The body. Coaldrake's koto is 1.83 m long (ICA 2019); a 1981 Yamada-style
+// koto measured 1.84 m by 24.6 cm, 7.5 cm deep at its end and 13.6 cm in the
+// middle, 7.5 kg, with two holes in its back and four struts inside (the
+// struts are left out here). Estimated, then fitted with the wood above to
+// the modes measured on Coaldrake's koto (JASA 2020, Table III: the first
+// bending at 100 Hz, the first twist at 184-195 Hz and the second at
+// 352-366): a top arched 4.5 cm across its width, the solid ends with their
+// fittings 0.8 and 0.9 kg. The bending and twist fix the walls' stiffness
+// over their mass but not their thickness: walls in proportion to a top of
+// 22 mm, sides of 16 and a back of 8 fit them as well (100 and 241 Hz, 205
+// and 348) as these do. The thickness is fitted instead to the professional
+// recordings' fundamentals, which below the shell's breathing only the walls
+// yielding to the ji radiate: with those thicker walls a string's
+// fundamental came out a median 13.6 dB further below its second partial,
+// over its first 250 ms, than in the recordings (A3 to E-flat 4 by 18 to 40
+// dB), and with 0.85, 0.7, 0.6 and 0.5 of them 5.7, 0.5, 2.6 and 0.9 dB, by a
+// POC script since replaced (Tools/measure_koto_notes.py --compare reads
+// these walls 3.5 dB short, 2.2 against the four JpnMusic recordings). The
+// thickest without the shortfall, 0.7: a top 15.4 mm thick, sides of 11.2 mm
+// and a back board of 5.6 mm, the whole 5.2 kg (a 7.5 kg koto weighs its
+// fittings, legs and struts too). The box then bends at 95 and 234 Hz and
+// twists at 184, 195 and 320. As one shell (the top and sides carved from one log, the back
+// glued under them), its section first breathes at 293 Hz, the top falling
+// as the back rises and the sides bow out. The holes are estimated in place
+// and fitted in size, with the walls yielding, to the cavity's two air modes
+// Coaldrake identified at 85 and 157 Hz: round holes of 4.5 and 3.75 cm
+// radius at 0.30 and 1.30 m give 86 and 146, the second held below 157 by
+// the walls whatever the holes.
+//
+// The strings: the ryukaku 8 cm in from the head, the unkaku 1.50 m beyond it
+// (estimated), the strings 16.5 mm apart. The ji 6 cm tall (Coaldrake), its
+// feet 5.1 cm apart, of ivory, which makes the best ji (Ando 1989). A plastic
+// ji of its shape weighs about 6 g (estimated), and its resonances on its
+// feet are bounded by the recordings: rocking at 3.5 kHz it would take the
+// upper strings' partials from 2.5 to 4.5 kHz away at hundreds of dB per
+// second, where the professional recordings decay at 40 to 60; at 6 kHz, and
+// heaving at 8, at 20 to 110. Ivory (1700-1930 kg/m^3 against a plastic's
+// 1050-1200, a flexural modulus of 14 GPa against about 2.3) makes it 1.6
+// times as heavy, 10 g, and its legs 6 times as stiff; in series with the top
+// under its feet, estimated as stiff as the plastic legs, 2.7 times as stiff
+// on the whole: rocking at 7.8 kHz, heaving at 10.3.
+constexpr BodySpec kotoBody {
+    1.83, 0.246, 0.235, 0.075, 0.136, 0.045,
+    0.0154, 0.0112, 0.0056, paulownia,
+    0.07, 1.76, 0.8, 0.9,
+    {{ { 0.30, 0.045 }, { 1.30, 0.0375 } }},
+    0.08, 1.50, 0.0165,
+    0.06, 0.051, 0.010, 10300.0, 7800.0
+};
+} // namespace detail
+
+// Played with tsume, ivory picks on the thumb and two fingers (Ando 1989).
+// The pluck point, 0.075 of the length from the ryukaku, is where the player
+// of three CC0 koto sessions (Freesound 364807 and 365215, RutgerMuller)
+// plucks: fitted to the first 60 ms of 109 isolated notes, the medians by
+// register fall at 0.073-0.080 from D3 to D5. outputGain is the free gain.
+inline constexpr InstrumentSpec kotoHirajoshi {
+    "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.0, 0.0
+};
+
+inline constexpr InstrumentSpec kotoHankumoijoshi {
+    "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.0, 0.0
+};
+
+inline constexpr std::array<const InstrumentSpec*, 2> presets {{
+    &kotoHirajoshi, &kotoHankumoijoshi
+}};
+
+} // namespace acukoto
