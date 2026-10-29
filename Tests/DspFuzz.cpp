@@ -29,9 +29,11 @@ constexpr int maxBlock = 256;
 // prepare() designs both instruments' bodies, a few seconds, which would
 // hold libFuzzer to a few inputs a minute. Prepare is deterministic, so the
 // Performer prepared once at a rate and factor is reset and reused: reset()
-// returns it to the state prepare() leaves.
-acukoto::Performer& preparedAt(double rate, int oversampling)
+// returns it to the state prepare() leaves. Every rate it cannot run at
+// runs at the same one, so they share a Performer.
+acukoto::Performer& preparedAt(double requested, int oversampling)
 {
+    const double rate = acukoto::Performer::usableRate(requested);
     struct Entry
     {
         std::uint64_t bits;
@@ -45,7 +47,7 @@ acukoto::Performer& preparedAt(double rate, int oversampling)
         if (entry.bits == bits && entry.oversampling == oversampling)
             return *entry.performer;
     auto performer = std::make_unique<acukoto::Performer>();
-    performer->prepare(rate, oversampling);
+    performer->prepare(requested, oversampling);
     cache.push_back({ bits, oversampling, std::move(performer) });
     return *cache.back().performer;
 }

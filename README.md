@@ -11,6 +11,10 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.1.1 — 2026-10-29 — A host rate Acukoto cannot run at plays at 48 kHz
+
+A sample rate outside 22.05-192 kHz, or one that is not a number, now runs the whole instrument at 48 kHz, as the engine already did. The output stage no longer takes such a rate alone. Rates a host offers are unchanged.
+
 ### 0.1.0 — 2026-10-29 — A koto, strung and built as one is made
 
 This is the first version. It was forked from Aculyre 0.6.0's lyre engine and rebuilt as a koto: thirteen silk strings on movable ivory ji, over a hollow paulownia body with two holes in its back, played with ivory tsume. It has two tunings, hirajoshi and hankumoijoshi.

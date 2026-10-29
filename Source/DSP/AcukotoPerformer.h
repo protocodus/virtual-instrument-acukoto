@@ -20,6 +20,7 @@
 #include "OutputStage.h"
 
 #include <array>
+#include <cmath>
 #include <memory>
 
 namespace acukoto
@@ -40,6 +41,14 @@ public:
     // Setup: designs every instrument at `oversampling` (1, 2 or 4) times
     // sampleRate. Not real-time.
     void prepare(double sampleRate, int oversampling = 1);
+    // The rate prepare() runs at: a rate the engine cannot design for runs
+    // at 48 kHz, as the engine itself would, so the output stage and the
+    // engines agree.
+    [[nodiscard]] static double usableRate(double sampleRate) noexcept
+    {
+        return std::isfinite(sampleRate) && sampleRate >= 22050.0 && sampleRate <= maxEngineRate ? sampleRate
+                                                                                                  : 48000.0;
+    }
     void reset() noexcept;
 
     void setInstrument(int index) noexcept;

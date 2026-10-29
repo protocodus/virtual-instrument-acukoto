@@ -31,6 +31,7 @@ PlayingControls Performer::defaultControls(int index) noexcept
 
 void Performer::prepare(double sampleRate, int oversampling)
 {
+    sampleRate = usableRate(sampleRate);
     factor_ = 1;
     while (factor_ * 2 <= std::min(oversampling, maxOversampling) && sampleRate * factor_ * 2 <= maxEngineRate)
         factor_ *= 2;
