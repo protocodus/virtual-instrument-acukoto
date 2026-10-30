@@ -173,10 +173,9 @@ constexpr BodySpec kotoBody {
 // partials 1-8 fall a median 2.6, 6.0 and 8.0 dB per octave of partial
 // number from G3 to E-flat 4, G4 to D5 and E-flat 5 to A5, and the model,
 // through the Performer and measured the same way over eleven plucks of each
-// string, 1.1, 5.4 and 10.3. No distance or release brings the top strings
-// brighter than about 9.5 with the rest in place. It was 5 cm until 0.8.0,
-// when the walls' highs radiated too strongly (AcukotoEngine.cpp,
-// wallModes). One share of the length for every string, 0.075 as the CC0
+// string, 1.1, 6.9 and 9.2. No distance from 4 to 5 cm or release from 0.02
+// to 0.05 ms fits all three more closely. It was 5 cm until 0.8.0, when the
+// walls' highs radiated too strongly (AcukotoEngine.cpp, wallModes). One share of the length for every string, 0.075 as the CC0
 // RutgerMuller sessions (Freesound 364807 and 365215) read by the same tool,
 // gave 4.6, 3.7 and 5.4 at best, darkening every register alike
 // (Docs/validation/attack-comparison-2026-10-30.md). outputGain is the free gain:

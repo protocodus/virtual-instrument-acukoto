@@ -1,6 +1,6 @@
 # The attack against eight professional koto recordings, 2026-10-30
 
-Acukoto 0.4.0 to 0.8.0, Koto Hirajoshi, set against the first
+Acukoto 0.4.0 to 0.9.0, Koto Hirajoshi, set against the first
 moments of 724 isolated notes from G3 to A5 in eight professional koto
 recordings. The tsume's release time in 0.5.0, and in 0.6.0 the pluck's
 distance from the ryukaku with it, are fitted to these measurements, and
@@ -205,11 +205,69 @@ to 5.5 cm and 0.03 to 0.10 ms brings the top strings brighter than about
 alike there, so it is not the walls' thinning. The partials' decay rates do
 not move.
 
+## The walls' runs (0.9.0)
+
+0.8.0 kept one wall mode of each run of nine above 3 kHz. 0.9.0 keeps as
+many runs, so the body runs the same 356 modes, but each run's length grows
+in proportion to its frequency: each candidate weighs 1/f and each run takes
+an equal share of the weight still left, about four modes a run around 3-5
+kHz and twelve toward 15 kHz (`Source/DSP/AcukotoEngine.cpp`, `wallModes`).
+Over both README demos, set against the reference body with every wall mode
+kept (with 0.8.0's pluck) and against the nine recordings' long-term
+spectra, in dB per octave, and the 4.5-5.6 kHz sixth octaves' mean height
+over a line through the 2-11 kHz spectrum:
+
+| | 2-5.6 kHz | 5.6-11 kHz | 4.5-5.6 kHz bump |
+| --- | ---: | ---: | ---: |
+| The recordings, median | -10.0 | -12.0 | 0.1 |
+| Runs of nine (0.8.0) | -3.4 | -15.2 | 5.1 |
+| **Runs growing with frequency (0.9.0)** | **-5.2** | **-13.0** | **2.4** |
+| Runs growing as frequency squared | -5.6 | -15.2 | 2.3 |
+| The reference body | -6.0 | -14.3 | 2.6 |
+
+From 5.6 to 11 kHz, 0.9.0's sixth octaves sit a mean 1.3 dB from the
+reference's, where 0.8.0's sat 2.4; from 2.8 to 5.6 kHz both sit 1.9-2.0.
+The reference body's attacks, eleven plucks of each string as below, fall
+1.1, 6.5 and 9.9 dB per octave of partial number from G3 to E♭4, G4 to D5
+and E♭5 to A5; 0.9.0's sit within 0.7 of them, and 0.8.0's within 1.1.
+
+The pluck was swept again on these runs, eleven plucks of each string as
+above:
+
+| Distance from the ryukaku | Release | G3-E♭4 | G4-D5 | E♭5-A5 | Error, (dB/oct)² |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 4.5 cm, 0.8.0's runs | 0.03 ms | -1.1 | -5.4 | -10.3 | 7.9 |
+| 4 cm | 0.03 ms | -0.9 | -5.4 | -10.4 | 9.0 |
+| 4.25 cm | 0.03 ms | -1.0 | -6.1 | -9.7 | 5.5 |
+| 4.5 cm | 0.02 ms | -1.1 | -6.8 | -9.1 | 4.1 |
+| **4.5 cm** | **0.03 ms** | **-1.1** | **-6.9** | **-9.2** | **4.5** |
+| 4.5 cm | 0.05 ms | -1.2 | -7.0 | -9.8 | 6.2 |
+| 4.75 cm | 0.03 ms | -1.2 | -8.0 | -9.0 | 7.0 |
+| 4.75 cm | 0.05 ms | -1.3 | -8.2 | -9.6 | 9.1 |
+| 5 cm | 0.03 ms | -1.3 | -8.9 | -9.1 | 11.3 |
+
+0.02 and 0.03 ms tie within the draw, and 0.02 ms would be quicker than
+off a nail, so the pluck stays at 4.5 cm and 0.03 ms. The partials' decay
+rates and the balance of fundamental against second partial do not move
+(`RenderAcukotoNotes`, `--compare`: the median log2 ratios of partials 1-8
+within 0.07 of 0.8.0's).
+
+Tried and not shipped, at the same mode count: weighting each run's kept
+mode's radiation by its members' energy shares moves the demos' spectrum by
+under 1 dB; matching it to its members' radiated power, computed at setup
+on the radiating grid, puts 5-6 kHz up to 6 dB over the reference body. A
+wider scatter of the pluck's place than 0.7.0's 8 mm (10, 12 and 15 mm, on
+0.8.0) steepens the middle strings' partials 8-15 toward the recordings'
+(1.2 to 14.4 dB per octave at 12 mm, against their 18.4) but flattens the
+low strings' (14.9 to 8.7) and the top strings' (20.5 to 16.0) away from
+theirs.
+
 ## What is still off
 
-- **The top strings' attacks are darker than recorded.** From E♭5 to A5
-  partials 1-8 fall 10.3 dB per octave in 0.8.0, against the recordings'
-  8.0 (The walls' highs, above).
+- **The attacks follow the recordings' fall-off only roughly.** Partials
+  1-8 fall 1.1, 6.9 and 9.2 dB per octave by register in 0.9.0, against the
+  recordings' 2.6, 6.0 and 8.0, and no pluck swept fits all three more
+  closely (The walls' runs, above).
 - **The rise time is not a gap.** The tool reads the recordings' notes as
   rising from 10% to 90% in a median 40-55 ms, and the model's in 5-6 ms
   measured the same way. The recordings' earlier notes are still ringing at
@@ -256,4 +314,15 @@ not move.
   dB under, and at 0.72 the fast fall moves to D5 (15.5 dB). None ships;
   the walls stay at 0.70. Nor is it the strings' damping by the air:
   halved, it brings the fundamentals' decay to the recordings' but leaves
-  partials 2-8 ringing 1.4-1.9 times too long.
+  partials 2-8 ringing 1.4-1.9 times too long. Nor the body's own losses
+  (0.8.0, `--compare` as above): the rests' Q at 30 (8) or the air modes'
+  at 40 (20) moves neither G3's fundamental nor D4's; the box's at 140 (60),
+  Coaldrake's along the grain, slows G3's (log2 ratio 0.76 to 0.54), and
+  the walls' below 1 kHz doubled slows D4's (0.84 to 0.61). Each still
+  leaves that fundamental decaying about 1.5 times as fast as recorded.
+- **The top strings' upper partials die fast.** On G5 and A5, partials 6-8
+  (4.7-7.1 kHz) decay 1.2-6 times faster than in the recordings' 6-7 notes
+  there. A ji rocking at 5.5 or 12 kHz (7.8) or damped at Q 60 (30) leaves
+  them unchanged, and they decay as fast with every wall mode kept. The
+  model's notes are measured with the room off, and a recording's room
+  holds a fast-dying partial up, so part of this is likely the rooms.

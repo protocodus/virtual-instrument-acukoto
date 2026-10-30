@@ -1753,7 +1753,8 @@ constexpr int maxWallCandidates = 1400;
 // Below it every wall mode is kept. Above it the modes are too dense to run
 // one by one: of those that mostly move the top (the ones the strings drive),
 // one in each run of consecutive modes is kept, scaled to carry the run's
-// share of the top's motion, and radiating as the run does (wallModes).
+// share of the top's motion, and radiating as the run does; the runs
+// lengthen with frequency (wallModes).
 constexpr double wallAllHz = 3000.0;
 // Where the radiating grid samples each wall mode across the body: the top's
 // and the back's gridAcross, each side's gridUp.
@@ -2350,7 +2351,9 @@ void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
     low = std::min(low, maxWallModes);
     const int high = candidates.count - low;
     const int room = maxWallModes - low;
+    // As many runs as runs of equal length fitting the room make.
     const int run = high > 0 && room > 0 ? (high + room - 1) / room : 1;
+    const int runs = room > 0 ? (high + run - 1) / run : 0;
     WallModes& out = work.walls;
     out = {};
     // A kept mode scaled by s to stand for a run of N carries the run's
@@ -2389,22 +2392,48 @@ void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
     };
     for (int i = 0; i < low; ++i)
         keep(sorted[static_cast<std::size_t>(i)], 1.0);
-    if (room > 0)
-        for (int first = low; first < candidates.count; first += run)
-        {
-            const int last = std::min(first + run, candidates.count);
-            int best = sorted[static_cast<std::size_t>(first)];
-            double shares = 0.0;
-            for (int i = first; i < last; ++i)
+    // The runs lengthen in proportion to frequency: each candidate weighs
+    // 1/f, and each run takes an equal share of the weight still left (at
+    // least one candidate, the last run the rest). So the walls are finest
+    // from 3 to 6 kHz, where the upper strings' partials are strong, and
+    // coarsest toward 16 kHz. Until 0.9.0 the runs were of equal length.
+    // Against the same body with every wall mode to 12.5 kHz kept (1467
+    // modes), the demos' sixth octaves from 4.5 to 5.6 kHz then stood a
+    // mean 5.1 dB over a line through their 2-11 kHz spectrum, where that
+    // body's stand 2.6, and they stand 2.4 with these runs; from 5.6 to 11
+    // kHz the demos' sixth octaves sit a mean 1.3 dB from that body's, where
+    // they sat 2.4.
+    double weightLeft = 0.0;
+    for (int i = low; i < candidates.count; ++i)
+        weightLeft += 1.0 / candidates.frequency[static_cast<std::size_t>(sorted[static_cast<std::size_t>(i)])];
+    for (int r = 0, first = low; r < runs; ++r)
+    {
+        const int runsLeft = runs - r;
+        int last = first;
+        double weight = 0.0;
+        if (runsLeft == 1)
+            last = candidates.count;
+        else
+            while (last < candidates.count - (runsLeft - 1))
             {
-                const int c = sorted[static_cast<std::size_t>(i)];
-                shares += candidates.topShare[static_cast<std::size_t>(c)];
-                if (candidates.topShare[static_cast<std::size_t>(c)] > candidates.topShare[static_cast<std::size_t>(best)])
-                    best = c;
+                weight += 1.0 / candidates.frequency[static_cast<std::size_t>(sorted[static_cast<std::size_t>(last++)])];
+                if (weight >= weightLeft / runsLeft)
+                    break;
             }
-            if (out.count < maxWallModes)
-                keep(best, std::sqrt(shares / candidates.topShare[static_cast<std::size_t>(best)]));
+        weightLeft -= weight;
+        int best = sorted[static_cast<std::size_t>(first)];
+        double shares = 0.0;
+        for (int i = first; i < last; ++i)
+        {
+            const int c = sorted[static_cast<std::size_t>(i)];
+            shares += candidates.topShare[static_cast<std::size_t>(c)];
+            if (candidates.topShare[static_cast<std::size_t>(c)] > candidates.topShare[static_cast<std::size_t>(best)])
+                best = c;
         }
+        if (out.count < maxWallModes)
+            keep(best, std::sqrt(shares / candidates.topShare[static_cast<std::size_t>(best)]));
+        first = last;
+    }
 }
 
 // How the parts lose energy, as each coupled mode's kinetic energy is shared
