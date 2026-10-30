@@ -1,6 +1,7 @@
 // The Performer's contracts: a render is deterministic and does not depend on
 // how the host splits it into blocks, every sample is finite at the host
-// rates, a pluck dies away, and the palm across the strings stops it sooner.
+// rates, a pluck dies away, the palm across the strings stops it sooner, and
+// a legato step to a pressed note is pressed, not plucked.
 
 #include "DSP/AcukotoPerformer.h"
 
@@ -123,6 +124,18 @@ int main()
     check(rmsDb(damped, rate, 1.0, 2.0) < rmsDb(single, rate, 1.0, 2.0) - 10.0, "the mute does not damp",
           rmsDb(single, rate, 1.0, 2.0) - rmsDb(damped, rate, 1.0, 2.0));
 
+    // A legato step a held string reaches by its press is ato-oshi: the
+    // string is pressed, not plucked again. A re-pluck stands far over the
+    // ringing string (20.9 dB a second after the first pluck in the
+    // listening set, Docs/decisions.md 2026-10-30); the press moves it by
+    // well under 3.
+    performer->setControls(acukoto::Performer::defaultControls(0));
+    const auto ringing = render(*performer, { { 0.0, 62, 0.7f } }, 0.7, { 256 });
+    const auto legato = render(*performer, { { 0.0, 62, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(rmsDb(legato, rate, 0.5, 0.7) < rmsDb(ringing, rate, 0.5, 0.7) + 3.0, "a legato step plucks again",
+          rmsDb(legato, rate, 0.5, 0.7) - rmsDb(ringing, rate, 0.5, 0.7));
+    check(performer->engine().stringActivity(4).raised, "a legato step does not press", 0.0);
+
     // Every host rate, with the oversampling a front end offers.
     for (const double hostRate : { 44100.0, 96000.0 })
         for (const int factor : { 1, 2 })
@@ -137,6 +150,6 @@ int main()
         }
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays and mutes\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes and slurs\n");
     return failures == 0 ? 0 : 1;
 }

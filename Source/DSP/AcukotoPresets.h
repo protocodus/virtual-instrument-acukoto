@@ -145,13 +145,20 @@ constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
 // times as heavy, 10 g, and its legs 6 times as stiff; in series with the top
 // under its feet, estimated as stiff as the plastic legs, 2.7 times as stiff
 // on the whole: rocking at 7.8 kHz, heaving at 10.3.
+//
+// Played seated on the floor, the koto lies with its tail on the floor and
+// its head, the playing end, raised on two small legs (Britannica, "koto";
+// the Smithsonian's and museum catalogues describe the same). No leg height
+// is published: the back is estimated 8 cm over the floor at the head and
+// 1 cm at the tail.
 constexpr BodySpec kotoBody {
     1.83, 0.246, 0.235, 0.075, 0.136, 0.045,
     0.0154, 0.0112, 0.0056, paulownia,
     0.07, 1.76, 0.8, 0.9,
     {{ { 0.30, 0.045 }, { 1.30, 0.0375 } }},
     0.08, 1.50, 0.0165,
-    0.06, 0.051, 0.010, 10300.0, 7800.0
+    0.06, 0.051, 0.010, 10300.0, 7800.0,
+    0.08, 0.01
 };
 } // namespace detail
 
@@ -160,16 +167,18 @@ constexpr BodySpec kotoBody {
 // of three CC0 koto sessions (Freesound 364807 and 365215, RutgerMuller)
 // plucks: fitted to the first 60 ms of 109 isolated notes, the medians by
 // register fall at 0.073-0.080 from D3 to D5. outputGain is the free gain:
-// 2.4 since the microphones moved from 0.5 m to 1.2 m, which keeps the demos
-// within about 2 dB of their earlier level.
+// 2.4 since the microphones moved from 0.5 m to 1.2 m, which kept the demos
+// within about 2 dB of their earlier level, and 1.7 since the floor under
+// the koto reflects what it radiates, which made both demos 2.8-3.2 dB
+// louder.
 inline constexpr InstrumentSpec kotoHirajoshi {
     "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.4, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.7, 0.0
 };
 
 inline constexpr InstrumentSpec kotoHankumoijoshi {
     "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.4, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.7, 0.0
 };
 
 inline constexpr std::array<const InstrumentSpec*, 2> presets {{

@@ -76,28 +76,34 @@ double magnitude(const std::vector<float>& x, std::size_t start, std::size_t len
     return std::abs(sum);
 }
 
-// Cents of the fundamental over 1-2 s from `target` (Hz).
+// Cents of the fundamental over 1-2 s from `target` (Hz): the power-weighted
+// mean over the scan of what stands within 20 dB of its peak. A string's two
+// planes sound a few cents apart through the ji, and the louder of the two
+// at the microphones turns with what they hear: from 0.4.0's floor, E-flat
+// 5's planes, at +2 and -11 cents, came within 2 dB of each other and the
+// louder flipped, while their mean stayed at +2.8. The mean is the pitch
+// the pair beats about.
 double centsOff(const std::vector<float>& x, double target)
 {
     const auto start = static_cast<std::size_t>(1.0 * rate), length = static_cast<std::size_t>(1.0 * rate);
-    int best = -40;
-    double bestLevel = -1.0;
-    std::vector<double> levels;
+    std::vector<double> powers;
+    double peak = 0.0;
     for (int cents = -40; cents <= 40; ++cents)
     {
         const double level = magnitude(x, start, length, target * std::pow(2.0, cents / 1200.0));
-        levels.push_back(std::log(level + 1e-30));
-        if (level > bestLevel)
-        {
-            bestLevel = level;
-            best = cents;
-        }
+        powers.push_back(level * level);
+        peak = std::max(peak, level * level);
     }
-    if (best == -40 || best == 40)
-        return best;
-    const auto i = static_cast<std::size_t>(best + 40);
-    const double a = levels[i - 1], b = levels[i], c = levels[i + 1];
-    return best + 0.5 * (a - c) / (a - 2.0 * b + c);
+    double sum = 0.0, weighted = 0.0;
+    for (int cents = -40; cents <= 40; ++cents)
+    {
+        const double power = powers[static_cast<std::size_t>(cents + 40)];
+        if (power < 0.01 * peak)
+            continue;
+        sum += power;
+        weighted += power * cents;
+    }
+    return sum > 0.0 ? weighted / sum : 40.0;
 }
 } // namespace
 

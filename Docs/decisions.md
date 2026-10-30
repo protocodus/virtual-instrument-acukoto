@@ -8,6 +8,82 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-10-30 — A legato step to a pressed note is ato-oshi
+
+**Decided:** what a note played legato does when the ringing string under
+the held key reaches it by its press alone (a semitone or a whole tone up
+from its own note, or back down to it). Both readings are a koto technique:
+
+- **A**, the shipping 0.3.0: the string is plucked again with the press in
+  place (oshide).
+- **B**, the left hand moves the press over about 80 ms with the string
+  ringing on (ato-oshi), and stepping back to its own note lets the press go.
+  A note an open string sounds is still plucked there.
+
+**Test:** Koto Hirajoshi, D4 to E4 and back, then B-flat 4 to C5 and back,
+each next key down 0.2 s before the last comes up, through
+`RenderAcukotoPhrase` and the portfolio output stage at 48 kHz, with only
+this mechanism differing. Both were normalised to -20 dBFS RMS before the
+stage; after it, A was trimmed -1.06 dB to B's whole-file RMS. It was not
+committed.
+
+**Chosen:** B, adopted under the owner's standing rule that the candidate
+wins unless the owner says otherwise; the owner had not yet listened.
+
+**Licensed:** the legato branch of `AcukotoEngine::noteOn` and `pressGlide`.
+
+## 2026-10-30 — A pressed note wavers as a hand's force does
+
+**Decided:** whether a held oshide holds its pitch exactly. Two formulations:
+
+- **A**, the shipping 0.3.0: the press is a constant pitch ratio.
+- **B**, the pressing force fluctuates by 1.5%, within the 1-2% young adults
+  hold in steady finger contractions at moderate force (Galganski, Fuglevand
+  and Enoka, J. Neurophysiol. 69 (1993) 2108), low-passed at an estimated
+  5 Hz. The press's added tension goes as its depth squared and its force as
+  the depth, so the added tension fluctuates by twice the force's share:
+  about 3 cents RMS on a semitone, 7 on a whole tone.
+
+**Test:** Koto Hirajoshi, D4 open, then E4, F4, C5 and B4 pressed, each held
+2.2 s, through `RenderAcukotoPhrase` and the output stage at 48 kHz, with
+only this mechanism differing. Both were normalised to -20 dBFS RMS before
+the stage and read -26.15 and -26.13 dBFS after it; no further trim. It was
+not committed.
+
+**Chosen:** B, adopted under the owner's standing rule; the owner had not yet
+listened. The 5 Hz corner is estimated, not measured on a koto player.
+
+**Licensed:** `pressForceSpread` and `pressWaverHz` in
+`Source/DSP/AcukotoEngine.cpp`. A measured koto player's press would reopen it.
+
+## 2026-10-30 — The koto lies on the floor
+
+**Decided:** whether the body radiates into free air or above the floor it is
+played on. The koto is played seated with its tail on the floor and its head
+raised on two small legs (Britannica, "koto"), so the back and its holes face
+the floor a few centimetres away.
+
+- **A**, the shipping 0.3.0: free-field radiation.
+- **B**, a rigid floor, an estimated 8 cm under the back at the head and 1 cm
+  at the tail: every radiating patch is heard again from its image. With
+  `RenderAcukotoNotes` and `Tools/measure_koto_notes.py`, the strings'
+  fundamentals sit a median 0.9 dB over the five professional recordings'
+  balance against the second partial, where A's sit 1.3 dB over.
+
+**Test:** the Koto Hirajoshi README demo (Sakura) through the Performer and
+the output stage at 48 kHz. outputGain went from 2.4 to 1.7 to hold the
+demos' level (B was 2.8-3.2 dB louder before), then B was trimmed +0.18 dB to
+A's whole-file RMS, -30.99 dBFS. At equal RMS, B's octave bands to 500 Hz sit
+1.0-1.9 dB over A's. It was not committed.
+
+**Chosen:** B, adopted under the owner's standing rule; the owner had not yet
+listened.
+
+**Licensed:** `headClearance` and `tailClearance` in `BodySpec`, the image
+paths in the radiation, and outputGain 1.7. A koto on a stand would be the
+same mechanism with other clearances; the floor's load on the holes is left
+out (Known gaps).
+
 ## 2026-10-29 — The walls are damped as paulownia is measured
 
 **Decided:** how fast the walls' own modes lose energy below 1 kHz. Two

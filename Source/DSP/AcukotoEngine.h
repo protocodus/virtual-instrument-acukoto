@@ -127,6 +127,10 @@ struct BodySpec
     // them, and rocking across the top (at the string a third of its mass).
     double bridgeHeaveHz;
     double bridgeRockHz;
+    // The back's height over the floor the koto is played on, at the head
+    // (raised on its two legs) and at the tail (resting on the floor), m.
+    double headClearance;
+    double tailClearance;
 };
 
 enum class Technique
@@ -194,7 +198,9 @@ public:
 
     // The string tuned to midiNote plays (with oshide, also a string one or
     // two semitones below, pressed up to it); a note no string can sound is
-    // ignored (a koto has no frets).
+    // ignored (a koto has no frets). With oshide, a note played legato that
+    // a held, sounding string reaches by its press alone moves the press
+    // without a pluck (ato-oshi, or letting the press go).
     void noteOn(int midiNote, float velocity) noexcept;
     // The playing hand damps the string (PlayingControls::release), unless
     // sustain holds it.

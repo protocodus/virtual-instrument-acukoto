@@ -42,6 +42,21 @@ constexpr double pairAngle = 55.0 * pi / 180.0;
 // the material leave a string almost lossless.
 constexpr double yokeRoundTripGain = 0.9995;
 
+// No hand holds a force still. Young adults' steady finger contractions at
+// moderate force fluctuate by a coefficient of variation of about 1-2%
+// (Galganski, Fuglevand and Enoka, J. Neurophysiol. 69 (1993) 2108), most of
+// it slow, with the physiological tremor at 6-12 Hz above (Kutch et al., J.
+// Neurophysiol. 100 (2008) 2455). Taken here as 1.5%, low-passed at an
+// estimated 5 Hz. Pressing the string down by d behind the ji takes a force
+// near T d (1/a + 1/b) and adds tension as d^2, so the added tension
+// fluctuates by twice the force's share: a whole-tone press wavers by about
+// 7 cents RMS, a semitone's by 3.
+constexpr double pressForceSpread = 0.015;
+constexpr double pressWaverHz = 5.0;
+// The left hand's glide onto a press after the pluck (ato-oshi) and off it,
+// over about 80 ms.
+constexpr double pressGlide = 0.08;
+
 constexpr int delayCapacity = 4096;  // a string down to 47 Hz at 192 kHz
 constexpr int controlPeriod = 16;
 constexpr int maxDispersionStages = 8;
@@ -2073,7 +2088,8 @@ struct BodyWork
     std::array<std::array<double, wallSamples>, maxWallModes> wallAcross {};
     std::array<std::array<double, wallSamples>, maxWallOrder + 1> orderSum {};
     std::array<double, gridPoints> area {}, displacement {};
-    std::array<std::array<double, gridPoints>, 2> distance {}, directivity {};
+    // At each microphone, then at each from the patch's image in the floor.
+    std::array<std::array<double, gridPoints>, 4> distance {}, directivity {};
 };
 
 // The rigid box on its rests: 20-40 Hz, which Coaldrake found in every
@@ -2596,6 +2612,18 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
     // modes, the sides with its sway and twist, and each hole breathes at a
     // point. The delays are taken from the pair's distance, so a mode keeps
     // both its phase between the microphones and its phase across the body.
+    // The koto lies on the floor, which reflects as a rigid plane: every
+    // patch is heard again from its image under the floor (an image source
+    // of the same volume acceleration). The back and the holes face the
+    // floor a few centimetres above it, so below a few hundred hertz their
+    // images arrive in phase and double them, while the top's comb with its
+    // image starts near 1 kHz. The floor's air load on the holes, which
+    // would lower the air modes, is left out: they stay fitted to
+    // Coaldrake's 85 and 157 Hz.
+    const auto clearance = [&] (double x)
+    {
+        return body.headClearance + (body.tailClearance - body.headClearance) * std::clamp(x / length, 0.0, 1.0);
+    };
     const double station = length / gridAlong;
     const double gridWidth = body.headWidth + (body.tailWidth - body.headWidth) * 0.5;
     // x runs from the head, y across the top toward the player, z up from
@@ -2616,14 +2644,16 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
     }
     const auto hear = [&] (int p, double x, double y, double z)
     {
-        for (int mic = 0; mic < 2; ++mic)
+        for (int path = 0; path < 4; ++path)
         {
+            const int mic = path % 2;
+            const double source = path < 2 ? z : -2.0 * clearance(x) - z;
             const auto& at = microphone[static_cast<std::size_t>(mic)];
             const auto& toward = aim[static_cast<std::size_t>(mic)];
-            const double dx = x - at[0], dy = y - at[1], dz = z - at[2];
+            const double dx = x - at[0], dy = y - at[1], dz = source - at[2];
             const double r = std::sqrt(dx * dx + dy * dy + dz * dz);
-            work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)] = r;
-            work.directivity[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)]
+            work.distance[static_cast<std::size_t>(path)][static_cast<std::size_t>(p)] = r;
+            work.directivity[static_cast<std::size_t>(path)][static_cast<std::size_t>(p)]
                 = 0.5 * (1.0 + (dx * toward[0] + dy * toward[1] + dz * toward[2]) / r);
         }
     };
@@ -2819,16 +2849,17 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
         for (int mic = 0; mic < 2; ++mic)
         {
             double re = 0.0, im = 0.0;
-            for (int p = 0; p < gridPoints; ++p)
-            {
-                const double r = work.distance[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)];
-                const double weight = u[static_cast<std::size_t>(p)] * work.area[static_cast<std::size_t>(p)]
-                                    * work.directivity[static_cast<std::size_t>(mic)][static_cast<std::size_t>(p)]
-                                    * pairDistance / r;
-                const double phase = wavenumber * (r - pairDistance);
-                re += weight * std::cos(phase);
-                im -= weight * std::sin(phase);
-            }
+            for (int path = mic; path < 4; path += 2)
+                for (int p = 0; p < gridPoints; ++p)
+                {
+                    const double r = work.distance[static_cast<std::size_t>(path)][static_cast<std::size_t>(p)];
+                    const double weight = u[static_cast<std::size_t>(p)] * work.area[static_cast<std::size_t>(p)]
+                                        * work.directivity[static_cast<std::size_t>(path)][static_cast<std::size_t>(p)]
+                                        * pairDistance / r;
+                    const double phase = wavenumber * (r - pairDistance);
+                    re += weight * std::cos(phase);
+                    im -= weight * std::sin(phase);
+                }
             radiation[mic][0] = re;
             radiation[mic][1] = im;
         }
@@ -2898,6 +2929,8 @@ struct AcukotoEngine::State
         // target and where the glide has reached.
         double pressTarget { 1.0 };
         double pressRatio { 1.0 };
+        // The pressing hand's force fluctuation, in standard deviations.
+        double pressWaver { 0.0 };
         double pressSmoothing { 1.0 };
         int pressNote { -1 };  // the key whose oshide this press is
         double energy { 0.0 };
@@ -2958,6 +2991,9 @@ struct AcukotoEngine::State
     double piezoMountZ1 { 0.0 }, piezoMountZ2 { 0.0 };
     bool sustain { false };
     Random random {};
+    // The left hand's own draws, so a press leaves the plucks' unchanged.
+    Random hand {};
+    double waverPole { 0.0 };
     PluckReport lastPluck {};
     bool idle { true };
     int quietSamples { 0 };
@@ -3004,6 +3040,7 @@ void AcukotoEngine::prepare(double sampleRate)
         state_->piezoPole = (1.0 - k) / (1.0 + k);
     }
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
+    state_->waverPole = std::exp(-2.0 * pi * pressWaverHz * controlPeriod / sampleRate_);
     if (stringCount_ > 0)
         setInstrument(state_->instrument);
 }
@@ -3015,6 +3052,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
     const double fs = sampleRate_;
     stringCount_ = std::clamp(instrument.stringCount, 1, maxStrings);
     s.random.seed(0x5eed1ac0ffeeull);
+    s.hand.seed(0x1ef7a11dull);
 
     // ---- The body ---------------------------------------------------------
     const BodySpec& body = instrument.body;
@@ -3344,6 +3382,7 @@ void AcukotoEngine::reset() noexcept
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
         voice.pressTarget = voice.pressRatio = 1.0;
+        voice.pressWaver = 0.0;
         voice.pressNote = -1;
         voice.raised = false;
         voice.normal.reset();
@@ -3370,6 +3409,7 @@ void AcukotoEngine::reset() noexcept
     s.quietSamples = 0;
     s.controlCountdown = 0;
     s.random.seed(0x5eed1ac0ffeeull);
+    s.hand.seed(0x1ef7a11dull);
     s.bend = s.bendTarget;
     s.output = s.outputTarget;
 }
@@ -3481,7 +3521,28 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
 
 void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
 {
+    if (!(velocity > 0.0f))
+        return;
     int index = stringForNote(midiNote);
+    // Legato: a note played while the key of a sounding string is still
+    // down, which that string reaches by its press alone, is the left hand
+    // moving the press with the string ringing on, not a new pluck: ato-oshi
+    // a semitone or a whole tone up from its own note, or letting the press
+    // go back down to it. A note an open string of its own sounds is
+    // plucked there, as a player would.
+    if (controls_.oshide)
+        for (int string = 0; string < stringCount_; ++string)
+        {
+            State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
+            const int step = midiNote - voice.midiNote;
+            if (!voice.keyDown || voice.ownerNote == midiNote || !(voice.energy > silentEnergy)
+                || step < 0 || step > 2 || (index >= 0 && index != string))
+                continue;
+            press(string, step, pressGlide);
+            voice.pressNote = step > 0 ? midiNote : -1;
+            voice.ownerNote = midiNote;
+            return;
+        }
     int pressed = 0;
     // Oshide: the nearest string below, a semitone or a whole tone, and not
     // already sounding a key of its own if another will do.
@@ -3489,7 +3550,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
         for (int step = 1; step <= 2 && index < 0; ++step)
             if ((index = stringForNote(midiNote - step)) >= 0)
                 pressed = step;
-    if (index < 0 || !(velocity > 0.0f))
+    if (index < 0)
         return;
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(index)];
     // The left hand presses before the right plucks: the press has settled.
@@ -3779,10 +3840,10 @@ void AcukotoEngine::noteOff(int midiNote) noexcept
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
-        // The left hand lets an oshide go with its key, over about 80 ms.
+        // The left hand lets an oshide go with its key.
         if (voice.pressNote == midiNote)
         {
-            press(index, 0.0, 0.08);
+            press(index, 0.0, pressGlide);
             voice.pressNote = -1;
         }
         if (!voice.keyDown || voice.ownerNote != midiNote)
@@ -3890,8 +3951,21 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 // the pitch bend scales every string alike.
                 // The left hand's press glides to its target.
                 voice.pressRatio += (voice.pressTarget - voice.pressRatio) * voice.pressSmoothing;
+                double press = voice.pressRatio;
+                if (voice.pressTarget > 1.0 || voice.pressRatio > 1.0 + 1.0e-9)
+                {
+                    // A unit-variance one-pole of the hand's draws.
+                    voice.pressWaver = s.waverPole * voice.pressWaver
+                                     + std::sqrt(1.0 - s.waverPole * s.waverPole) * s.hand.gaussian();
+                    press = std::sqrt(1.0 + (press * press - 1.0)
+                                          * (1.0 + 2.0 * pressForceSpread * voice.pressWaver));
+                }
+                else
+                {
+                    voice.pressWaver = 0.0;
+                }
                 const double ratio = (tensionModulation_
-                    ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * voice.pressRatio;
+                    ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press;
                 for (Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
                     loop->setLineDelay(loop->lineDelayAt(ratio));
                 // The mean follows the period the bend and the glide set.
