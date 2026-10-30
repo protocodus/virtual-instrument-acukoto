@@ -1,9 +1,10 @@
 # The attack against eight professional koto recordings, 2026-10-30
 
-Acukoto 0.4.0 to 0.7.0, Koto Hirajoshi, set against the first
+Acukoto 0.4.0 to 0.8.0, Koto Hirajoshi, set against the first
 moments of 724 isolated notes from G3 to A5 in eight professional koto
 recordings. The tsume's release time in 0.5.0, and in 0.6.0 the pluck's
-distance from the ryukaku with it, are fitted to these measurements
+distance from the ryukaku with it, are fitted to these measurements, and
+both were fitted again in 0.8.0
 (`Source/DSP/AcukotoEngine.cpp`, `AcukotoEngine::pluck`, and
 `Source/DSP/AcukotoPresets.h`). Neither the recordings nor the renders are
 committed.
@@ -154,8 +155,61 @@ median 0.7, 2.3 and 3.9 dB by register with 8 mm, where the recordings' vary
 by 1.2-7.2, 0.3-4.4 and 1.8-4.6 dB; theirs include the player's dynamics,
 which these plucks at one velocity leave out.
 
+## The walls' highs (0.8.0)
+
+The walls' modes above 3 kHz are too dense to run one by one, so the body
+keeps one mode of each run of alike modes, scaled by s to carry the run's
+share of the top's motion (`Source/DSP/AcukotoEngine.cpp`, `wallModes`).
+Until 0.8.0 that mode also radiated scaled. A run's modes radiate with
+unrelated signs and add in power, N times one mode's, but one mode s times
+as large, driven and radiating, radiates s^4 = N^2 times as much, so the
+walls above 3 kHz radiated up to 10 dB too much. 0.8.0 keeps the scaled
+drive, so the strings still lose to the kept mode what they lose to its run,
+and radiates the mode with its own unscaled shape. The body keeps the same
+356 modes, so the cost does not change.
+
+A reference body with every wall mode to 12.5 kHz kept (1467 modes, offline
+only) puts the README demos' sixth octaves from 3.2 to 5.6 kHz 5-11 dB under
+0.7.0's at equal loudness, and 1-4 dB under 0.8.0's. Over the long-term
+spectrum, in dB per octave (the nine recordings: both Sakura performances
+count here, since no isolated notes are needed):
+
+| | 2-5.6 kHz | 5.6-11 kHz |
+| --- | ---: | ---: |
+| The recordings, median (range) | -10 (-4.8 to -10.8) | -12 |
+| 0.7.0's demos | +0.3 | -20 |
+| The reference body's demos | -7.3 | |
+| **0.8.0's demos** | **-3.4** | **-15** |
+
+The pluck had been fitted with the excess in place, so its distance and
+release were fitted again, each string plucked eleven times at velocity 90
+through the Performer (the three plucks above and eight more), the error
+summed against the recordings' medians above:
+
+| Distance from the ryukaku | Release | G3-E♭4 | G4-D5 | E♭5-A5 | Error, (dB/oct)² |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 5 cm, 0.7.0's walls | 0.10 ms | -1.8 | -7.3 | -9.1 | 3.5 |
+| 4.25 cm | 0.03 ms | -0.9 | -4.6 | -10.7 | 12.1 |
+| 4.25 cm | 0.05 ms | -1.1 | -4.8 | -11.4 | 15.3 |
+| **4.5 cm** | **0.03 ms** | **-1.1** | **-5.4** | **-10.3** | **7.9** |
+| 4.5 cm | 0.05 ms | -1.2 | -5.9 | -11.0 | 11.0 |
+| 4.75 cm | 0.03 ms | -1.2 | -7.1 | -10.1 | 7.6 |
+| 4.75 cm | 0.05 ms | -1.3 | -7.4 | -10.7 | 10.9 |
+| 5 cm | 0.03 ms | -1.4 | -8.1 | -9.9 | 9.5 |
+
+4.5 and 4.75 cm tie within the draw; 0.8.0 ships 4.5 cm and 0.03 ms, whose
+middle register sits nearer the recordings'. The fit is worse than 0.7.0's:
+with the walls' highs radiated as they are, no distance or release from 3.5
+to 5.5 cm and 0.03 to 0.10 ms brings the top strings brighter than about
+-9.5 with the rest in place (What is still off). The reference body reads
+alike there, so it is not the walls' thinning. The partials' decay rates do
+not move.
+
 ## What is still off
 
+- **The top strings' attacks are darker than recorded.** From E♭5 to A5
+  partials 1-8 fall 10.3 dB per octave in 0.8.0, against the recordings'
+  8.0 (The walls' highs, above).
 - **The rise time is not a gap.** The tool reads the recordings' notes as
   rising from 10% to 90% in a median 40-55 ms, and the model's in 5-6 ms
   measured the same way. The recordings' earlier notes are still ringing at
@@ -200,4 +254,6 @@ which these plucks at one velocity leave out.
   the most recorded note (107 notes), falls 23-33 dB under its second
   partial where the recordings' sits 3 dB over it, at 0.82-0.85 E♭4's 28-29
   dB under, and at 0.72 the fast fall moves to D5 (15.5 dB). None ships;
-  the walls stay at 0.70.
+  the walls stay at 0.70. Nor is it the strings' damping by the air:
+  halved, it brings the fundamentals' decay to the recordings' but leaves
+  partials 2-8 ringing 1.4-1.9 times too long.

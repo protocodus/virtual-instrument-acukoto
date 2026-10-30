@@ -1753,7 +1753,7 @@ constexpr int maxWallCandidates = 1400;
 // Below it every wall mode is kept. Above it the modes are too dense to run
 // one by one: of those that mostly move the top (the ones the strings drive),
 // one in each run of consecutive modes is kept, scaled to carry the run's
-// share of the top's motion (wallModes).
+// share of the top's motion, and radiating as the run does (wallModes).
 constexpr double wallAllHz = 3000.0;
 // Where the radiating grid samples each wall mode across the body: the top's
 // and the back's gridAcross, each side's gridUp.
@@ -1961,6 +1961,7 @@ struct WallModes
     std::array<double, maxWallModes> frequency {};
     std::array<double, maxWallModes> volume {};  // out of the box per unit length, m^2
     std::array<std::array<double, 3 * stripNodes>, maxWallModes> shape {};
+    std::array<double, maxWallModes> radiationScale {};  // designBody's radiation, wallModes
 };
 
 struct WallCandidates
@@ -2352,10 +2353,21 @@ void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
     const int run = high > 0 && room > 0 ? (high + room - 1) / room : 1;
     WallModes& out = work.walls;
     out = {};
+    // A kept mode scaled by s to stand for a run of N carries the run's
+    // motion at the ji, s^2 = N for alike modes, so the strings lose to it
+    // what they lose to the run. Its radiation must not be scaled again: the
+    // run's modes radiate with unrelated signs and add in power, N times one
+    // mode's, where a mode s times as large both driven and radiating
+    // radiates s^4 = N^2 times. So it radiates with its own unscaled shape.
+    // Until 0.8.0 it did not, and the walls above 3 kHz radiated up to 10 dB
+    // too much: against the same body with every wall mode to 12.5 kHz kept
+    // (1467 modes), the demos' sixth octaves from 3.2 to 5.6 kHz sat 5-11 dB
+    // high, and with this 1-4 dB.
     const auto keep = [&] (int c, double scale)
     {
         const auto k = static_cast<std::size_t>(out.count++);
         const auto from = static_cast<std::size_t>(c);
+        out.radiationScale[k] = 1.0 / scale;
         out.order[k] = candidates.order[from];
         out.frequency[k] = candidates.frequency[from];
         double volume = 0.0;
@@ -2808,7 +2820,8 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
                 used[order] = true;
                 work.orderSum[order].fill(0.0);
             }
-            const double weight = psi(wallBase + j);
+            // A run's kept mode radiates unscaled (wallModes).
+            const double weight = psi(wallBase + j) * walls.radiationScale[static_cast<std::size_t>(j)];
             if (order % 2 == 1)
                 monopole += weight * walls.volume[static_cast<std::size_t>(j)] * 2.0 * cavity / (static_cast<double>(order) * pi);
             const auto& across = work.wallAcross[static_cast<std::size_t>(j)];
@@ -3645,10 +3658,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // two. The eight professional recordings bear it out: the partial nearest
     // the first notch a 5 cm pluck leaves on the strings from B-flat 4 up sits
     // a median -0.6 to +0.1 dB from its two neighbours in their 185 notes
-    // there, register by register, -6 to 0 with this spread and -10 to -14
-    // with a harpist's (Chadefaux et al., JASA 131 (2012) 844, Fig. 7: a
-    // share of the string, 2.5 mm on A5 but 28 mm on D3, where the whole
-    // pluck is 5 cm from the ryukaku).
+    // there, register by register, and in the model as 0.7.0 plucked, 5 cm
+    // away, -6 to 0 with this spread and -10 to -14 with a harpist's
+    // (Chadefaux et al., JASA 131 (2012) 844, Fig. 7: a share of the string,
+    // 2.5 mm on A5 but 28 mm on D3, where the whole pluck is 5 cm from the
+    // ryukaku).
     constexpr double distanceSpread = 0.008;
     const double distance = std::clamp((controls.pluckDistance + distanceSpread * s.random.gaussian()) / voice.length,
                                        0.01, 0.5);
@@ -3695,10 +3709,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         // The tsume's rounded ivory edge: an estimated 2 mm. Its release is
         // fitted with the pluck's distance from the ryukaku (AcukotoPresets.h)
         // to the first 60 ms of 724 isolated notes in eight professional koto
-        // recordings (Docs/validation/attack-comparison-2026-10-30.md): 0.10
-        // ms, longer than over a harpist's fingertip (0.053 ms) and within a
-        // pad's 0.27, as the string rides over the rounded edge.
-        case Technique::Plectrum: contact = 0.002; release = 0.10e-3; break;
+        // recordings (Docs/validation/attack-comparison-2026-10-30.md): 0.03
+        // ms, a little quicker than off a nail (0.035 ms), as off a hard edge.
+        // It was 0.10 until 0.8.0, when the walls' highs, radiated too
+        // strongly, had stood in for a quicker release.
+        case Technique::Plectrum: contact = 0.002; release = 0.03e-3; break;
     }
     // A harder stroke slips off faster, so it leaves brighter. Harpists'
     // release velocity rises with the string's displacement, about as D^1.2
