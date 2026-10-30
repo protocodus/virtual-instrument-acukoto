@@ -159,4 +159,14 @@ second partial, where 0.5.0's sat 1.6.
   it is 11.5, to 2.1 at D5 and B♭4 (3.3 and 2.5) and 3.3 at A5 (5.4); G5's
   is not helped (10.1, where 6.3). Those walls lose the low fundamentals
   (What was probed, above), so a fix has to hold both: the struts, or a
-  measured thickness.
+  measured thickness. Since the floor now lends the fundamentals about 1 dB,
+  the thickness was scanned again between 0.70 and 0.85 of those walls
+  (`RenderAcukotoNotes`, velocity 0.7, `--compare` against the five earlier
+  recordings). Every thicker wall slows the fundamentals' decay toward the
+  recordings' (the median rate from 1.39 times theirs at 0.70 to 1.15-1.26
+  times), and the pooled balance stays within 0.0-4.7 dB of theirs, but each
+  moves the box's modes under single notes: at 0.75-0.80 D4's fundamental,
+  the most recorded note (107 notes), falls 23-33 dB under its second
+  partial where the recordings' sits 3 dB over it, at 0.82-0.85 E♭4's 28-29
+  dB under, and at 0.72 the fast fall moves to D5 (15.5 dB). None ships;
+  the walls stay at 0.70.
