@@ -133,7 +133,30 @@ second partial, where 0.5.0's sat 1.6.
   (under 1 kHz, 1-3 kHz, over 3 kHz) from the detected onset, the model's
   envelopes and the recordings' both peak 35-50 ms after it, the highest
   band first.
-- **The low band sags after the attack.** From 40 to 150 ms after the
-  onset, the model's band under 1 kHz falls 4.8 dB (4.5 in 0.6.0); the
-  recordings' falls -0.7 to 3.2 dB. This is Known gaps' low fundamentals fading too soon,
-  seen from the attack.
+- **The upper strings' fundamentals fall fast at first.** From 40 to 150 ms
+  after the onset, the model's band under 1 kHz falls 4.8 dB (4.5 in 0.6.0)
+  over all its notes; the recordings' falls -0.7 to 3.2 dB. By register it
+  is the upper strings' alone. Each note's fundamental, through a ±10% band,
+  falls over that time:
+
+  | | G3-E♭4 | G4-D5 | E♭5-A5 |
+  | --- | ---: | ---: | ---: |
+  | 0.6.0, Performer, velocity 90 | -4.1 | 3.1 | 6.9 |
+  | Rokudan, Omoigawa, Kumoi Rokudan, Godanginuta, Kudan, solo programme from 20:30 | -1.5 to 1.3 | -1.4 to 3.0 | -0.6 to 4.0 |
+
+  (0.4.0 and 0.5.0 read alike.) It is not the sympathetic strings: with them
+  off the fall is the same. It is the plane parallel to the top. Plucked
+  with nearly all its energy in that plane, E♭5's fundamental falls 9 dB in
+  200 ms and 19 in 300, G5's 24 and A5's 9; plucked with nearly all of it
+  normal to the top, the fundamental holds. A sideways pull at the ji's top,
+  6 cm up, rocks it on its feet 5.1 cm apart, so the top under it is twisted
+  as well as pushed; normal to the top the ji's mobility at the upper
+  strings' fundamentals is only 0.001-0.006 m/s/N. The walls, fitted thin
+  for the low fundamentals and without their struts, are the likeliest
+  cause here too. Probed note by note through the engine (velocity 0.7, the
+  room off, the same ±10% band), the walls at their full-weight thickness
+  (22, 16 and 8 mm) cut the fall from 40 to 150 ms to 1.5 dB at E♭5, where
+  it is 11.5, to 2.1 at D5 and B♭4 (3.3 and 2.5) and 3.3 at A5 (5.4); G5's
+  is not helped (10.1, where 6.3). Those walls lose the low fundamentals
+  (What was probed, above), so a fix has to hold both: the struts, or a
+  measured thickness.
