@@ -3634,29 +3634,36 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
             square *= kept;
     }
 
-    // Each pluck differs as a harpist's do (Chadefaux et al., JASA 131 (2012)
-    // 844). Where the finger meets the string: Fig. 7's spread of the pluck
-    // point over the string's length, 0.012 on a 17.6 cm string to 0.022 on
-    // a 97.5 cm one, pooled over nine harpists and so at most one player's.
-    // How hard: one player's string displacement at release spreads by about
-    // 14% (Fig. 8, 95% intervals of about 15% over five to seven plucks).
-    // Which way: the angle the string leaves at, measured from the strings'
-    // plane (on a lyre, the top's), by about 4 degrees (Table VI, median 95%
-    // interval 5 degrees over five plucks), around the angle the normal
-    // share sets: the share is the angle's sine squared.
-    const double positionSpread = std::clamp(0.012 + 0.010 * (voice.length - 0.176) / (0.975 - 0.176),
-                                             0.012, 0.022);
     // The tsume plucks just beside the ryukaku, the far end from the ji, the
     // hand at one place whatever the string (pluckDistance): a short string
     // is plucked at a larger share of its length, so its attack falls off
-    // faster with partial number. The place is taken here from the ji.
-    const double distance = std::clamp(controls.pluckDistance / voice.length + positionSpread * s.random.gaussian(),
+    // faster with partial number. The place is taken here from the ji. A
+    // koto guide has the strings plucked 3-5 cm from the right end ("How to
+    // play the KOTO", www.asahi-net.or.jp/~NP5Y-HRUC/kt-play1.html), so each
+    // pluck lands within the same centimetre or two of the ryukaku on every
+    // string: an estimated 8 mm standard deviation, those 2 cm a little over
+    // two. The eight professional recordings bear it out: the partial nearest
+    // the first notch a 5 cm pluck leaves on the strings from B-flat 4 up sits
+    // a median -0.6 to +0.1 dB from its two neighbours in their 185 notes
+    // there, register by register, -6 to 0 with this spread and -10 to -14
+    // with a harpist's (Chadefaux et al., JASA 131 (2012) 844, Fig. 7: a
+    // share of the string, 2.5 mm on A5 but 28 mm on D3, where the whole
+    // pluck is 5 cm from the ryukaku).
+    constexpr double distanceSpread = 0.008;
+    const double distance = std::clamp((controls.pluckDistance + distanceSpread * s.random.gaussian()) / voice.length,
                                        0.01, 0.5);
     const double position = 1.0 - distance;
     // The player evens the scale by what is heard: the microphones, the
     // piezo, or between the two as the blend sets.
     const StringSpec& string = instrument.strings[static_cast<std::size_t>(index)];
     const double touch = string.touch;
+    // Each pluck differs as a harpist's do too (Chadefaux et al. 2012). How
+    // hard: one player's string displacement at release spreads by about 14%
+    // (Fig. 8, 95% intervals of about 15% over five to seven plucks). Which
+    // way: the angle the string leaves at, measured from the strings' plane
+    // (here the top's), by about 4 degrees (Table VI, median 95% interval 5
+    // degrees over five plucks), around the angle the normal share sets: the
+    // share is the angle's sine squared.
     const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * s.random.gaussian());
     const double angle = std::asin(std::sqrt(std::clamp(controls.normalShare, 0.0, 1.0)))
                        + 4.0 * pi / 180.0 * s.random.gaussian();

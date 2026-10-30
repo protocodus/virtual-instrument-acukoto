@@ -148,9 +148,11 @@ constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
 //
 // Played seated on the floor, the koto lies with its tail on the floor and
 // its head, the playing end, raised on two small legs (Britannica, "koto";
-// the Smithsonian's and museum catalogues describe the same). No leg height
-// is published: the back is estimated 8 cm over the floor at the head and
-// 1 cm at the tail.
+// the Smithsonian's and museum catalogues describe the same) or, as a koto
+// guide has it, on a small pillow, "so that the instrument is balanced about
+// 8cm above TATAMI-mat flooring" ("How to play the KOTO",
+// www.asahi-net.or.jp/~NP5Y-HRUC/kt-play1.html): the back 8 cm over the
+// floor at the head and an estimated 1 cm at the tail.
 constexpr BodySpec kotoBody {
     1.83, 0.246, 0.235, 0.075, 0.136, 0.045,
     0.0154, 0.0112, 0.0056, paulownia,

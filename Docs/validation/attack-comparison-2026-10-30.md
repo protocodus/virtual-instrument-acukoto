@@ -1,6 +1,6 @@
 # The attack against eight professional koto recordings, 2026-10-30
 
-Acukoto 0.4.0, 0.5.0 and 0.6.0, Koto Hirajoshi, set against the first
+Acukoto 0.4.0 to 0.7.0, Koto Hirajoshi, set against the first
 moments of 724 isolated notes from G3 to A5 in eight professional koto
 recordings. The tsume's release time in 0.5.0, and in 0.6.0 the pluck's
 distance from the ryukaku with it, are fitted to these measurements
@@ -122,6 +122,37 @@ of D3's speaking length and 0.24 of A5's. The partials' decay rates do not
 move. Measured note by note with `RenderAcukotoNotes` (velocity 0.7) as
 above, the fundamentals sit 1.1 dB over the recordings' balance against the
 second partial, where 0.5.0's sat 1.6.
+
+## How far each pluck strays (0.7.0)
+
+0.6.0 scattered the 5 cm pluck by a harpist's share of the string's length
+(Chadefaux et al., JASA 131 (2012) 844, Fig. 7: 0.012 of a 17.6 cm string
+to 0.022 of a 97.5 cm one), 28 mm on D3 but 2.5 mm on A5. A hand held by the
+ryukaku strays by about the same distance on every string, and a koto guide
+puts the pluck 3-5 cm from the right end ("How to play the KOTO",
+<https://www.asahi-net.or.jp/~NP5Y-HRUC/kt-play1.html>), so 0.7.0 scatters
+it by an estimated 8 mm on every string, those 2 cm a little over two
+standard deviations.
+
+The recordings show what the share left wrong. A pluck 5 cm from the
+ryukaku leaves its first notch at partial L / 5 cm: the fourth on A5, the
+sixth on D5 and E♭5, the eighth on B♭4. Measured as the early level of the
+partial nearest it less the mean of its two neighbours, each string plucked
+eight times at velocity 90 through the Performer:
+
+| | B♭4-D5 | E♭5 | G5-A5 |
+| --- | ---: | ---: | ---: |
+| The recordings (all eight, 185 notes) | -0.6 | +0.1 | +0.1 |
+| A harpist's share (0.6.0) | -10.2 | — | -14.3 |
+| 5 mm on every string | -5.8 | -8.7 | -6.9 |
+| **8 mm on every string (0.7.0)** | **-3.0** | **-0.1** | **-6.0** |
+
+The attack's slope by register does not move beyond the draw: -1.9, -7.3
+and -9.5 dB per octave over these 104 plucks, against -1.5, -7.5 and -9.3
+with the share. From pluck to pluck, partials 1-8 of one string vary by a
+median 0.7, 2.3 and 3.9 dB by register with 8 mm, where the recordings' vary
+by 1.2-7.2, 0.3-4.4 and 1.8-4.6 dB; theirs include the player's dynamics,
+which these plucks at one velocity leave out.
 
 ## What is still off
 
