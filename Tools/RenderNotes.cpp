@@ -2,14 +2,14 @@
 // per note, for measuring the model note by note against recorded koto notes.
 //
 //   RenderAcukotoNotes <preset 0-1> <output-directory>
-//       [--rate hz] [--velocity 0-1] [--seconds s] [--position p]
-//       [--positions note:p,note:p,...] [--flatten note,note,...]
+//       [--rate hz] [--velocity 0-1] [--seconds s] [--distance m]
+//       [--distances note:m,note:m,...] [--flatten note,note,...]
 //
 // Each note starts from a reset engine 10 ms into its file, at the preset's
 // own controls with the room off. --flatten tunes the named strings a
 // semitone down, the same strings slackened, as a sample set strung for C
-// major but tuned to another scale has them; --positions sets the pluck
-// point note by note, by the note the string sounds. This is the engine
+// major but tuned to another scale has them; --distances sets the pluck's
+// distance from the ryukaku note by note, by the note the string sounds. This is the engine
 // alone, without the Performer's output stage or oversampling: what is
 // measured is the strings and the body, not the level guard.
 
@@ -80,7 +80,7 @@ int main(int argc, char** argv)
         if (argc < 3)
         {
             std::cerr << "usage: RenderAcukotoNotes <preset 0-1> <output-directory> [--rate hz] [--velocity 0-1] "
-                         "[--seconds s] [--position p] [--positions note:p,...] [--flatten note,...]\n";
+                         "[--seconds s] [--distance m] [--distances note:m,...] [--flatten note,...]\n";
             return 2;
         }
         const int preset = std::clamp(std::atoi(argv[1]), 0, acukoto::Performer::instrumentCount - 1);
@@ -98,13 +98,13 @@ int main(int argc, char** argv)
             if (option == "--rate") rate = std::atoi(value.c_str());
             else if (option == "--velocity") velocity = std::atof(value.c_str());
             else if (option == "--seconds") seconds = std::atof(value.c_str());
-            else if (option == "--position") position = std::atof(value.c_str());
-            else if (option == "--positions")
+            else if (option == "--distance") position = std::atof(value.c_str());
+            else if (option == "--distances")
                 for (const std::string& item : split(value))
                 {
                     const auto colon = item.find(':');
                     if (colon == std::string::npos)
-                        throw std::runtime_error("--positions takes note:position pairs");
+                        throw std::runtime_error("--distances takes note:distance pairs");
                     positions[std::atoi(item.substr(0, colon).c_str())] = std::atof(item.substr(colon + 1).c_str());
                 }
             else if (option == "--flatten")
@@ -127,7 +127,7 @@ int main(int argc, char** argv)
         acukoto::PlayingControls controls = acukoto::Performer::defaultControls(preset);
         controls.room = 0.0;
         if (position > 0.0)
-            controls.pluckPosition = position;
+            controls.pluckDistance = position;
 
         const auto frames = static_cast<std::size_t>(seconds * rate);
         const auto start = static_cast<std::size_t>(0.01 * rate);
@@ -136,7 +136,7 @@ int main(int argc, char** argv)
             const int note = spec.strings[static_cast<std::size_t>(index)].midiNote;
             acukoto::PlayingControls own = controls;
             if (const auto found = positions.find(note); found != positions.end())
-                own.pluckPosition = found->second;
+                own.pluckDistance = found->second;
             engine->reset();
             engine->setControls(own);
             std::vector<float> left(frames), right(frames);

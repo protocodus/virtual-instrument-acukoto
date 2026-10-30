@@ -163,23 +163,32 @@ constexpr BodySpec kotoBody {
 } // namespace detail
 
 // Played with tsume, ivory picks on the thumb and two fingers (Ando 1989).
-// The pluck point, 0.075 of the length from the ryukaku, is where the player
-// of three CC0 koto sessions (Freesound 364807 and 365215, RutgerMuller)
-// plucks: fitted to the first 60 ms of 109 isolated notes, the medians by
-// register fall at 0.073-0.080 from D3 to D5. outputGain is the free gain:
+// The player plucks just beside the ryukaku, the fixed bridge being the
+// reference for the hand (koto method books), so the tsume meets every
+// string at one distance from it, not at one share of its length. The
+// distance, 5 cm, is fitted with the tsume's release (AcukotoEngine.cpp) to
+// the attacks of 724 isolated notes in eight professional recordings: their
+// partials 1-8 fall a median 2.6, 6.0 and 8.0 dB per octave of partial
+// number from G3 to E-flat 4, G4 to D5 and E-flat 5 to A5, and the model,
+// through the Performer and measured the same way, 1.7, 7.0 and 8.7. One
+// share of the length for every string, 0.075 as the CC0 RutgerMuller
+// sessions (Freesound 364807 and 365215) read by the same tool, gave 4.6,
+// 3.7 and 5.4 at best, darkening every register alike
+// (Docs/validation/attack-comparison-2026-10-30.md). outputGain is the free gain:
 // 2.4 since the microphones moved from 0.5 m to 1.2 m, which kept the demos
 // within about 2 dB of their earlier level, and 1.7 since the floor under
 // the koto reflects what it radiates, which made both demos 2.8-3.2 dB
 // louder, then 2.1 since the tsume's fitted release took 1.7-2.0 dB of
-// their highs.
+// their highs, then 1.4 since the pluck at a fixed distance, a larger share
+// of the upper strings, made both demos 3.3-3.7 dB louder.
 inline constexpr InstrumentSpec kotoHirajoshi {
     "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.1, 0.0
+    Technique::Plectrum, 0.05, 0.3, 3.0, 0.25, 1.4, 0.0
 };
 
 inline constexpr InstrumentSpec kotoHankumoijoshi {
     "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.1, 0.0
+    Technique::Plectrum, 0.05, 0.3, 3.0, 0.25, 1.4, 0.0
 };
 
 inline constexpr std::array<const InstrumentSpec*, 2> presets {{

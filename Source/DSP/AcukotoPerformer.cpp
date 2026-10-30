@@ -20,7 +20,7 @@ PlayingControls Performer::defaultControls(int index) noexcept
     const InstrumentSpec& spec = *presets[static_cast<std::size_t>(std::clamp(index, 0, instrumentCount - 1))];
     PlayingControls controls {};
     controls.technique = spec.technique;
-    controls.pluckPosition = spec.pluckPosition;
+    controls.pluckDistance = spec.pluckDistance;
     controls.normalShare = spec.normalShare;
     controls.room = spec.room;
     // A koto's string rings on after the pluck; the hand stops it only on

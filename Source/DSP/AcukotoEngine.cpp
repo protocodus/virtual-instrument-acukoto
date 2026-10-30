@@ -3368,7 +3368,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
     s.piezoGain = instrument.piezoGain;
     PlayingControls controls {};
     controls.technique = instrument.technique;
-    controls.pluckPosition = instrument.pluckPosition;
+    controls.pluckDistance = instrument.pluckDistance;
     controls.normalShare = instrument.normalShare;
     controls.room = instrument.room;
     setControls(controls);
@@ -3495,7 +3495,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     const PlayingControls previous = controls_;
     PlayingControls& c = controls_;
     c = controls;
-    c.pluckPosition = std::isfinite(c.pluckPosition) ? std::clamp(c.pluckPosition, 0.02, 0.5) : 0.075;
+    c.pluckDistance = std::isfinite(c.pluckDistance) ? std::clamp(c.pluckDistance, 0.005, 0.5) : 0.05;
     c.normalShare = std::clamp(unitClamp(c.normalShare), 0.01, 0.9);
     c.release = unitClamp(c.release);
     c.mute = unitClamp(c.mute);
@@ -3646,9 +3646,12 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // share sets: the share is the angle's sine squared.
     const double positionSpread = std::clamp(0.012 + 0.010 * (voice.length - 0.176) / (0.975 - 0.176),
                                              0.012, 0.022);
-    // The tsume plucks near the ryukaku, the far end from the ji: the place
-    // is a share of the length from the ryukaku, taken here from the ji.
-    const double distance = std::clamp(controls.pluckPosition + positionSpread * s.random.gaussian(), 0.01, 0.5);
+    // The tsume plucks just beside the ryukaku, the far end from the ji, the
+    // hand at one place whatever the string (pluckDistance): a short string
+    // is plucked at a larger share of its length, so its attack falls off
+    // faster with partial number. The place is taken here from the ji.
+    const double distance = std::clamp(controls.pluckDistance / voice.length + positionSpread * s.random.gaussian(),
+                                       0.01, 0.5);
     const double position = 1.0 - distance;
     // The player evens the scale by what is heard: the microphones, the
     // piezo, or between the two as the blend sets.
@@ -3683,15 +3686,12 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         case Technique::Finger: contact = 0.008; release = 0.27e-3; break;
         case Technique::Nail: contact = 0.0012; release = 0.035e-3; break;
         // The tsume's rounded ivory edge: an estimated 2 mm. Its release is
-        // fitted to the first 60 ms of 724 isolated notes in eight
-        // professional koto recordings (Docs/validation/
-        // attack-comparison-2026-10-30.md): their partials 1-8 fall a median
-        // 4.6 dB per octave of partial number from G3 to A5, and 0.20 ms
-        // gives the model, through the Performer and measured the same way,
-        // 4.7. The 0.05 ms estimated before it gave 2.3, too bright; the
-        // string rides over the rounded edge before it leaves, longer than
-        // over a harpist's fingertip (0.053 ms) and within a pad's 0.27.
-        case Technique::Plectrum: contact = 0.002; release = 0.20e-3; break;
+        // fitted with the pluck's distance from the ryukaku (AcukotoPresets.h)
+        // to the first 60 ms of 724 isolated notes in eight professional koto
+        // recordings (Docs/validation/attack-comparison-2026-10-30.md): 0.10
+        // ms, longer than over a harpist's fingertip (0.053 ms) and within a
+        // pad's 0.27, as the string rides over the rounded edge.
+        case Technique::Plectrum: contact = 0.002; release = 0.10e-3; break;
     }
     // A harder stroke slips off faster, so it leaves brighter. Harpists'
     // release velocity rises with the string's displacement, about as D^1.2

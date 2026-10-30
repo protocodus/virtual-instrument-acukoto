@@ -150,7 +150,7 @@ struct InstrumentSpec
     // How the instrument is played by default; setInstrument() starts its
     // PlayingControls from these.
     Technique technique;
-    double pluckPosition;  // share of the speaking length from the ryukaku
+    double pluckDistance;  // m from the ryukaku along the string
     double normalShare;    // share of the pluck's energy normal to the top
     double pluckForce;     // N held before release at full velocity
     double room;           // room send, 0-1
@@ -164,7 +164,9 @@ struct InstrumentSpec
 struct PlayingControls
 {
     Technique technique { Technique::Finger };
-    double pluckPosition { 0.075 }; // share of the speaking length from the ryukaku
+    // Where the tsume meets the string, m from the ryukaku: a koto player's
+    // hand plays at one place by the ryukaku, whatever the string's length.
+    double pluckDistance { 0.05 };
     double normalShare { 0.25 };    // share of the pluck's energy normal to the top
     // How a string sounds on after its key is let go: 0, the playing hand
     // stops it (an amplitude time constant of 30 ms); 1, it rings until it

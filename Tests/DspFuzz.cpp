@@ -73,7 +73,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             case 0: controls.technique = static_cast<acukoto::Technique>(static_cast<int>(input.Byte()) - 64); break;
             case 1:
             {
-                double* const fields[] { &controls.pluckPosition, &controls.normalShare, &controls.release,
+                double* const fields[] { &controls.pluckDistance, &controls.normalShare, &controls.release,
                                          &controls.mute, &controls.sympathy, &controls.room, &controls.width,
                                          &controls.volume, &controls.pitchBend };
                 *fields[input.Pick(std::size(fields))] = input.Scalar() * 4.0f - 1.0f;

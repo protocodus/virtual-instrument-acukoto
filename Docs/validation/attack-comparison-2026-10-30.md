@@ -1,10 +1,12 @@
 # The attack against eight professional koto recordings, 2026-10-30
 
-Acukoto 0.4.0 and 0.5.0, Koto Hirajoshi, set against the first moments of
-724 isolated notes from G3 to A5 in eight professional koto recordings. The tsume's
-release time in 0.5.0 is fitted to these measurements
-(`Source/DSP/AcukotoEngine.cpp`, `AcukotoEngine::pluck`). Neither the
-recordings nor the renders are committed.
+Acukoto 0.4.0, 0.5.0 and 0.6.0, Koto Hirajoshi, set against the first
+moments of 724 isolated notes from G3 to A5 in eight professional koto
+recordings. The tsume's release time in 0.5.0, and in 0.6.0 the pluck's
+distance from the ryukaku with it, are fitted to these measurements
+(`Source/DSP/AcukotoEngine.cpp`, `AcukotoEngine::pluck`, and
+`Source/DSP/AcukotoPresets.h`). Neither the recordings nor the renders are
+committed.
 
 ## The recordings
 
@@ -53,6 +55,7 @@ slope, and the model's.
 | **Median of the recordings** | **-2.6** | **-6.0** | **-8.0** | **-4.6** |
 | 0.4.0, Performer, velocity 90 | -3.2 | -1.8 | -2.5 | -2.3 |
 | 0.5.0, Performer, velocity 90 | -4.6 | -3.7 | -5.4 | -4.7 |
+| 0.6.0, Performer, velocity 90 | -1.7 | -7.0 | -8.7 | -4.3 |
 | 0.4.0, `RenderAcukotoNotes`, 0.7 | -2.8 | -1.2 | -3.4 | -2.0 |
 | 0.5.0, `RenderAcukotoNotes`, 0.7 | -4.2 | -3.8 | -6.5 | -4.3 |
 
@@ -86,15 +89,42 @@ Performer at 0.10, 0.15, 0.20 and 0.25 ms, it set the slope from G3 to A5 at
 fundamentals sit 1.6 dB over the recordings' balance against the second
 partial, where 0.4.0's sat 0.9.
 
+## Where the tsume plucks (0.6.0)
+
+0.5.0 left a tilt across the registers: one release darkens every string
+alike, while the recordings darken with pitch (the 0.5.0 row above: 2.0 dB
+per octave darker than their median from G3 to E♭4, 2.3 brighter from G4 to
+D5, 2.6 brighter from E♭5 up). The pluck was then at one share of every
+string's length, 0.075, as three CC0 sessions read. But a koto player plucks
+just beside the ryukaku, the fixed bridge being the reference for the hand,
+so the tsume meets every string at about one distance from it: a larger
+share of a short upper string, whose attack then falls off faster with
+partial number, and a smaller share of a long low one.
+
+The distance and the release were swept together through the Performer
+(each string three times at velocity 90, measured as above), and scored by
+the summed squared difference from the recordings' three register medians:
+
+| Distance from the ryukaku | Release | G3-E♭4 | G4-D5 | E♭5-A5 | G3-A5 | Error, (dB/oct)² |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.075 of the length (0.5.0) | 0.20 ms | -4.6 | -3.7 | -5.4 | -4.7 | 16.0 |
+| 2.5 cm | 0.10 ms | -0.9 | -1.5 | -7.5 | -1.9 | 23.4 |
+| 3.5 cm | 0.20 ms | -2.0 | -4.2 | -11.4 | -4.2 | 15.2 |
+| 4.5 cm | 0.10 ms | -1.2 | -6.1 | -9.0 | -4.0 | 3.0 |
+| 4.5 cm | 0.15 ms | -1.8 | -6.8 | -9.7 | -4.7 | 4.2 |
+| **5 cm** | **0.10 ms** | **-1.7** | **-7.0** | **-8.7** | **-4.3** | **2.3** |
+| 6 cm | 0.10 ms | -3.0 | -8.4 | -11.0 | -6.7 | 14.9 |
+| Recordings' median | | -2.6 | -6.0 | -8.0 | -4.6 | |
+
+A release that moved every register alike could bring the fixed share's
+error no lower than about 13. 0.6.0 ships 5 cm and 0.10 ms: a share of 0.04
+of D3's speaking length and 0.24 of A5's. The partials' decay rates do not
+move. Measured note by note with `RenderAcukotoNotes` (velocity 0.7) as
+above, the fundamentals sit 1.1 dB over the recordings' balance against the
+second partial, where 0.5.0's sat 1.6.
+
 ## What is still off
 
-- **The tilt across the registers.** One release time darkens every string
-  alike, but the recordings darken with pitch: from G3 to E♭4 0.5.0 is now
-  2.0 dB per octave darker than their median, from G4 to D5 2.3 brighter
-  and from E♭5 up 2.6 brighter. The thicker-walls probe darkened the upper
-  strings most, so the walls' high-frequency mobility is the likeliest
-  cause: they are fitted thin for the fundamentals, and the four struts
-  inside are left out.
 - **The rise time is not a gap.** The tool reads the recordings' notes as
   rising from 10% to 90% in a median 40-55 ms, and the model's in 5-6 ms
   measured the same way. The recordings' earlier notes are still ringing at
@@ -104,6 +134,6 @@ partial, where 0.4.0's sat 0.9.
   envelopes and the recordings' both peak 35-50 ms after it, the highest
   band first.
 - **The low band sags after the attack.** From 40 to 150 ms after the
-  onset, the model's band under 1 kHz falls 4.8 dB; the recordings' falls
-  -0.7 to 3.2 dB. This is Known gaps' low fundamentals fading too soon,
+  onset, the model's band under 1 kHz falls 4.8 dB (4.5 in 0.6.0); the
+  recordings' falls -0.7 to 3.2 dB. This is Known gaps' low fundamentals fading too soon,
   seen from the attack.
