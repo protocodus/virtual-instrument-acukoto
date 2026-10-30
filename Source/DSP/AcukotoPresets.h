@@ -170,15 +170,16 @@ constexpr BodySpec kotoBody {
 // 2.4 since the microphones moved from 0.5 m to 1.2 m, which kept the demos
 // within about 2 dB of their earlier level, and 1.7 since the floor under
 // the koto reflects what it radiates, which made both demos 2.8-3.2 dB
-// louder.
+// louder, then 2.1 since the tsume's fitted release took 1.7-2.0 dB of
+// their highs.
 inline constexpr InstrumentSpec kotoHirajoshi {
     "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.7, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.1, 0.0
 };
 
 inline constexpr InstrumentSpec kotoHankumoijoshi {
     "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
-    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 1.7, 0.0
+    Technique::Plectrum, 0.075, 0.3, 3.0, 0.25, 2.1, 0.0
 };
 
 inline constexpr std::array<const InstrumentSpec*, 2> presets {{

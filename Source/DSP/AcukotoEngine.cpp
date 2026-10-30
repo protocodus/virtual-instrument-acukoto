@@ -3682,9 +3682,16 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         // 8 mm of flesh.
         case Technique::Finger: contact = 0.008; release = 0.27e-3; break;
         case Technique::Nail: contact = 0.0012; release = 0.035e-3; break;
-        // The tsume's rounded ivory edge: an estimated 2 mm, released over
-        // 0.05 ms.
-        case Technique::Plectrum: contact = 0.002; release = 0.05e-3; break;
+        // The tsume's rounded ivory edge: an estimated 2 mm. Its release is
+        // fitted to the first 60 ms of 724 isolated notes in eight
+        // professional koto recordings (Docs/validation/
+        // attack-comparison-2026-10-30.md): their partials 1-8 fall a median
+        // 4.6 dB per octave of partial number from G3 to A5, and 0.20 ms
+        // gives the model, through the Performer and measured the same way,
+        // 4.7. The 0.05 ms estimated before it gave 2.3, too bright; the
+        // string rides over the rounded edge before it leaves, longer than
+        // over a harpist's fingertip (0.053 ms) and within a pad's 0.27.
+        case Technique::Plectrum: contact = 0.002; release = 0.20e-3; break;
     }
     // A harder stroke slips off faster, so it leaves brighter. Harpists'
     // release velocity rises with the string's displacement, about as D^1.2
