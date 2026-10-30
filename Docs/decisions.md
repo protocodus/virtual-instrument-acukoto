@@ -27,8 +27,8 @@ this mechanism differing. Both were normalised to -20 dBFS RMS before the
 stage; after it, A was trimmed -1.06 dB to B's whole-file RMS. It was not
 committed.
 
-**Chosen:** B, adopted under the owner's standing rule that the candidate
-wins unless the owner says otherwise; the owner had not yet listened.
+**Chosen:** B, by ear: the owner listened to the three 2026-10-30 sets and
+kept B.
 
 **Licensed:** the legato branch of `AcukotoEngine::noteOn` and `pressGlide`.
 
@@ -50,8 +50,8 @@ only this mechanism differing. Both were normalised to -20 dBFS RMS before
 the stage and read -26.15 and -26.13 dBFS after it; no further trim. It was
 not committed.
 
-**Chosen:** B, adopted under the owner's standing rule; the owner had not yet
-listened. The 5 Hz corner is estimated, not measured on a koto player.
+**Chosen:** B, by ear: the owner listened and kept B. The 5 Hz corner is
+estimated, not measured on a koto player.
 
 **Licensed:** `pressForceSpread` and `pressWaverHz` in
 `Source/DSP/AcukotoEngine.cpp`. A measured koto player's press would reopen it.
@@ -76,8 +76,7 @@ demos' level (B was 2.8-3.2 dB louder before), then B was trimmed +0.18 dB to
 A's whole-file RMS, -30.99 dBFS. At equal RMS, B's octave bands to 500 Hz sit
 1.0-1.9 dB over A's. It was not committed.
 
-**Chosen:** B, adopted under the owner's standing rule; the owner had not yet
-listened.
+**Chosen:** B, by ear: the owner listened and kept B.
 
 **Licensed:** `headClearance` and `tailClearance` in `BodySpec`, the image
 paths in the radiation, and outputGain 1.7. A koto on a stand would be the
