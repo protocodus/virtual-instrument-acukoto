@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.10.1 LANGUAGES CXX)
+project(Acukoto VERSION 0.11.0 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)

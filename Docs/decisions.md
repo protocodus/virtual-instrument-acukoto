@@ -8,6 +8,29 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-10-31 — A press holds while its string rings; chords are plucked
+
+**Decided:** what the left hand does at a pressed note's key-up, and whether
+a legato step inside a chord is ato-oshi. Playing the 0.10.1 Rack device, the
+owner heard notes bend that they had not asked to bend: a pressed note fell
+a semitone or a whole tone at its key-up while it still rang (Release at
+100%, the sustain pedal too), and a note added to a chord bent a held string
+a whole tone below it instead of sounding.
+
+- **A**, the shipping 0.10.1: the key-up lets the press go, and any held,
+  sounding string the new note's press reaches takes it as ato-oshi.
+- **B**, the press holds while the string sounds and lets go once it has
+  died away or is plucked again; a legato step is ato-oshi only while its
+  string's key is the only key down, and a chord's new note is plucked.
+
+**Chosen:** B, by the owner, from playing the Rack device in Reason; no
+lettered set was rendered. It narrows 2026-10-30's choice below: ato-oshi
+stays for a single line played legato.
+
+**Licensed:** `AcukotoEngine::noteOff` no longer releasing a press, the
+press's release in `process()` when its string has died away, and the
+single-key condition on the legato branch of `AcukotoEngine::noteOn`.
+
 ## 2026-10-30 — A legato step to a pressed note is ato-oshi
 
 **Decided:** what a note played legato does when the ringing string under

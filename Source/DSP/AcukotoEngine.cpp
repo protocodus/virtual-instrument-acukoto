@@ -2984,7 +2984,6 @@ struct AcukotoEngine::State
         // The pressing hand's force fluctuation, in standard deviations.
         double pressWaver { 0.0 };
         double pressSmoothing { 1.0 };
-        int pressNote { -1 };  // the key whose oshide this press is
         double energy { 0.0 };
         bool keyDown { false };
         bool sustained { false };
@@ -3492,7 +3491,6 @@ void AcukotoEngine::reset() noexcept
         applyPitch(index, false);
         voice.pressTarget = voice.pressRatio = 1.0;
         voice.pressWaver = 0.0;
-        voice.pressNote = -1;
         voice.raised = false;
         voice.normal.reset();
         voice.parallel.reset();
@@ -3650,8 +3648,14 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     // moving the press with the string ringing on, not a new pluck: ato-oshi
     // a semitone or a whole tone up from its own note, or letting the press
     // go back down to it. A note an open string of its own sounds is
-    // plucked there, as a player would.
-    if (controls_.oshide)
+    // plucked there, as a player would. Only a single line slurs: with any
+    // other key down, the new note belongs to a chord and is plucked (the
+    // owner's call from playing the Rack device, Docs/decisions.md
+    // 2026-10-31).
+    int keysDown = 0;
+    for (int string = 0; string < stringCount_; ++string)
+        keysDown += state_->strings[static_cast<std::size_t>(string)].keyDown ? 1 : 0;
+    if (controls_.oshide && keysDown == 1)
         for (int string = 0; string < stringCount_; ++string)
         {
             State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
@@ -3660,7 +3664,6 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
                 || voice.extensionKey >= 0 || step < 0 || step > 2 || (index >= 0 && index != string))
                 continue;
             press(string, step, pressGlide);
-            voice.pressNote = step > 0 ? midiNote : -1;
             voice.ownerNote = midiNote;
             return;
         }
@@ -3689,7 +3692,6 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     const double target = std::pow(2.0, pressed / 12.0);
     voice.pressTarget = voice.pressRatio = target;
     voice.raised = pressed > 0;
-    voice.pressNote = pressed > 0 ? midiNote : -1;
     pluck(index, midiNote, velocity);
 }
 
@@ -3990,12 +3992,11 @@ void AcukotoEngine::noteOff(int midiNote) noexcept
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
-        // The left hand lets an oshide go with its key.
-        if (voice.pressNote == midiNote)
-        {
-            press(index, 0.0, pressGlide);
-            voice.pressNote = -1;
-        }
+        // The left hand keeps an oshide pressed while its string sounds, as
+        // a player holds a pressed note to its end: letting go would bend a
+        // ringing note down a semitone or a whole tone at every key-up
+        // (Docs/decisions.md 2026-10-31). The hand leaves once the string
+        // has died away (process()) or is plucked again.
         if (!voice.keyDown || voice.ownerNote != midiNote)
             continue;
         voice.keyDown = false;
@@ -4089,6 +4090,9 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 {
                     voice.plucked = false;
                     voice.dampingDirty = true;
+                    // And the left hand leaves it, unheard.
+                    voice.pressTarget = voice.pressRatio = 1.0;
+                    voice.raised = false;
                 }
                 if (voice.dampingDirty)
                     updateDamping(index);

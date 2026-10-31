@@ -1,7 +1,8 @@
 // The Performer's contracts: a render is deterministic and does not depend on
 // how the host splits it into blocks, every sample is finite at the host
-// rates, a pluck dies away, the palm across the strings stops it sooner, and
-// a legato step to a pressed note is pressed, not plucked.
+// rates, a pluck dies away, the palm across the strings stops it sooner, a
+// legato step to a pressed note is pressed, not plucked, unless it joins a
+// chord, and a pressed note keeps its pitch after its key-up.
 
 #include "DSP/AcukotoPerformer.h"
 
@@ -29,7 +30,7 @@ struct Note
 {
     double seconds;
     int note;
-    float velocity;
+    float velocity;  // 0: the key comes up
 };
 
 // A run up the strings, an awase and a pressed note: every string, the
@@ -53,7 +54,10 @@ std::vector<float> render(acukoto::Performer& performer, const std::vector<Note>
     {
         while (next < notes.size() && static_cast<std::size_t>(notes[next].seconds * rate) <= done)
         {
-            performer.noteOn(notes[next].note, notes[next].velocity);
+            if (notes[next].velocity > 0.0f)
+                performer.noteOn(notes[next].note, notes[next].velocity);
+            else
+                performer.noteOff(notes[next].note);
             ++next;
         }
         std::size_t until = total;
@@ -136,6 +140,26 @@ int main()
           rmsDb(legato, rate, 0.5, 0.7) - rmsDb(ringing, rate, 0.5, 0.7));
     check(performer->engine().stringActivity(4).raised, "a legato step does not press", 0.0);
 
+    // In a chord, a key a held string's press would reach is plucked as a
+    // note of its own: D4 and A4 held, E4 sounds on E-flat 4 pressed a
+    // semitone, and D4 stays open.
+    render(*performer, { { 0.0, 62, 0.7f }, { 0.0, 69, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(!performer->engine().stringActivity(4).raised, "a chord's note bends a held string", 0.0);
+    check(performer->engine().stringActivity(5).raised && performer->engine().stringActivity(5).plucked,
+          "a chord's pressed note is not plucked", 0.0);
+
+    // A pressed note keeps its pitch after its key-up while it rings (E4,
+    // E-flat 4 pressed a semitone, up after 0.2 s), and the hand leaves the
+    // string once the palm has stopped it.
+    render(*performer, { { 0.0, 64, 0.7f }, { 0.2, 64, 0.0f } }, 0.6, { 256 });
+    check(performer->engine().stringActivity(5).raised, "a key-up lets a ringing press go", 0.0);
+    acukoto::PlayingControls palm = acukoto::Performer::defaultControls(0);
+    palm.mute = 1.0;
+    performer->setControls(palm);
+    render(*performer, { { 0.0, 64, 0.7f }, { 0.2, 64, 0.0f } }, 2.0, { 256 });
+    check(!performer->engine().stringActivity(5).raised, "a press outlasts its stopped string", 0.0);
+    performer->setControls(acukoto::Performer::defaultControls(0));
+
     // Every host rate, with the oversampling a front end offers.
     for (const double hostRate : { 44100.0, 96000.0 })
         for (const int factor : { 1, 2 })
@@ -195,6 +219,6 @@ int main()
         }
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes and slurs\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs and holds presses\n");
     return failures == 0 ? 0 : 1;
 }

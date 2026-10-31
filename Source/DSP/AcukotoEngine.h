@@ -183,7 +183,8 @@ struct PlayingControls
     double pitchBend { 0.0 };   // semitones, on every string
     // Oshide follows the notes played: a note one or two semitones above a
     // string's own, which no string is tuned to, presses the nearest string
-    // below up to it before the pluck, and its key-up lets the press go.
+    // below up to it before the pluck. The press holds while the string
+    // sounds, and lets go once it has died away or is plucked again.
     bool oshide { true };
 };
 
@@ -203,8 +204,9 @@ public:
     // plays the nearest string below it with its ji moved to the key, past
     // the strings an artificial range no koto has; keys outside A0-C8 are
     // ignored. With oshide, a note played legato that
-    // a held, sounding string reaches by its press alone moves the press
-    // without a pluck (ato-oshi, or letting the press go).
+    // a held, sounding string reaches by its press alone, while no other key
+    // is down, moves the press without a pluck (ato-oshi, or letting the
+    // press go).
     void noteOn(int midiNote, float velocity) noexcept;
     // The playing hand damps the string (PlayingControls::release), unless
     // sustain holds it.
