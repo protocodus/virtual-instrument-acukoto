@@ -320,6 +320,9 @@ theirs.
   Coaldrake's along the grain, slows G3's (log2 ratio 0.76 to 0.54), and
   the walls' below 1 kHz doubled slows D4's (0.84 to 0.61). Each still
   leaves that fundamental decaying about 1.5 times as fast as recorded.
+  (Over 2 s of each render; over a recorded note's 0.9 s, as
+  `Tools/measure_koto_notes.py` now measures, 0.9.0's G3 and D4 decay 2.6
+  and 2.2 times as fast: [recording comparison](recording-comparison-2026-10-29.md#over-a-recorded-notes-span-2026-10-31-090).)
 - **The top strings' upper partials die fast.** On G5 and A5, partials 6-8
   (4.7-7.1 kHz) decay 1.2-6 times faster than in the recordings' 6-7 notes
   there. A ji rocking at 5.5 or 12 kHz (7.8) or damped at Q 60 (30) leaves

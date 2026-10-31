@@ -26,10 +26,14 @@ namespace acukoto
 // (Docs/validation/recording-comparison-2026-10-29.md).
 // No loss modulus is published for a silk string, so it too is fitted, to the
 // same recordings' decay of partials 4 to 8 on the strings from B-flat 4 to
-// A5, where bending loss is the largest: 0.008 GPa sets the median log ratio
-// of the model's decay rates to the recordings' to zero (the four recordings
-// other than Omoigawa alone give 0.022 GPa; Omoigawa alone decays more slowly
-// than this body allows with none). Nylon's loss tangent, its measured E'' of
+// A5, where bending loss is the largest: 0.008 GPa set the median log ratio
+// of the model's decay rates to the recordings' to zero when the renders were
+// measured over 2 s. Over a recorded note's length (0.9 s, the tool since
+// 2026-10-31), the four recordings other than Omoigawa give 0.016 GPa, and
+// all five none: the body alone takes those partials a little faster (+0.05)
+// than recorded, as Omoigawa decays more slowly than this body allows. 0.008
+// is kept between the two; from none to 0.016 the fit moves by 17%, where the
+// two sets differ by 1.9 times. Nylon's loss tangent, its measured E'' of
 // 0.25 GPa over its E' at this stress, 11.6 GPa (Woodhouse and Lynch-Aird,
 // Acta Acustica 105 (2019) 516), would give 0.089 GPa here, and those
 // partials died two to three times faster than recorded: the single modulus

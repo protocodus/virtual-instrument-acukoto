@@ -110,6 +110,38 @@ to 8 on strings B♭4 to A5 to zero over all five; it was swept from 0.006 to
 recordings alone give 0.022 GPa. Omoigawa decays more slowly than this body
 allows even with no bending loss.
 
+### Over a recorded note's span (2026-10-31, 0.9.0)
+
+The renders above were measured over 2 s, the recordings' isolated notes
+only until the next onset: a median 0.89 s (quartiles 0.71 and 1.09, 563
+notes). A note whose partials fall fast at first and then slowly reads slower
+over 2 s than over the span a recorded note allows. `--dir` now measures a
+render over 0.9 s (`--span`). The same 0.9.0 renders, both ways:
+
+| Against, span | H1 | H2 | H3 | H4 | H5 | H6 | H7 | H8 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| All five, 2 s | +0.47 | -0.17 | -0.03 | -0.04 | -0.03 | -0.08 | +0.01 | +0.15 |
+| All five, 0.9 s | +0.56 | +0.12 | +0.85 | +0.11 | -0.03 | +0.16 | +0.25 | +0.45 |
+| JpnMusic, 0.9 s | +0.18 | -0.45 | +0.37 | -0.39 | -0.30 | -0.22 | -0.13 | -0.25 |
+| Omoigawa, 0.9 s | +0.92 | +0.28 | +0.90 | -0.10 | +0.67 | +0.88 | +0.74 | +0.96 |
+
+Over the shorter span the fundamentals and third partials die faster than
+recorded, G3's fundamental 2.6 times as fast and D4's 2.2 times (1.7 and
+1.8 times over 2 s). Probed with eight draws of the pluck per string, the
+medians move by at most 0.03, so this is the strings and the body, not the
+pluck. D4's fundamental beats about once a second against the shell's
+breathing at 293 Hz: 1.0 s after the pluck it sits 31 dB under its level at
+0.1 s, and 1.3 s after it 22 dB under.
+
+The silk's loss fit, partials 4 to 8 on B♭4 to A5, now reads +0.18 over all
+five at 0.008 GPa and +0.05 with no bending loss, so all five no longer pin
+it: the body alone takes those partials a little faster than recorded. The
+four JpnMusic recordings alone give 0.016 GPa (-0.13 at 0.008), and
+Omoigawa +0.77. From none to 0.016 GPa the fit moves by 0.23 (17%), where
+the two sets differ by 0.9 (1.9 times). 0.008 GPa is kept, between the two
+sets' fits; nylon's 0.089 GPa still makes those partials die far faster
+than any recording.
+
 ## The attack
 
 The recordings' notes rise from 10% to 90% of their envelope's peak in a

@@ -3,7 +3,7 @@
 renders, so the model and the recordings are compared by one protocol.
 
     measure_koto_notes.py recording.wav [--min-gap 0.6] > notes.json
-    measure_koto_notes.py --dir renders/ > notes.json
+    measure_koto_notes.py --dir renders/ [--span 0.9] > notes.json
     measure_koto_notes.py --summary <label> notes.json [notes.json ...]
     measure_koto_notes.py --compare model.json recording.json [...]
 
@@ -15,7 +15,12 @@ Source/DSP/AcukotoPresets.h are fitted by:
   when the next onset is at least --min-gap seconds later (0.6 by default)
   and the last at least 0.25 s earlier, and its first 300 ms are above
   -50 dBFS RMS. A render's single note starts where it first passes 1% of
-  its peak.
+  its peak and is measured over --span seconds (0.9 by default), about the
+  length of an isolated note in the five recordings (median 0.89 s,
+  quartiles 0.71 and 1.09), so that its decay is fitted over the span a
+  recorded note's is. Until 2026-10-31 a render was measured over 2 s, which
+  read a note whose partials fall fast at first and then slowly as decaying
+  more slowly than over the span the recordings allow.
 - f0 is a harmonic sum over 70-1400 Hz on 30-350 ms; for a render, whose
   file is named by its MIDI note, the spectrum's peak within 3% of that
   note, since the harmonic sum can take D3's weak fundamental for its
@@ -25,8 +30,8 @@ Source/DSP/AcukotoPresets.h are fitted by:
 - B is the least-squares fit of (f_n / n)^2 = f0^2 (1 + B n^2) to partials
   1-12, with at least five found.
 - Each partial's level is a heterodyne envelope (40 ms Hann, 10 ms hop). Its
-  decay is the slope of a line through it from 80 ms to the next onset, at
-  most 2 s, while it stays 12 dB over its own floor.
+  decay is the slope of a line through it from 80 ms to the next onset (a
+  render's span), at most 2 s, while it stays 12 dB over its own floor.
 - The early levels are each partial's peak over 10-60 ms. The pluck point is
   the beta whose plectrum shape, |sin(n pi beta)| / n^2, best fits partials
   1-15 of them (median offset removed, errors capped at 20 dB).
@@ -264,10 +269,12 @@ def main():
         return
     results = []
     if args[0] == "--dir":
+        span = float(args[args.index("--span") + 1]) if "--span" in args else 0.9
         for path in sorted(Path(args[1]).glob("*.wav"), key=lambda p: int(p.stem)):
             x, rate = mono(path)
             start = np.argmax(np.abs(x) > 0.01 * np.abs(x).max()) / rate
-            result = measure(x, rate, start, len(x) / rate, 440.0 * 2 ** ((int(path.stem) - 69) / 12))
+            result = measure(x, rate, start, min(len(x) / rate, start + span),
+                             440.0 * 2 ** ((int(path.stem) - 69) / 12))
             if result:
                 result["file"] = path.name
                 results.append(result)
