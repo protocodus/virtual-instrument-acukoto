@@ -1107,7 +1107,8 @@ struct Mode
     double b0 { 0.0 }, a1 { 0.0 }, a2 { 0.0 };
     BarVector participation {};  // each ji's heave, then each ji's tip
     // Each microphone's pressure per unit of the mode's volume acceleration,
-    // W = in phase + j quadrature at the mode's frequency.
+    // W = in phase + j quadrature at the mode's frequency, which the mode
+    // keeps at every frequency (PhaseNetwork).
     double radiationLeft { 0.0 }, radiationLeftQuadrature { 0.0 };
     double radiationRight { 0.0 }, radiationRightQuadrature { 0.0 };
     double monopole { 0.0 };
@@ -1132,6 +1133,57 @@ struct ModeBank
     int evenEnd { 0 }, oddEnd { 0 }, count { 0 };
     std::array<std::array<double, capacity>, barCoordinates> drive {}, pull {};
     std::array<double, capacity> a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
+};
+
+// Each mode radiates j w W times its velocity, with W found at its own
+// frequency and kept at every other, its quadrature part as its in-phase
+// part. Multiplying by j is a 90-degree shift, which no filter makes
+// exactly: these two chains of first-order all-passes, (p - s) / (p + s)
+// bilinear, hold their outputs 90 degrees apart within 0.65 degrees from
+// 15 Hz to 20 kHz at 48 kHz and every higher rate (to 18.7 kHz at 44.1 kHz).
+// The poles are an equiripple fit, in rad/s, prewarped at 48 kHz. The phase
+// both chains share delays the low end against the highs, about 3 ms at
+// 100 Hz.
+//
+// The quadrature once took -w_m Im W times the velocity, which is j w W
+// only at the mode's own frequency w_m: below it each mode's quadrature was
+// w_m / w times too large, and below the modes they summed to a sound of
+// their own. Against the full radiation sum (Kirchhoff's grid, W found at
+// each frequency instead of w_m), in third octaves over every ji and both
+// microphones, that put 6 to 9 dB too much into 50 to 63 Hz, and at D3's ji
+// 4 to 5 dB around its fundamental, where it stood 12 dB over what the
+// body's modes radiate. Keeping W is within 1.6 dB of the full sum from 50 Hz
+// to 5 kHz, as the old form was only from 200 Hz; above 5 kHz both run 2 to
+// 4 dB over it.
+struct PhaseNetwork
+{
+    static constexpr int sections = 6;
+    static constexpr std::array<double, sections> inPhasePoles { 40.5732, 370.095, 1872.57, 9077.54, 43889.4, 228218.0 };
+    static constexpr std::array<double, sections> quadraturePoles { 151.443, 839.834, 4151.93, 19980.1, 95894.8, 844886.0 };
+    // Each section's c in (c + z^-1) / (1 + c z^-1).
+    std::array<double, sections> inPhase {}, quadrature {};
+
+    void design(double fs) noexcept
+    {
+        for (int i = 0; i < sections; ++i)
+        {
+            inPhase[static_cast<std::size_t>(i)] = (inPhasePoles[static_cast<std::size_t>(i)] - 2.0 * fs)
+                                                 / (inPhasePoles[static_cast<std::size_t>(i)] + 2.0 * fs);
+            quadrature[static_cast<std::size_t>(i)] = (quadraturePoles[static_cast<std::size_t>(i)] - 2.0 * fs)
+                                                    / (quadraturePoles[static_cast<std::size_t>(i)] + 2.0 * fs);
+        }
+    }
+
+    static double run(const std::array<double, sections>& c, std::array<double, sections>& state, double x) noexcept
+    {
+        for (std::size_t i = 0; i < sections; ++i)
+        {
+            const double y = c[i] * x + state[i];
+            state[i] = x - c[i] * y;
+            x = y;
+        }
+        return x;
+    }
 };
 
 // Runs the bank's modes [from, to) one sample on over the coordinates C,
@@ -2085,6 +2137,9 @@ struct BeamModes
 };
 
 // Scratch for designBody: about 3.5 MB, held with the engine's state.
+constexpr int archStations = 160;
+constexpr int archSamples = 24;
+
 struct BodyWork
 {
     std::array<double, static_cast<std::size_t>(maxBodyDofs) * maxBodyDofs> matrix {};
@@ -2105,6 +2160,10 @@ struct BodyWork
     std::array<std::array<double, gridAlong>, maxWallOrder + 1> wallAlong {};
     std::array<std::array<double, wallSamples>, maxWallModes> wallAcross {};
     std::array<std::array<double, wallSamples>, maxWallOrder + 1> orderSum {};
+    // The arch (designBody): each wall order's along integral against each
+    // other's, and each wall mode's outward motion across the top.
+    std::array<std::array<double, maxWallOrder + 1>, maxWallOrder + 1> archAlong {};
+    std::array<std::array<double, archSamples>, maxWallModes> archOut {};
     std::array<double, gridPoints> area {}, displacement {};
     // At each microphone, then at each from the patch's image in the floor.
     std::array<std::array<double, gridPoints>, 4> distance {}, directivity {};
@@ -2519,6 +2578,100 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
         const double omega = 2.0 * pi * walls.frequency[static_cast<std::size_t>(j)];
         at(wallBase + j, wallBase + j) = omega * omega;
         mass[static_cast<std::size_t>(wallBase + j)] = 1.0;
+    }
+
+    // The top is arched along the body, its depth rising as sin(pi x / L)
+    // (sectionAt), so it curves along it by 1/R = (middleDepth - endDepth)
+    // (pi / L)^2 sin(pi x / L), 1 / 5.6 m in the middle. Moving out by w
+    // stretches a shell curved so by w / R along it, and the box's bending
+    // stretches the top by -lever w'' (lever: the top's mid-thickness over
+    // the section's centroid). Its longitudinal strain energy, 1/2 E_L t
+    // (-lever w'' + w / R)^2 over the top, couples the vertical bending to
+    // the walls' modes and stiffens them by E_L t (w / R)^2: the box changes
+    // its volume as it bends, which a straight box cannot, so its first
+    // bending radiates as Coaldrake's acoustic camera found it does (ICA
+    // 2019). The top's own give along the body is left out (it moves as the
+    // box's section), so this is the coupling's upper bound. The strip
+    // section's span stands for the top's width at every station, as it
+    // does for the walls' own modes.
+    {
+        const double ea = body.wood.eL * body.topThickness;
+        const double dy = 2.0 * strip.halfSpan / archSamples, dx = cavity / archStations;
+        const double h = length / beamElements;
+        // The top's lever is quadratic across it (topSurface), so each wall
+        // mode needs only its outward motion's zeroth and second moments.
+        std::array<double, maxWallModes> moment0 {}, moment2 {};
+        for (int iy = 0; iy < archSamples; ++iy)
+        {
+            const double y = strip.halfSpan * (2.0 * (iy + 0.5) / archSamples - 1.0);
+            int e;
+            double t;
+            topFacet(strip, y, e, t);
+            for (int k = 0; k < walls.count; ++k)
+            {
+                double across, up, out;
+                wallDisplacement(strip, walls.shape[static_cast<std::size_t>(k)], e, t, across, up, out);
+                work.archOut[static_cast<std::size_t>(k)][static_cast<std::size_t>(iy)] = out;
+                moment0[static_cast<std::size_t>(k)] += out * dy;
+                moment2[static_cast<std::size_t>(k)] += y * y * out * dy;
+            }
+        }
+        std::array<bool, maxWallOrder + 1> used {};
+        for (int k = 0; k < walls.count; ++k)
+            used[static_cast<std::size_t>(walls.order[static_cast<std::size_t>(k)])] = true;
+        for (auto& row : work.archAlong)
+            row.fill(0.0);
+        for (int ix = 0; ix < archStations; ++ix)
+        {
+            const double x = body.cavityStart + (ix + 0.5) * dx;
+            const double curvature = (body.middleDepth - body.endDepth) * (pi / length) * (pi / length)
+                                   * std::sin(pi * x / length);
+            const Section section = sectionAt(body, x, true);
+            const double crown = std::min(body.crown, 0.5 * section.depth);
+            // lever(y) = rise - crown (2y / width)^2, rise its value on the axis.
+            const double rise = section.sideHeight + crown - 0.5 * body.topThickness - section.centroid;
+            const double fall = 4.0 * crown / (section.width * section.width);
+            for (int j = 0; j < work.vertical.count; ++j)
+            {
+                const double bend = (beamAt(work.vertical, j, x + h, length) - 2.0 * beamAt(work.vertical, j, x, length)
+                                     + beamAt(work.vertical, j, x - h, length)) / (h * h);
+                for (int k = 0; k < walls.count; ++k)
+                {
+                    const auto kk = static_cast<std::size_t>(k);
+                    const double along = wallAlongAt(walls.order[kk], x);
+                    const double coupling = -ea * bend * curvature * along
+                                          * (rise * moment0[kk] - fall * moment2[kk]) * dx;
+                    at(j, wallBase + k) += coupling;
+                    at(wallBase + k, j) += coupling;
+                }
+            }
+            for (int a = 1; a <= maxWallOrder; ++a)
+            {
+                if (!used[static_cast<std::size_t>(a)])
+                    continue;
+                for (int b = a; b <= maxWallOrder; ++b)
+                    if (used[static_cast<std::size_t>(b)])
+                        work.archAlong[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)]
+                            += curvature * curvature * wallAlongAt(a, x) * wallAlongAt(b, x) * dx;
+            }
+        }
+        for (int k = 0; k < walls.count; ++k)
+            for (int l = k; l < walls.count; ++l)
+            {
+                const int a = std::min(walls.order[static_cast<std::size_t>(k)], walls.order[static_cast<std::size_t>(l)]);
+                const int b = std::max(walls.order[static_cast<std::size_t>(k)], walls.order[static_cast<std::size_t>(l)]);
+                const double along = work.archAlong[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)];
+                if (along == 0.0)
+                    continue;
+                double across = 0.0;
+                for (int iy = 0; iy < archSamples; ++iy)
+                    across += work.archOut[static_cast<std::size_t>(k)][static_cast<std::size_t>(iy)]
+                            * work.archOut[static_cast<std::size_t>(l)][static_cast<std::size_t>(iy)];
+                const double stiffness = ea * along * across * dy;
+                at(wallBase + k, wallBase + l) += stiffness;
+                if (l != k)
+                    at(wallBase + l, wallBase + k) += stiffness;
+            }
     }
 
     // The air: a chain of segments along the cavity, each a compliance
@@ -3045,6 +3198,9 @@ struct AcukotoEngine::State
     BodyWork work {};
 
     double radiationScale { 0.0 };
+    PhaseNetwork phase {};
+    // In phase left, quadrature left, in phase right, quadrature right.
+    std::array<std::array<double, PhaseNetwork::sections>, 4> phaseState {};
     double previousLeft { 0.0 };
     double previousRight { 0.0 };
     double pressureLeft { 0.0 };
@@ -3147,6 +3303,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         mode.a2 = (k * k - damping * k + omega * omega) / d0;
     }
     s.radiationScale = airDensity / (4.0 * pi * pairDistance) * 2.0 * fs;
+    s.phase.design(fs);
 
     // ---- The strings ----------------------------------------------------
     const StringMaterial& material = instrument.material;
@@ -3317,15 +3474,14 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         bank.a2[k] = mode.a2;
         // Its share of the volume acceleration (process()) carries the
         // k / 2fs of its bilinear design, k = w / tan(w / 2fs), so the shared
-        // differentiator, j tan(w / 2fs), gives it j w / 2fs. The part in
-        // quadrature bypasses that differentiator: j w / 2fs times j Im W is
-        // -w / 2fs Im W, in phase with the velocity.
+        // differentiator, j tan(w / 2fs), gives it j w / 2fs; the part in
+        // quadrature takes its j from PhaseNetwork.
         const double omega = 2.0 * pi * mode.frequency;
         const double warp = omega / std::tan(omega / (2.0 * fs)) / (2.0 * fs);
         bank.left[k] = mode.radiationLeft * warp;
         bank.right[k] = mode.radiationRight * warp;
-        bank.leftQuadrature[k] = -omega / (2.0 * fs) * mode.radiationLeftQuadrature;
-        bank.rightQuadrature[k] = -omega / (2.0 * fs) * mode.radiationRightQuadrature;
+        bank.leftQuadrature[k] = mode.radiationLeftQuadrature * warp;
+        bank.rightQuadrature[k] = mode.radiationRightQuadrature * warp;
     }
     bank.count = (bank.count + ModeBank::lanes - 1) / ModeBank::lanes * ModeBank::lanes;
     bank.evenEnd = bank.oddEnd = 0;
@@ -3526,6 +3682,7 @@ void AcukotoEngine::reset() noexcept
     s.modalPastStale = true;
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
+    s.phaseState = {};
     s.piezoPreviousForce = s.piezoPrevious = 0.0;
     s.piezoMountZ1 = s.piezoMountZ2 = 0.0;
     s.room.reset();
@@ -4114,6 +4271,7 @@ void AcukotoEngine::sleep() noexcept
     s.lastGeneralizedVelocity = {};
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
+    s.phaseState = {};
     s.piezoPreviousForce = s.piezoPrevious = 0.0;
     s.piezoMountZ1 = s.piezoMountZ2 = 0.0;
     s.room.reset();
@@ -4303,15 +4461,17 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // transform compresses toward Nyquist: at 48 kHz each instrument's
         // 10 to 16 kHz fell 3.4 to 3.6 dB below its 4x sound, and the
         // acceleration brought it to 1.7 to 2.0. The parts in quadrature
-        // join after the recursion (the bank's weights).
-        const double inPhaseLeft = (radiatedLeft - s.previousLeft) * s.radiationScale - s.pressureLeft;
-        const double inPhaseRight = (radiatedRight - s.previousRight) * s.radiationScale - s.pressureRight;
-        s.previousLeft = radiatedLeft;
-        s.previousRight = radiatedRight;
-        s.pressureLeft = inPhaseLeft;
-        s.pressureRight = inPhaseRight;
-        const double pressureLeft = inPhaseLeft + s.radiationScale * quadratureLeft;
-        const double pressureRight = inPhaseRight + s.radiationScale * quadratureRight;
+        // join before it, 90 degrees on (PhaseNetwork).
+        const double volumeLeft = PhaseNetwork::run(s.phase.inPhase, s.phaseState[0], radiatedLeft)
+                                + PhaseNetwork::run(s.phase.quadrature, s.phaseState[1], quadratureLeft);
+        const double volumeRight = PhaseNetwork::run(s.phase.inPhase, s.phaseState[2], radiatedRight)
+                                 + PhaseNetwork::run(s.phase.quadrature, s.phaseState[3], quadratureRight);
+        const double pressureLeft = (volumeLeft - s.previousLeft) * s.radiationScale - s.pressureLeft;
+        const double pressureRight = (volumeRight - s.previousRight) * s.radiationScale - s.pressureRight;
+        s.previousLeft = volumeLeft;
+        s.previousRight = volumeRight;
+        s.pressureLeft = pressureLeft;
+        s.pressureRight = pressureRight;
         for (std::size_t i = 0; i < s.output.size(); ++i)
             s.output[i] += (s.outputTarget[i] - s.output[i]) * s.outputSmoothing;
         // The room runs even unsent, so turning it up meets a live tail.

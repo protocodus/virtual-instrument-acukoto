@@ -203,7 +203,13 @@ int main()
     // pluck, it leaves G4 for that string, pressed before it is plucked:
     // B-flat 4 sounds B4. Sympathy 0 keeps the other strings still. When
     // 0.12.0 was made the new pitch stood 32 dB over the old, the old 43 dB
-    // over the new once let go, and B4 63 dB over B-flat 4.
+    // over the new once let go, and B4 63 dB over B-flat 4. How far the new
+    // pitch stands over what is left of the old depends on where the body's
+    // modes fall: 0.13.0's arched top moved the wall mode A-flat 4 sat on
+    // (416.7 Hz, now 425.9) and put one at 393.1 Hz under the old pitch's
+    // remains, and the margin fell to 16.5 dB, the old pitch itself as low as
+    // before. Unpressed, the old pitch stands 64 dB over the new, so
+    // 10 dB still tells a press from none.
     acukoto::PlayingControls open = acukoto::Performer::defaultControls(0);
     open.sympathy = 0.0;
     acukoto::PlayingControls hand = open;
@@ -211,7 +217,7 @@ int main()
     const auto bent = render(*performer, { { 0.0, 67, 0.7f } }, 1.5, { 256 },
                              { { 0.0, open }, { 0.3, hand }, { 0.9, open } });
     const double up = peakDb(bent, rate, 0.5, 0.9, 415.3, 0.01) - peakDb(bent, rate, 0.5, 0.9, 392.0, 0.01);
-    check(up > 20.0, "the hand's press does not raise the last string", up);
+    check(up > 10.0, "the hand's press does not raise the last string", up);
     const double down = peakDb(bent, rate, 1.1, 1.5, 392.0, 0.01) - peakDb(bent, rate, 1.1, 1.5, 415.3, 0.01);
     check(down > 20.0, "the hand's press does not let go", down);
     const auto moved = render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 70, 0.7f } }, 0.8, { 256 },

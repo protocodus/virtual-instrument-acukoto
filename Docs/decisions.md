@@ -8,6 +8,39 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-10-31 — The arched top moves with the box's bending
+
+**Decided:** whether the box's bending changes its volume. The owner found
+the lower tones unrealistic. Against professional recordings, D3's
+fundamental was 20 dB too weak and D4's died 2.2 times too fast. Before
+0.13.0 the box's bending moved the top and the back together, so it radiated
+nothing, where Coaldrake's acoustic camera found the first bending among a
+koto's strongest radiators.
+
+- **A**, the shipping 0.12.0.
+- **B**, A with the radiation's quadrature corrected. This is a correction,
+  decided by measurement against the model's full radiation sum
+  ([comparison](validation/low-notes-2026-10-31.md)), and it ships either
+  way.
+- **C**, B with the arched top coupled to the bending: the top's longitudinal
+  strain energy over its arch, with no new constants. It leaves out the
+  top's own give along the body, so it is the coupling's upper bound.
+
+The measurements split. C's balance of fundamental and second partial is
+the closest of the three: mean error 9.92, 9.32 and 8.31 dB against the
+five recordings, and 6.86, 6.59 and 6.47 dB early shape error against 18
+tracks. Its decays over 18 tracks are the furthest: 1.48x, 1.59x and 1.66x.
+
+**Chosen:** C shipped as 0.13.0, because the measurements favour it on the
+low strings the owner asked about. Shipping it follows the project's rule
+that a candidate wins unless the owner says otherwise. The lettered set
+(`listening-tests/2026-10-31-low-notes/` in the project files, not
+committed) was sent to the owner the same night, and **no choice has been
+made by ear yet**. Record the owner's choice here when it comes.
+
+**Licensed:** the arch's coupling and membrane stiffness in `designBody`, and
+`PhaseNetwork` for the quadrature.
+
 ## 2026-10-31 — A press reaches 103% of its interval
 
 **Decided:** how far a key's press raises its string. Pressed by the interval
