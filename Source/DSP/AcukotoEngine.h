@@ -181,11 +181,22 @@ struct PlayingControls
     double width { 1.0 };       // stereo width, 0 (mono) to 2
     double volume { 1.0 };      // gain on the instrument's outputGain
     double pitchBend { 0.0 };   // semitones, on every string
+    // The left hand pressing the last plucked string behind its ji, 0-3
+    // semitones on top of its note's own press: ato-oshi, oshi-hanashi and
+    // yuri played on purpose (a front end's pitch wheel up). It follows the
+    // hand at once; a string the hand leaves for another lets go of it.
+    double handPress { 0.0 };
     // Oshide follows the notes played: a note one or two semitones above a
     // string's own, which no string is tuned to, presses the nearest string
     // below up to it before the pluck. The press holds while the string
     // sounds, and lets go once it has died away or is plucked again.
     bool oshide { true };
+    // With oshide, a note played legato that a held, sounding string reaches
+    // by its press alone moves the press without a pluck (ato-oshi). Off,
+    // every note is plucked: on a keyboard, notes overlap without a player
+    // meaning to slur, and 4 of 15 notes of a scale played with 30 ms
+    // overlaps were bent instead of plucked (0.11.1).
+    bool legato { false };
 };
 
 class AcukotoEngine
@@ -203,10 +214,10 @@ public:
     // two semitones below, pressed up to it). Any other key from A0 to C8
     // plays the nearest string below it with its ji moved to the key, past
     // the strings an artificial range no koto has; keys outside A0-C8 are
-    // ignored. With oshide, a note played legato that
-    // a held, sounding string reaches by its press alone, while no other key
-    // is down, moves the press without a pluck (ato-oshi, or letting the
-    // press go).
+    // ignored. With oshide and legato, a note played legato that a held,
+    // sounding string reaches by its press alone, while no other key is
+    // down, moves the press without a pluck (ato-oshi, or letting the press
+    // go).
     void noteOn(int midiNote, float velocity) noexcept;
     // The playing hand damps the string (PlayingControls::release), unless
     // sustain holds it.
@@ -235,7 +246,7 @@ public:
         double energy;  // as stringEnergy()
         bool held;      // its key is down or sustain holds it
         bool plucked;   // played, and still sounding from that pluck
-        bool raised;    // the left hand presses it
+        bool raised;    // the left hand presses it, for its note or by handPress
     };
     [[nodiscard]] StringActivity stringActivity(int string) const noexcept;
     // Asleep: everything has died away below -170 dBFS, so process() writes

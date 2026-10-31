@@ -1,8 +1,10 @@
 // The Performer's contracts: a render is deterministic and does not depend on
 // how the host splits it into blocks, every sample is finite at the host
 // rates, a pluck dies away, the palm across the strings stops it sooner, a
-// legato step to a pressed note is pressed, not plucked, unless it joins a
-// chord, a pressed note keeps its pitch after its key-up, a chord's pressed
+// legato step to a pressed note is pressed, not plucked, with Legato on and
+// unless it joins a chord, and plucked with Legato off, the left hand's
+// press raises the last plucked string and leaves it for the next, a
+// pressed note keeps its pitch after its key-up, a chord's pressed
 // note leaves a held string alone when another will do, a key struck twice
 // is let go at its last key-up, and Sympathy at 0 rests the whole of every
 // string nobody plays.
@@ -43,18 +45,27 @@ const std::vector<Note> phrase { { 0.00, 50, 0.7f }, { 0.15, 55, 0.6f }, { 0.30,
                                  { 1.20, 70, 0.6f }, { 1.35, 74, 0.6f }, { 1.50, 75, 0.6f }, { 1.65, 79, 0.6f },
                                  { 1.80, 81, 0.6f }, { 2.20, 62, 0.9f }, { 2.20, 74, 0.8f }, { 2.80, 72, 0.7f } };
 
+struct Change
+{
+    double seconds;
+    acukoto::PlayingControls controls;
+};
+
 // Renders `phrase` (or one note) for `seconds` in blocks that cycle through
-// `blocks`, notes at their sample, the left and right channels interleaved.
+// `blocks`, notes and control changes at their sample, the left and right
+// channels interleaved.
 std::vector<float> render(acukoto::Performer& performer, const std::vector<Note>& notes, double seconds,
-                          const std::vector<int>& blocks)
+                          const std::vector<int>& blocks, const std::vector<Change>& changes = {})
 {
     performer.reset();
     const double rate = performer.engine().sampleRate() / performer.oversampling();
     const auto total = static_cast<std::size_t>(seconds * rate);
     std::vector<float> left(total), right(total);
-    std::size_t done = 0, next = 0, cycle = 0;
+    std::size_t done = 0, next = 0, cycle = 0, change = 0;
     while (done < total)
     {
+        while (change < changes.size() && static_cast<std::size_t>(changes[change].seconds * rate) <= done)
+            performer.setControls(changes[change++].controls);
         while (next < notes.size() && static_cast<std::size_t>(notes[next].seconds * rate) <= done)
         {
             if (notes[next].velocity > 0.0f)
@@ -66,6 +77,8 @@ std::vector<float> render(acukoto::Performer& performer, const std::vector<Note>
         std::size_t until = total;
         if (next < notes.size())
             until = std::min(until, static_cast<std::size_t>(notes[next].seconds * rate));
+        if (change < changes.size())
+            until = std::min(until, static_cast<std::size_t>(changes[change].seconds * rate));
         const auto frames = std::min<std::size_t>(static_cast<std::size_t>(blocks[cycle++ % blocks.size()]),
                                                    std::max<std::size_t>(until - done, 1));
         performer.process(left.data() + done, right.data() + done, static_cast<int>(frames));
@@ -157,9 +170,19 @@ int main()
     // string is pressed, not plucked again. A re-pluck stands far over the
     // ringing string (20.9 dB a second after the first pluck in the
     // listening set, Docs/decisions.md 2026-10-30); the press moves it by
-    // well under 3.
+    // well under 3. Legato off, the step is plucked, on E-flat 4 pressed a
+    // semitone (15.8 dB over D4 alone when 0.12.0 was made), and D4 rings
+    // on unpressed.
     performer->setControls(acukoto::Performer::defaultControls(0));
     const auto ringing = render(*performer, { { 0.0, 62, 0.7f } }, 0.7, { 256 });
+    const auto plucked = render(*performer, { { 0.0, 62, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(rmsDb(plucked, rate, 0.5, 0.7) > rmsDb(ringing, rate, 0.5, 0.7) + 3.0, "Legato off, a step is not plucked",
+          rmsDb(plucked, rate, 0.5, 0.7) - rmsDb(ringing, rate, 0.5, 0.7));
+    check(!performer->engine().stringActivity(4).raised && performer->engine().stringActivity(5).raised,
+          "Legato off, a step bends the held string", 0.0);
+    acukoto::PlayingControls slurring = acukoto::Performer::defaultControls(0);
+    slurring.legato = true;
+    performer->setControls(slurring);
     const auto legato = render(*performer, { { 0.0, 62, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
     check(rmsDb(legato, rate, 0.5, 0.7) < rmsDb(ringing, rate, 0.5, 0.7) + 3.0, "a legato step plucks again",
           rmsDb(legato, rate, 0.5, 0.7) - rmsDb(ringing, rate, 0.5, 0.7));
@@ -172,6 +195,32 @@ int main()
     check(!performer->engine().stringActivity(4).raised, "a chord's note bends a held string", 0.0);
     check(performer->engine().stringActivity(5).raised && performer->engine().stringActivity(5).plucked,
           "a chord's pressed note is not plucked", 0.0);
+    performer->setControls(acukoto::Performer::defaultControls(0));
+
+    // The left hand's press (a front end's pitch wheel) raises the last
+    // plucked string and lets it go again: G4 pressed a semitone sounds
+    // A-flat 4, which no string is tuned to, and back. Held through the next
+    // pluck, it leaves G4 for that string, pressed before it is plucked:
+    // B-flat 4 sounds B4. Sympathy 0 keeps the other strings still. When
+    // 0.12.0 was made the new pitch stood 32 dB over the old, the old 43 dB
+    // over the new once let go, and B4 63 dB over B-flat 4.
+    acukoto::PlayingControls open = acukoto::Performer::defaultControls(0);
+    open.sympathy = 0.0;
+    acukoto::PlayingControls hand = open;
+    hand.handPress = 1.0;
+    const auto bent = render(*performer, { { 0.0, 67, 0.7f } }, 1.5, { 256 },
+                             { { 0.0, open }, { 0.3, hand }, { 0.9, open } });
+    const double up = peakDb(bent, rate, 0.5, 0.9, 415.3, 0.01) - peakDb(bent, rate, 0.5, 0.9, 392.0, 0.01);
+    check(up > 20.0, "the hand's press does not raise the last string", up);
+    const double down = peakDb(bent, rate, 1.1, 1.5, 392.0, 0.01) - peakDb(bent, rate, 1.1, 1.5, 415.3, 0.01);
+    check(down > 20.0, "the hand's press does not let go", down);
+    const auto moved = render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 70, 0.7f } }, 0.8, { 256 },
+                              { { 0.0, hand } });
+    check(performer->engine().stringActivity(8).raised && !performer->engine().stringActivity(6).raised,
+          "the hand's press does not move to the next string", 0.0);
+    const double next = peakDb(moved, rate, 0.4, 0.8, 493.9, 0.01) - peakDb(moved, rate, 0.4, 0.8, 466.2, 0.01);
+    check(next > 20.0, "the next string is not pressed before its pluck", next);
+    performer->setControls(acukoto::Performer::defaultControls(0));
 
     // A pressed note keeps its pitch after its key-up while it rings (E4,
     // E-flat 4 pressed a semitone, up after 0.2 s), and the hand leaves the
@@ -212,8 +261,8 @@ int main()
     // A D4 pressed up a whole tone by ato-oshi once had the stretch beyond
     // G5's ji, its second partial at D4's pitch, ringing on at D4 10 dB over
     // the pressed note 0.4-0.8 s after the press; resting, it falls under
-    // the pressed note by more than 20 dB (27 when 0.11.2 was made).
-    acukoto::PlayingControls resting = acukoto::Performer::defaultControls(0);
+    // the pressed note by more than 20 dB (22 when 0.11.2 was made).
+    acukoto::PlayingControls resting = slurring;
     resting.sympathy = 0.0;
     performer->setControls(resting);
     const auto pressed = render(*performer, { { 0.0, 62, 0.7f }, { 0.4, 64, 0.7f } }, 1.2, { 256 });
@@ -280,6 +329,6 @@ int main()
         }
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs, holds presses, shares chords, counts keys and rests sympathy\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses by hand, holds presses, shares chords, counts keys and rests sympathy\n");
     return failures == 0 ? 0 : 1;
 }

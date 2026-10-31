@@ -2989,6 +2989,9 @@ struct AcukotoEngine::State
         double pressRatio { 1.0 };
         // The pressing hand's force fluctuation, in standard deviations.
         double pressWaver { 0.0 };
+        // PlayingControls::handPress as a pitch ratio, where the hand has
+        // reached on this string: 1 on every string but the hand's.
+        double handRatio { 1.0 };
         double pressSmoothing { 1.0 };
         double energy { 0.0 };
         bool keyDown { false };
@@ -3080,6 +3083,10 @@ struct AcukotoEngine::State
     double muteRate { 0.0 };
     double bendTarget { 1.0 };
     double bend { 1.0 };
+    // PlayingControls::handPress as a pitch ratio, on handString: the last
+    // string plucked, or -1.
+    double handTarget { 1.0 };
+    int handString { -1 };
     // Room send, direct and crossed gain, volume, piezo blend.
     std::array<double, 5> outputTarget {};
     std::array<double, 5> output {};
@@ -3498,6 +3505,7 @@ void AcukotoEngine::reset() noexcept
         applyPitch(index, false);
         voice.pressTarget = voice.pressRatio = 1.0;
         voice.pressWaver = 0.0;
+        voice.handRatio = 1.0;
         voice.raised = false;
         voice.normal.reset();
         voice.parallel.reset();
@@ -3528,6 +3536,7 @@ void AcukotoEngine::reset() noexcept
     s.random.seed(0x5eed1ac0ffeeull);
     s.hand.seed(0x1ef7a11dull);
     s.bend = s.bendTarget;
+    s.handString = -1;
     s.output = s.outputTarget;
 }
 
@@ -3609,7 +3618,7 @@ void AcukotoEngine::updateDamping(int string) noexcept
     // at D4's pitch, rang on at D4 10 dB over a D4 pressed up a whole tone,
     // at Sympathy 0 as at 1.
     double left = s.muteRate;
-    if (voice.pressTarget > 1.0)
+    if (voice.pressTarget > 1.0 || (string == s.handString && s.handTarget > 1.0))
         left += handRate(0.0);
     else if (!voice.plucked && !voice.keyDown && !voice.sustained)
         left += s.sympathyRate;
@@ -3633,6 +3642,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     c.volume = c.volume >= 0.0 && c.volume <= 4.0 ? c.volume : (c.volume > 4.0 ? 4.0 : 0.0);
     c.pitchBend = c.pitchBend >= -12.0 && c.pitchBend <= 12.0 ? c.pitchBend
                                                                : (c.pitchBend > 12.0 ? 12.0 : 0.0);
+    c.handPress = c.handPress >= 0.0 && c.handPress <= 3.0 ? c.handPress : (c.handPress > 3.0 ? 3.0 : 0.0);
 
     s.releaseRate = handRate(c.release);
     s.sympathyRate = handRate(c.sympathy);
@@ -3643,6 +3653,14 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
             s.strings[static_cast<std::size_t>(index)].dampingDirty = true;
     if (c.pitchBend != previous.pitchBend)
         s.bendTarget = std::pow(2.0, c.pitchBend / 12.0);
+    if (c.handPress != previous.handPress)
+    {
+        s.handTarget = std::pow(2.0, c.handPress / 12.0);
+        // The hand resting on the stretch beyond the ji comes and goes with
+        // the press.
+        if (s.handString >= 0 && (c.handPress > 0.0) != (previous.handPress > 0.0))
+            s.strings[static_cast<std::size_t>(s.handString)].dampingDirty = true;
+    }
     // Mid/side: width 1 is the two microphones as they are.
     s.outputTarget = { 0.5 * c.room, 0.5 * (1.0 + c.width), 0.5 * (1.0 - c.width), c.volume, 0.0 };
     // A silent engine has nothing to glide: take the controls at once, as
@@ -3652,6 +3670,8 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     {
         s.output = s.outputTarget;
         s.bend = s.bendTarget;
+        if (s.handString >= 0)
+            s.strings[static_cast<std::size_t>(s.handString)].handRatio = s.handTarget;
     }
 }
 
@@ -3668,11 +3688,11 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     // plucked there, as a player would. Only a single line slurs: with any
     // other key down, the new note belongs to a chord and is plucked (the
     // owner's call from playing the Rack device, Docs/decisions.md
-    // 2026-10-31).
+    // 2026-10-31). PlayingControls::legato turns it on.
     int keysDown = 0;
     for (int string = 0; string < stringCount_; ++string)
         keysDown += state_->strings[static_cast<std::size_t>(string)].keyDown ? 1 : 0;
-    if (controls_.oshide && keysDown == 1)
+    if (controls_.oshide && controls_.legato && keysDown == 1)
         for (int string = 0; string < stringCount_; ++string)
         {
             State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
@@ -3762,6 +3782,16 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     }
     s.quietSamples = 0;
     State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+    // The left hand follows the right to the string it plucks and presses it
+    // by handPress before the pluck; the string it leaves lets go.
+    if (s.handString != index)
+    {
+        if (s.handString >= 0)
+            s.strings[static_cast<std::size_t>(s.handString)].dampingDirty = true;
+        s.handString = index;
+        voice.dampingDirty = true;
+    }
+    voice.handRatio = s.handTarget;
     const InstrumentSpec& instrument = s.instrument;
     const PlayingControls& controls = controls_;
     const double v = std::clamp(static_cast<double>(velocity), 0.0, 1.0);
@@ -4163,8 +4193,11 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 {
                     voice.pressWaver = 0.0;
                 }
+                // The hand's press follows it as the bend does.
+                voice.handRatio += ((index == s.handString ? s.handTarget : 1.0) - voice.handRatio)
+                                 * s.bendSmoothing;
                 const double ratio = (tensionModulation_
-                    ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press;
+                    ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press * voice.handRatio;
                 for (Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
                     loop->setLineDelay(loop->lineDelayAt(ratio));
                 // The mean follows the period the bend and the glide set.
@@ -4358,7 +4391,8 @@ AcukotoEngine::StringActivity AcukotoEngine::stringActivity(int string) const no
     if (string < 0 || string >= stringCount_)
         return {};
     const auto& voice = state_->strings[static_cast<std::size_t>(string)];
-    return { voice.energy, voice.keyDown || voice.sustained, voice.plucked, voice.raised };
+    const bool pressedByHand = string == state_->handString && state_->handTarget > 1.0;
+    return { voice.energy, voice.keyDown || voice.sustained, voice.plucked, voice.raised || pressedByHand };
 }
 
 int AcukotoEngine::modeCount() const noexcept { return state_->modeCount; }

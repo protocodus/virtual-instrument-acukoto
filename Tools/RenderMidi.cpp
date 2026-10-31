@@ -1,12 +1,14 @@
 // Renders a standard MIDI file through Acukoto to a 48 kHz 24-bit stereo WAV.
 //
 //   RenderAcukotoMidi <preset 0-1> <input.mid> <output.wav>
-//       [--dry] [--no-sympathy] [--tail seconds] [--rate hz]
+//       [--dry] [--no-sympathy] [--legato] [--tail seconds] [--rate hz]
 //   RenderAcukotoMidi --report <preset>
 //
-// Note on/off and CC64 (sustain) drive the Performer, the shipping signal
-// path with its output stage, at their sample; everything else in the file
-// is ignored. The Performer's latency is trimmed off the start.
+// Note on/off, CC64 (sustain) and the pitch wheel drive the Performer, the
+// shipping signal path with its output stage, at their sample; everything
+// else in the file is ignored. The wheel up is the left hand pressing the
+// last plucked string, a whole tone at the top, as on the Rack device; down
+// does nothing. The Performer's latency is trimmed off the start.
 
 #include "../Source/DSP/AcukotoEngine.h"
 #include "../Source/DSP/AcukotoPerformer.h"
@@ -204,13 +206,13 @@ int main(int argc, char** argv)
         if (argc < 4)
         {
             std::cerr << "usage: RenderAcukotoMidi <preset 0-1> <input.mid> <output.wav> "
-                         "[--dry] [--no-sympathy] [--tail seconds] [--rate hz]\n";
+                         "[--dry] [--no-sympathy] [--legato] [--tail seconds] [--rate hz]\n";
             return 2;
         }
         const int preset = std::clamp(std::atoi(argv[1]), 0, acukoto::Performer::instrumentCount - 1);
         const std::string input = argv[2];
         const std::string output = argv[3];
-        bool dry = false, sympathy = true;
+        bool dry = false, sympathy = true, legato = false;
         double tail = 2.5;
         int rate = 48000;
         for (int i = 4; i < argc; ++i)
@@ -218,6 +220,7 @@ int main(int argc, char** argv)
             const std::string option = argv[i];
             if (option == "--dry") dry = true;
             else if (option == "--no-sympathy") sympathy = false;
+            else if (option == "--legato") legato = true;
             else if (option == "--tail" && i + 1 < argc) tail = std::atof(argv[++i]);
             else if (option == "--rate" && i + 1 < argc) rate = std::atoi(argv[++i]);
         }
@@ -229,6 +232,7 @@ int main(int argc, char** argv)
             controls.room = 0.0;
         if (!sympathy)
             controls.sympathy = 0.0;
+        controls.legato = legato;
         performer->setControls(controls);
         const auto latency = static_cast<std::size_t>(performer->latency());
 
@@ -252,6 +256,11 @@ int main(int argc, char** argv)
                     performer->noteOff(e.data1);
                 else if (kind == 0xb0 && e.data1 == 64)
                     performer->setSustain(e.data2 >= 64);
+                else if (kind == 0xe0)
+                {
+                    controls.handPress = std::max(0, (e.data2 << 7 | e.data1) - 8192) / 8191.0 * 2.0;
+                    performer->setControls(controls);
+                }
             }
             std::size_t blockEnd = std::min(total, position + blockSize);
             if (next < events.size())

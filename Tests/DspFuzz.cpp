@@ -86,6 +86,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             case 6: performer.noteOff(static_cast<int>(input.Byte()) - 64); break;
             case 7: performer.setSustain(input.Byte() & 1); break;
             case 8: performer.setInstrument(static_cast<int>(input.Byte()) - 64); break;
+            case 9: controls.handPress = input.Scalar() * 4.0f - 1.0f; break;
+            case 10: controls.legato = input.Byte() & 1; break;
             default: break;
         }
         performer.setControls(controls);
