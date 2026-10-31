@@ -11,6 +11,10 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.10.1 — 2026-10-31 — A reset plays as a fresh instance
+
+A reset (a host's audio reset, before a bounce) now plays as a freshly prepared instance does, sample for sample. Before, strings whose tension had glided kept their glided length, the delay lines and the body kept their history, and a fresh instance faded its output in over its first notes where a reset one did not.
+
 ### 0.10.0 — 2026-10-31 — Every key of a piano sounds
 
 Every key from A0 to C8 now sounds at its own pitch, as the Reason Rack Extension requires. A key that no string sounds and no press reaches (F♯3, C♯4, F♯4 and so on in hirajoshi) plays the nearest string below it with its ji moved to the key, at the string's own tension, as a player retunes a string by moving its ji. Below D3 the lowest string and above A5 the highest are moved the same way. Below about B2 the ji would stand past the unkaku and above about C6 nearer the ryukaku than the tsume plays: no koto has those strings, so that range is artificial. With oshide off, the notes a press would play also sound on a moved ji. The thirteen strings' own notes, the presses and the demos are unchanged.

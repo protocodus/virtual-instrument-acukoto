@@ -149,6 +149,51 @@ int main()
             check(rmsDb(out, hostRate, 0.0, 3.5) > -60.0, "silent at this rate", hostRate);
         }
 
+    // An audio reset leaves nothing of what was played: after a phrase that
+    // bends, presses a string (oshide), moves a ji and leaves notes ringing,
+    // a reset plays the next phrase sample for sample as a freshly prepared
+    // Performer does, in both tunings, at 1x and 2x, with the room heard.
+    for (int instrument = 0; instrument < acukoto::Performer::instrumentCount; ++instrument)
+        for (const int oversampling : { 1, 2 })
+        {
+            const auto phrase = [instrument] (acukoto::Performer& performer, double bend)
+            {
+                acukoto::PlayingControls controls = acukoto::Performer::defaultControls(instrument);
+                controls.room = 1.0;
+                controls.pitchBend = bend;
+                performer.setControls(controls);
+                performer.setInstrument(instrument);
+                std::vector<float> out;
+                std::vector<float> l(64), r(64);
+                for (int block = 0; block < 200; ++block)
+                {
+                    if (block == 0)
+                        for (const int note : { 55, 62, 67, 61 })
+                            performer.noteOn(note, 1.0f);
+                    if (block == 80)
+                    {
+                        performer.noteOff(62);
+                        performer.noteOn(64, 0.8f);
+                    }
+                    performer.process(l.data(), r.data(), 64);
+                    out.insert(out.end(), l.begin(), l.end());
+                    out.insert(out.end(), r.begin(), r.end());
+                }
+                return out;
+            };
+            auto fresh = std::make_unique<acukoto::Performer>();
+            fresh->prepare(48000.0, oversampling);
+            auto played = std::make_unique<acukoto::Performer>();
+            played->prepare(48000.0, oversampling);
+            phrase(*played, 1.5);
+            played->reset();
+            const auto a = phrase(*fresh, 0.0), b = phrase(*played, 0.0);
+            double worst = 0.0;
+            for (std::size_t i = 0; i < a.size(); ++i)
+                worst = std::max(worst, static_cast<double>(std::abs(a[i] - b[i])));
+            check(a == b, "a reset plays as a fresh instance, sample for sample (largest difference)", worst);
+        }
+
     if (failures == 0)
         std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes and slurs\n");
     return failures == 0 ? 0 : 1;

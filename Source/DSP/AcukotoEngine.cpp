@@ -952,6 +952,9 @@ struct Loop
     void reset() noexcept
     {
         silence();
+        // Back to where prepare() leaves the line, so a reset plays as a
+        // fresh instance does, sample for sample.
+        write = 0;
         damping = dampingTarget = 1.0;
         dampingStep = 0.0;
         setLineDelay(restLineDelay);
@@ -3484,9 +3487,9 @@ void AcukotoEngine::reset() noexcept
     for (int index = 0; index < stringCount_; ++index)
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
-        // Every ji back in its place, as a fresh instance has them.
-        if (voice.extensionKey >= 0)
-            applyPitch(index, false);
+        // Every ji back in its place, as a fresh instance has them, and
+        // always: a ringing string's round trip follows its tension glide.
+        applyPitch(index, false);
         voice.pressTarget = voice.pressRatio = 1.0;
         voice.pressWaver = 0.0;
         voice.pressNote = -1;
@@ -3497,6 +3500,7 @@ void AcukotoEngine::reset() noexcept
         voice.leftParallel.reset();
         voice.squares.fill(0.0f);
         voice.squaresSum = 0.0;
+        voice.squaresIndex = 0;
         voice.energy = 0.0;
         voice.keyDown = voice.sustained = voice.plucked = false;
         voice.ownerNote = -1;
@@ -3504,6 +3508,7 @@ void AcukotoEngine::reset() noexcept
     }
     s.bank.s1.fill(0.0);
     s.bank.s2.fill(0.0);
+    s.modalPast = {};
     s.modalPastStale = true;
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
@@ -3625,6 +3630,14 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
         s.bendTarget = std::pow(2.0, c.pitchBend / 12.0);
     // Mid/side: width 1 is the two microphones as they are.
     s.outputTarget = { 0.5 * c.room, 0.5 * (1.0 + c.width), 0.5 * (1.0 - c.width), c.volume, 0.0 };
+    // A silent engine has nothing to glide: take the controls at once, as
+    // process() does while idle, so the first pluck after prepare() sounds
+    // as one after reset() does rather than fading in from zero.
+    if (s.idle)
+    {
+        s.output = s.outputTarget;
+        s.bend = s.bendTarget;
+    }
 }
 
 void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
