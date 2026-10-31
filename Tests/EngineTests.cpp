@@ -2,7 +2,10 @@
 // how the host splits it into blocks, every sample is finite at the host
 // rates, a pluck dies away, the palm across the strings stops it sooner, a
 // legato step to a pressed note is pressed, not plucked, unless it joins a
-// chord, and a pressed note keeps its pitch after its key-up.
+// chord, a pressed note keeps its pitch after its key-up, a chord's pressed
+// note leaves a held string alone when another will do, a key struck twice
+// is let go at its last key-up, and Sympathy at 0 rests the whole of every
+// string nobody plays.
 
 #include "DSP/AcukotoPerformer.h"
 
@@ -86,6 +89,28 @@ double rmsDb(const std::vector<float>& x, double rate, double from, double to)
     return 10.0 * std::log10(sum / static_cast<double>(b - a) + 1e-30);
 }
 
+// The strongest component within `spread` (a share) of `frequency`, dB, in
+// the left channel from `from` to `to` seconds, Hann-windowed.
+double peakDb(const std::vector<float>& x, double rate, double from, double to, double frequency, double spread)
+{
+    const auto a = static_cast<std::size_t>(from * rate), b = static_cast<std::size_t>(to * rate);
+    const double pi = 3.14159265358979323846;
+    double best = 0.0;
+    for (double f = frequency * (1.0 - spread); f <= frequency * (1.0 + spread); f += 0.25)
+    {
+        double re = 0.0, im = 0.0;
+        for (std::size_t i = a; i < b; ++i)
+        {
+            const double w = 0.5 - 0.5 * std::cos(2.0 * pi * static_cast<double>(i - a) / static_cast<double>(b - a));
+            const double phase = 2.0 * pi * f * static_cast<double>(i) / rate;
+            re += w * x[2 * i] * std::cos(phase);
+            im -= w * x[2 * i] * std::sin(phase);
+        }
+        best = std::max(best, re * re + im * im);
+    }
+    return 10.0 * std::log10(best + 1e-30);
+}
+
 bool finite(const std::vector<float>& x)
 {
     return std::all_of(x.begin(), x.end(), [] (float v) { return std::isfinite(v); });
@@ -163,6 +188,39 @@ int main()
     check(!performer->engine().stringActivity(5).raised, "a press outlasts its stopped string", 0.0);
     performer->setControls(acukoto::Performer::defaultControls(0));
 
+    // A chord's pressed note leaves a string another key holds when the
+    // next one down will do: with G4 and E-flat 4 held, E4 sounds on D4
+    // pressed a whole tone, and E-flat 4 rings on unpressed.
+    render(*performer, { { 0.0, 67, 0.7f }, { 0.0, 63, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(performer->engine().stringActivity(4).raised && performer->engine().stringActivity(4).plucked,
+          "a chord's E4 is not D4 pressed", 0.0);
+    check(!performer->engine().stringActivity(5).raised && performer->engine().stringActivity(5).held,
+          "a chord's E4 takes a held E-flat 4", 0.0);
+
+    // A key struck again before its key-up (two overlapping notes of one
+    // pitch) is let go at its last key-up: with the hand stopping a let-go
+    // string (Release 0), the first key-up leaves it ringing.
+    acukoto::PlayingControls stopping = acukoto::Performer::defaultControls(0);
+    stopping.release = 0.0;
+    performer->setControls(stopping);
+    render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 67, 0.7f }, { 0.35, 67, 0.0f } }, 0.6, { 256 });
+    check(performer->engine().stringActivity(6).held, "a key's first key-up lets its second press go", 0.0);
+    render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 67, 0.7f }, { 0.35, 67, 0.0f }, { 0.5, 67, 0.0f } }, 0.6, { 256 });
+    check(!performer->engine().stringActivity(6).held, "a key's last key-up does not let it go", 0.0);
+
+    // Sympathy 0 rests every string nobody plays along its whole length.
+    // A D4 pressed up a whole tone by ato-oshi once had the stretch beyond
+    // G5's ji, its second partial at D4's pitch, ringing on at D4 10 dB over
+    // the pressed note 0.4-0.8 s after the press; resting, it falls under
+    // the pressed note by more than 20 dB (27 when 0.11.2 was made).
+    acukoto::PlayingControls resting = acukoto::Performer::defaultControls(0);
+    resting.sympathy = 0.0;
+    performer->setControls(resting);
+    const auto pressed = render(*performer, { { 0.0, 62, 0.7f }, { 0.4, 64, 0.7f } }, 1.2, { 256 });
+    const double old = peakDb(pressed, rate, 0.8, 1.2, 294.1, 0.006), now = peakDb(pressed, rate, 0.8, 1.2, 330.0, 0.01);
+    check(old < now - 20.0, "a resting string beyond its ji rings at a pressed note's old pitch", old - now);
+    performer->setControls(acukoto::Performer::defaultControls(0));
+
     // Every host rate, with the oversampling a front end offers.
     for (const double hostRate : { 44100.0, 96000.0 })
         for (const int factor : { 1, 2 })
@@ -222,6 +280,6 @@ int main()
         }
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs and holds presses\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs, holds presses, shares chords, counts keys and rests sympathy\n");
     return failures == 0 ? 0 : 1;
 }

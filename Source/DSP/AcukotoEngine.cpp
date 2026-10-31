@@ -56,6 +56,12 @@ constexpr double pressWaverHz = 5.0;
 // The left hand's glide onto a press after the pluck (ato-oshi) and off it,
 // over about 80 ms.
 constexpr double pressGlide = 0.08;
+// A key a semitone or a whole tone above a string presses it 3% past that
+// interval, 103 or 206 cents: the owner's choice (Docs/decisions.md,
+// 2026-10-31), toward the five professional recordings, whose pressed notes
+// sit 11-18 cents sharp (README, Known gaps). Pressed by the interval alone,
+// E4 and F4 took E-flat 4's tuning, 13 cents flat.
+constexpr double pressReach = 1.03;
 
 constexpr int delayCapacity = 8192;  // a string down to A0 (27.5 Hz) at 192 kHz
 // The keys of a piano, A0 to C8: every one sounds at its own pitch
@@ -2993,6 +2999,7 @@ struct AcukotoEngine::State
         bool dampingDirty { true };
         int midiNote { -1 };      // its own note, lever down
         int ownerNote { -1 };     // the note that last plucked it
+        int keys { 0 };           // ownerNote's presses still down
 
         // How the ji's coordinates move the string's end normal to the top.
         BarVector normalPort() const noexcept
@@ -3502,6 +3509,7 @@ void AcukotoEngine::reset() noexcept
         voice.energy = 0.0;
         voice.keyDown = voice.sustained = voice.plucked = false;
         voice.ownerNote = -1;
+        voice.keys = 0;
         voice.dampingDirty = true;
     }
     s.bank.s1.fill(0.0);
@@ -3593,9 +3601,18 @@ void AcukotoEngine::updateDamping(int string) noexcept
         rate += voice.plucked ? s.releaseRate : s.sympathyRate;
     voice.normal.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
     voice.parallel.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
-    // Beyond the ji only the palm reaches the string, and the left hand
-    // while it presses there, as a hand resting on it (handRate(0)).
-    const double left = s.muteRate + (voice.pressTarget > 1.0 ? handRate(0.0) : 0.0);
+    // Beyond the ji only the palm reaches the string, the left hand while it
+    // presses there, as a hand resting on it (handRate(0)), and on a string
+    // nobody plays the hand Sympathy rests, as on its speaking length: a
+    // string at rest rings in sympathy along its whole length or not at all.
+    // Until 0.11.2 the stretch beyond G5's ji, whose second partial stands
+    // at D4's pitch, rang on at D4 10 dB over a D4 pressed up a whole tone,
+    // at Sympathy 0 as at 1.
+    double left = s.muteRate;
+    if (voice.pressTarget > 1.0)
+        left += handRate(0.0);
+    else if (!voice.plucked && !voice.keyDown && !voice.sustained)
+        left += s.sympathyRate;
     for (Loop* loop : { &voice.leftNormal, &voice.leftParallel })
         loop->setDamping(left > 0.0 ? std::exp(-left * loop->loopDelay / sampleRate_) : 1.0);
 }
@@ -3663,17 +3680,33 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
             if (!voice.keyDown || voice.ownerNote == midiNote || !(voice.energy > silentEnergy)
                 || voice.extensionKey >= 0 || step < 0 || step > 2 || (index >= 0 && index != string))
                 continue;
-            press(string, step, pressGlide);
+            press(string, step * pressReach, pressGlide);
             voice.ownerNote = midiNote;
+            voice.keys = 1;
             return;
         }
     int pressed = 0;
     // Oshide: the nearest string below, a semitone or a whole tone, and not
-    // already sounding a key of its own if another will do.
+    // one another key or the pedal holds if the next one down will do: in a
+    // chord with E-flat 4, a player takes E4 on D4 pressed a whole tone and
+    // leaves E-flat 4 sounding. Until 0.11.2 E4 always took E-flat 4's
+    // string and cut it.
     if (index < 0 && controls_.oshide)
+    {
+        for (int step = 1; step <= 2 && index < 0; ++step)
+        {
+            const int string = stringForNote(midiNote - step);
+            if (string >= 0 && !state_->strings[static_cast<std::size_t>(string)].keyDown
+                && !state_->strings[static_cast<std::size_t>(string)].sustained)
+            {
+                index = string;
+                pressed = step;
+            }
+        }
         for (int step = 1; step <= 2 && index < 0; ++step)
             if ((index = stringForNote(midiNote - step)) >= 0)
                 pressed = step;
+    }
     // A key no string or press reaches: the nearest string below, its ji
     // moved to the key (State::extension).
     int extensionKey = -1;
@@ -3689,7 +3722,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     if (voice.extensionKey != extensionKey)
         applyPitch(index, false, extensionKey);
     // The left hand presses before the right plucks: the press has settled.
-    const double target = std::pow(2.0, pressed / 12.0);
+    const double target = std::pow(2.0, pressed * pressReach / 12.0);
     voice.pressTarget = voice.pressRatio = target;
     voice.raised = pressed > 0;
     pluck(index, midiNote, velocity);
@@ -3853,6 +3886,10 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
              * std::exp(0.2 * s.random.gaussian());
     s.lastPluck = { position, force, normalShare, release };
 
+    // A key struck again while it is still down (two overlapping notes of
+    // one pitch, as a sequencer can send) counts twice, so its first key-up
+    // does not let the string go under the second.
+    voice.keys = voice.keyDown && voice.ownerNote == midiNote ? voice.keys + 1 : 1;
     voice.keyDown = true;
     voice.sustained = false;
     voice.plucked = true;
@@ -3997,7 +4034,7 @@ void AcukotoEngine::noteOff(int midiNote) noexcept
         // ringing note down a semitone or a whole tone at every key-up
         // (Docs/decisions.md 2026-10-31). The hand leaves once the string
         // has died away (process()) or is plucked again.
-        if (!voice.keyDown || voice.ownerNote != midiNote)
+        if (!voice.keyDown || voice.ownerNote != midiNote || --voice.keys > 0)
             continue;
         voice.keyDown = false;
         voice.sustained = s.sustain;

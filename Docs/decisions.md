@@ -8,6 +8,26 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-10-31 — A press reaches 103% of its interval
+
+**Decided:** how far a key's press raises its string. Pressed by the interval
+alone, a pressed note took its open string's tuning: E4 and F4 sat 13 cents
+flat of equal temperament, and B3, C4 and B4 9 cents flat, as E♭4 and the B♭
+strings are tuned flat in Ando's players' hirajoshi. The five professional
+recordings' pressed notes sit 11-18 cents sharp.
+
+- **A**, the shipping 0.11.1: a press of exactly 100 or 200 cents.
+- **B**, 103% of the interval: 103 or 206 cents.
+
+**Chosen:** B, by the owner, asked for after the second koto player's review
+(the Rack thread, 2026-10-31). No lettered set was rendered, and the number
+is the owner's, not a fit to the recordings: pressed notes still sit short
+of them on the E♭ and B♭ strings.
+
+**Licensed:** `pressReach` in `AcukotoEngine.cpp`, on the presses a key asks
+for (oshide and ato-oshi). `RenderAcukotoPhrase`'s scripted presses keep the
+semitones their script gives.
+
 ## 2026-10-31 — A press holds while its string rings; chords are plucked
 
 **Decided:** what the left hand does at a pressed note's key-up, and whether
