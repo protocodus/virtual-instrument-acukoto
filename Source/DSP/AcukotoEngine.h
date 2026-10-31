@@ -199,8 +199,10 @@ public:
     void reset() noexcept;
 
     // The string tuned to midiNote plays (with oshide, also a string one or
-    // two semitones below, pressed up to it); a note no string can sound is
-    // ignored (a koto has no frets). With oshide, a note played legato that
+    // two semitones below, pressed up to it). Any other key from A0 to C8
+    // plays the nearest string below it with its ji moved to the key, past
+    // the strings an artificial range no koto has; keys outside A0-C8 are
+    // ignored. With oshide, a note played legato that
     // a held, sounding string reaches by its press alone moves the press
     // without a pluck (ato-oshi, or letting the press go).
     void noteOn(int midiNote, float velocity) noexcept;
@@ -287,7 +289,7 @@ public:
 
 private:
     struct State;
-    void applyPitch(int string, bool raised) noexcept;
+    void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
     void pluck(int index, int midiNote, float velocity) noexcept;
     void updateDamping(int string) noexcept;
     void sleep() noexcept;

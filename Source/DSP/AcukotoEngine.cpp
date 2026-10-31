@@ -57,7 +57,11 @@ constexpr double pressWaverHz = 5.0;
 // over about 80 ms.
 constexpr double pressGlide = 0.08;
 
-constexpr int delayCapacity = 4096;  // a string down to 47 Hz at 192 kHz
+constexpr int delayCapacity = 8192;  // a string down to A0 (27.5 Hz) at 192 kHz
+// The keys of a piano, A0 to C8: every one sounds at its own pitch
+// (AcukotoEngine::noteOn, State::extension).
+constexpr int lowestKey = 21;
+constexpr int highestKey = 108;
 constexpr int controlPeriod = 16;
 constexpr int maxDispersionStages = 8;
 constexpr int dispersionPairs = 4;
@@ -664,7 +668,8 @@ DispersionDesign refineDispersion(const DispersionDesign& firstOrder, double fun
     return result;
 }
 
-DispersionDesign designDispersion(double fundamental, double inharmonicity, double sampleRate) noexcept
+DispersionDesign designDispersion(double fundamental, double inharmonicity, double sampleRate,
+                                  bool refine = true) noexcept
 {
     const double omega1 = 2.0 * pi * fundamental / sampleRate;
     const int partials = std::clamp(static_cast<int>(std::floor(std::min(5000.0, 0.2 * sampleRate) / fundamental)), 2, 12);
@@ -732,6 +737,8 @@ DispersionDesign designDispersion(double fundamental, double inharmonicity, doub
         if (design.worstCents < chosen.worstCents)
             chosen = design;
     }
+    if (!refine)
+        return chosen;
     DispersionDesign refined = refineDispersion(chosen, fundamental, inharmonicity, sampleRate);
     // Four sections fit the gut D3 within 4.2 cents over eight stages but
     // only 5.6 over seven, which the search above takes at 88.2, 176.4 and
@@ -2979,7 +2986,8 @@ struct AcukotoEngine::State
         bool keyDown { false };
         bool sustained { false };
         bool plucked { false };   // played, and still sounding from that pluck
-        bool raised { false };    // the sharping lever is up
+        bool raised { false };    // the left hand presses it
+        int extensionKey { -1 };  // the key its moved ji sounds (extension), or -1
         bool dampingDirty { true };
         int midiNote { -1 };      // its own note, lever down
         int ownerNote { -1 };     // the note that last plucked it
@@ -2994,6 +3002,18 @@ struct AcukotoEngine::State
         std::size_t tipCoordinate() const noexcept { return maxStrings + static_cast<std::size_t>(ji); }
     };
     std::array<StringVoice, maxStrings> strings {};
+    // Keys no string sounds by its own note or by oshide, lowestKey to
+    // highestKey: the nearest string below the key (the lowest string, for a
+    // key below it) with its ji moved to sound the key, its speaking length
+    // scaled at its own tension, as a player retunes a string by moving its
+    // ji. The rest of the string, from the ji on, keeps its own length. Below
+    // about B2 the ji would stand past the unkaku and above about C6 nearer
+    // the ryukaku than the tsume plays: no koto has those strings, an
+    // artificial range so that every key of a piano sounds at its own pitch
+    // (owner requirement, 2026-10-30). extensionString is the string, or -1
+    // where a string's own note is the key.
+    std::array<PitchDesign, 128> extension {};
+    std::array<int, 128> extensionString {};
 
     std::array<Mode, maxModes> modes {};
     int modeCount { 0 };
@@ -3131,6 +3151,25 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             detune[static_cast<std::size_t>(index)] = spec.cents + spec.centsSpread * tuning.gaussian();
         }
     }
+    // The keys no string's own note plays, each given to the nearest string
+    // below it, or to the lowest string (State::extension).
+    s.extensionString.fill(-1);
+    for (int key = lowestKey; key <= highestKey; ++key)
+    {
+        int nearest = -1, lowest = 0;
+        bool own = false;
+        for (int index = 0; index < stringCount_; ++index)
+        {
+            const int note = instrument.strings[static_cast<std::size_t>(index)].midiNote;
+            own = own || note == key;
+            if (note < key && (nearest < 0 || note > instrument.strings[static_cast<std::size_t>(nearest)].midiNote))
+                nearest = index;
+            if (note < instrument.strings[static_cast<std::size_t>(lowest)].midiNote)
+                lowest = index;
+        }
+        if (!own)
+            s.extensionString[static_cast<std::size_t>(key)] = nearest >= 0 ? nearest : lowest;
+    }
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
@@ -3170,7 +3209,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         voice.pressSmoothing = 1.0;
 
         // Both planes of one stretch of the string, at its tension.
-        const auto designPlanes = [&] (double stretch, std::array<LoopDesign, 2>& planes)
+        const auto designPlanes = [&] (double stretch, std::array<LoopDesign, 2>& planes, bool refine)
         {
             const double frequency = waveSpeed / (2.0 * stretch);
             const double inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * stretch * stretch);
@@ -3202,7 +3241,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 // fundamental is exact once the junction exists and the
                 // ji's reflection phase is known (tuning below).
                 if (plane == 0)
-                    design = designDispersion(frequency, inharmonicity, fs);
+                    design = designDispersion(frequency, inharmonicity, fs, refine);
                 loop.dispersionStages = design.stages;
                 loop.dispersion = design.coefficient;
                 loop.dispersionPairs = design.pairs;
@@ -3212,17 +3251,27 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             }
             return airDecay;
         };
-        State::PitchDesign& pitch = voice.pitch[0];
-        pitch.length = spec.length;
-        pitch.inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * spec.length * spec.length);
-        pitch.glidePerEnergy = modulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
-        const double frequency = waveSpeed / (2.0 * spec.length);
-        const double intrinsicDecay = designPlanes(spec.length, pitch.planes)
-            + pi * frequency * constantLoss - std::log(yokeRoundTripGain) * frequency;
-        pitch.intrinsicT60 = 3.0 * std::log(10.0) / intrinsicDecay;
-        pitch.roundTrip = std::clamp(static_cast<int>(std::lround(fs / frequency)), 1, delayCapacity - 1);
+        const auto designPitch = [&] (State::PitchDesign& pitch, double length, bool refine)
+        {
+            pitch.length = length;
+            pitch.inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * length * length);
+            pitch.glidePerEnergy = modulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
+            const double frequency = waveSpeed / (2.0 * length);
+            const double intrinsicDecay = designPlanes(length, pitch.planes, refine)
+                + pi * frequency * constantLoss - std::log(yokeRoundTripGain) * frequency;
+            pitch.intrinsicT60 = 3.0 * std::log(10.0) / intrinsicDecay;
+            pitch.roundTrip = std::clamp(static_cast<int>(std::lround(fs / frequency)), 1, delayCapacity - 1);
+        };
+        designPitch(voice.pitch[0], spec.length, true);
         voice.leftLength = std::max(0.05, body.stringSpan - spec.length);
-        designPlanes(voice.leftLength, voice.left);
+        designPlanes(voice.leftLength, voice.left, true);
+        // Its moved ji's keys take the first-order dispersion fit alone: the
+        // sections' refinement over a bass key's hundred partials would take
+        // most of the setup's time.
+        for (int key = lowestKey; key <= highestKey; ++key)
+            if (s.extensionString[static_cast<std::size_t>(key)] == index)
+                designPitch(s.extension[static_cast<std::size_t>(key)],
+                            spec.length * std::pow(2.0, (spec.midiNote - key) / 12.0), false);
     }
 
     // ---- The junction ---------------------------------------------------
@@ -3286,11 +3335,12 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
-        for (int design = 0; design < 4; ++design)
+        // `bends`: the reflection phase is found again at every bend ratio;
+        // otherwise its phase at rest stands for the bend's (a moved ji's
+        // keys, which would take several times the whole setup's time; a
+        // bend there can sit a few cents off where it crosses a body mode).
+        const auto tune = [&] (LoopDesign& loop, int plane, bool bends)
         {
-            const int plane = design & 1;
-            LoopDesign& loop = design < 2 ? voice.pitch[0].planes[static_cast<std::size_t>(plane)]
-                                          : voice.left[static_cast<std::size_t>(plane)];
             const double f0 = loop.frequency;
             const std::size_t port = plane == 0 ? static_cast<std::size_t>(voice.ji) : voice.tipCoordinate();
             // The port's admittance with every other port loading the ji.
@@ -3347,10 +3397,21 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             for (std::size_t k = 0; k < bendRatios.size(); ++k)
             {
                 const double omega = omega0 * bendRatios[k];
-                const double lead = reflectionLead(omega * fs / (2.0 * pi));
+                const double lead = bends ? reflectionLead(omega * fs / (2.0 * pi)) : lead0;
                 loop.lagCycles[k] = (lagAt(omega, loop.restLineDelay, lead) - omega * loop.restLineDelay) / (2.0 * pi);
             }
+        };
+        for (int design = 0; design < 4; ++design)
+        {
+            const int plane = design & 1;
+            tune(design < 2 ? voice.pitch[0].planes[static_cast<std::size_t>(plane)]
+                            : voice.left[static_cast<std::size_t>(plane)],
+                 plane, true);
         }
+        for (int key = lowestKey; key <= highestKey; ++key)
+            if (s.extensionString[static_cast<std::size_t>(key)] == index)
+                for (int plane = 0; plane < 2; ++plane)
+                    tune(s.extension[static_cast<std::size_t>(key)].planes[static_cast<std::size_t>(plane)], plane, false);
         voice.normal.whole = wholeFor(voice.pitch[0].planes[0].restLineDelay);
         voice.parallel.whole = wholeFor(voice.pitch[0].planes[1].restLineDelay);
         voice.leftNormal.whole = wholeFor(voice.left[0].restLineDelay);
@@ -3423,6 +3484,9 @@ void AcukotoEngine::reset() noexcept
     for (int index = 0; index < stringCount_; ++index)
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
+        // Every ji back in its place, as a fresh instance has them.
+        if (voice.extensionKey >= 0)
+            applyPitch(index, false);
         voice.pressTarget = voice.pressRatio = 1.0;
         voice.pressWaver = 0.0;
         voice.pressNote = -1;
@@ -3488,11 +3552,13 @@ constexpr double idleLevel = 3.0e-9;
 constexpr double idleEnergy = 1.0e-12;
 } // namespace
 
-void AcukotoEngine::applyPitch(int string, bool raised) noexcept
+void AcukotoEngine::applyPitch(int string, bool raised, int extensionKey) noexcept
 {
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
-    const State::PitchDesign& pitch = voice.pitch[raised ? 1u : 0u];
+    const State::PitchDesign& pitch = extensionKey >= 0 ? state_->extension[static_cast<std::size_t>(extensionKey)]
+                                                        : voice.pitch[raised ? 1u : 0u];
     voice.raised = raised;
+    voice.extensionKey = extensionKey;
     voice.frequency = pitch.planes[0].frequency;
     voice.length = pitch.length;
     voice.inharmonicity = pitch.inharmonicity;
@@ -3578,7 +3644,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
             State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
             const int step = midiNote - voice.midiNote;
             if (!voice.keyDown || voice.ownerNote == midiNote || !(voice.energy > silentEnergy)
-                || step < 0 || step > 2 || (index >= 0 && index != string))
+                || voice.extensionKey >= 0 || step < 0 || step > 2 || (index >= 0 && index != string))
                 continue;
             press(string, step, pressGlide);
             voice.pressNote = step > 0 ? midiNote : -1;
@@ -3592,9 +3658,20 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
         for (int step = 1; step <= 2 && index < 0; ++step)
             if ((index = stringForNote(midiNote - step)) >= 0)
                 pressed = step;
+    // A key no string or press reaches: the nearest string below, its ji
+    // moved to the key (State::extension).
+    int extensionKey = -1;
+    if (index < 0 && midiNote >= lowestKey && midiNote <= highestKey)
+    {
+        index = state_->extensionString[static_cast<std::size_t>(midiNote)];
+        extensionKey = index >= 0 ? midiNote : -1;
+    }
     if (index < 0)
         return;
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(index)];
+    // The ji is moved, or back in its place, before the pluck.
+    if (voice.extensionKey != extensionKey)
+        applyPitch(index, false, extensionKey);
     // The left hand presses before the right plucks: the press has settled.
     const double target = std::pow(2.0, pressed / 12.0);
     voice.pressTarget = voice.pressRatio = target;
@@ -3607,6 +3684,8 @@ void AcukotoEngine::pluckString(int string, float velocity) noexcept
 {
     if (string < 0 || string >= stringCount_ || !(velocity > 0.0f))
         return;
+    if (state_->strings[static_cast<std::size_t>(string)].extensionKey >= 0)
+        applyPitch(string, false);
     pluck(string, state_->strings[static_cast<std::size_t>(string)].midiNote, velocity);
 }
 
