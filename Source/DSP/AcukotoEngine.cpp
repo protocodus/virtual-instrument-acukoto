@@ -4090,9 +4090,17 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 {
                     voice.plucked = false;
                     voice.dampingDirty = true;
-                    // And the left hand leaves it, unheard.
+                }
+                // The left hand leaves a pressed string only once it is
+                // inaudible. silentEnergy is too high for that: a pressed E4
+                // released there, about 32 dB under its first half second,
+                // was heard to drop to E-flat 4 in Recon (0.11.0). idleEnergy
+                // is where a string radiates about -170 dBFS.
+                if (voice.raised && !voice.keyDown && !voice.sustained && voice.energy < idleEnergy)
+                {
                     voice.pressTarget = voice.pressRatio = 1.0;
                     voice.raised = false;
+                    voice.dampingDirty = true;
                 }
                 if (voice.dampingDirty)
                     updateDamping(index);

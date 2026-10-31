@@ -151,7 +151,10 @@ int main()
     // A pressed note keeps its pitch after its key-up while it rings (E4,
     // E-flat 4 pressed a semitone, up after 0.2 s), and the hand leaves the
     // string once the palm has stopped it.
-    render(*performer, { { 0.0, 64, 0.7f }, { 0.2, 64, 0.0f } }, 0.6, { 256 });
+    // Three seconds on, the string is still clearly heard (0.11.0 let the
+    // press go 1.25 s after the key-up, about 32 dB down, and Recon heard
+    // the drop).
+    render(*performer, { { 0.0, 64, 0.7f }, { 0.2, 64, 0.0f } }, 3.2, { 256 });
     check(performer->engine().stringActivity(5).raised, "a key-up lets a ringing press go", 0.0);
     acukoto::PlayingControls palm = acukoto::Performer::defaultControls(0);
     palm.mute = 1.0;

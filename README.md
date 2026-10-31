@@ -11,6 +11,10 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.11.1 — 2026-10-31 — A pressed note holds to its end
+
+A pressed note's tail no longer drops to its string's own note late in its ring. 0.11.0 let the press go once the string had fallen about 32 dB, about 1.25 s after an E4's key-up, which a Recon bounce still heard as a drop to E♭4. The hand now leaves only once the string is inaudible, near -170 dBFS.
+
 ### 0.11.0 — 2026-10-31 — A pressed note holds its pitch
 
 - **A key-up no longer bends the note down.** A pressed note (E, F, A♭, B and C in hirajoshi) now keeps its pitch after its key-up for as long as the string rings, under the sustain pedal too. Before, the key-up let the press go, so a ringing pressed note fell back a semitone or a whole tone to its string's own note. The hand leaves the string once it has died away or is plucked again.
