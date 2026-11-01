@@ -7,8 +7,9 @@
 // Note on/off, CC64 (sustain) and the pitch wheel drive the Performer, the
 // shipping signal path with its output stage, at their sample; everything
 // else in the file is ignored. The wheel up is the left hand pressing the
-// last plucked string, a whole tone at the top, as on the Rack device; down
-// does nothing. The Performer's latency is trimmed off the start.
+// last plucked string, a whole tone at the top, and down pulls it a semitone
+// (hiki-iro), as on the Rack device. The Performer's latency is trimmed off
+// the start.
 
 #include "../Source/DSP/AcukotoEngine.h"
 #include "../Source/DSP/AcukotoPerformer.h"

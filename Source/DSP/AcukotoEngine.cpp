@@ -56,12 +56,18 @@ constexpr double pressWaverHz = 5.0;
 // The left hand's glide onto a press after the pluck (ato-oshi) and off it,
 // over about 80 ms.
 constexpr double pressGlide = 0.08;
-// A key a semitone or a whole tone above a string presses it 3% past that
-// interval, 103 or 206 cents: the owner's choice (Docs/decisions.md,
-// 2026-10-31), toward the five professional recordings, whose pressed notes
-// sit 11-18 cents sharp (README, Known gaps). Pressed by the interval alone,
-// E4 and F4 took E-flat 4's tuning, 13 cents flat.
-constexpr double pressReach = 1.03;
+// A key a semitone or a whole tone above a string presses it to the key's
+// own pitch in equal temperament, from wherever the player tuned the string
+// (StringVoice::cents): the owner's choice (Docs/decisions.md, 2026-11-01).
+// E-flat 4, tuned 11.3 cents flat, is pressed 111.3 cents for E4. Until
+// 0.15.1 a press was 3% past its interval from the string's own tuning, and
+// pressed notes kept that tuning, from 11 cents flat to 12 sharp. The five
+// professional recordings' pressed notes sit 11-18 cents sharp (README,
+// Known gaps).
+constexpr double keyPress(int step, double cents) noexcept
+{
+    return step > 0 ? step - cents / 100.0 : 0.0;
+}
 
 // A0 (27.5 Hz) at 192 kHz, including the full -12 semitone master tune and
 // -1 semitone hand gesture, needs about 14,800 samples. 8192 held the open
@@ -3170,6 +3176,9 @@ struct AcukotoEngine::State
         // target and where the glide has reached.
         double pressTarget { 1.0 };
         double pressRatio { 1.0 };
+        // Its tuning against equal temperament, the player's and their
+        // scatter (prepare), which a key's press makes up (keyPress).
+        double cents { 0.0 };
         // The pressing hand's force fluctuation, in standard deviations.
         double pressWaver { 0.0 };
         // PlayingControls::handPress as a pitch ratio, where the hand has
@@ -3379,6 +3388,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         voice = {};
         const StringSpec& spec = instrument.strings[static_cast<std::size_t>(index)];
         voice.midiNote = spec.midiNote;
+        voice.cents = detune[static_cast<std::size_t>(index)];
         const bool wound = spec.coreDiameter > 0.0;
         const double bendingDiameter = wound ? spec.coreDiameter : spec.diameter;
         const double area = 0.25 * pi * bendingDiameter * bendingDiameter;
@@ -3893,7 +3903,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
             if (!voice.keyDown || voice.ownerNote == midiNote || !(voice.energy > silentEnergy)
                 || voice.extensionKey >= 0 || step < 0 || step > 2 || (index >= 0 && index != string))
                 continue;
-            press(string, step * pressReach, pressGlide);
+            press(string, keyPress(step, voice.cents), pressGlide);
             voice.ownerNote = midiNote;
             voice.keys = 1;
             return;
@@ -3935,7 +3945,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     if (voice.extensionKey != extensionKey)
         applyPitch(index, false, extensionKey);
     // The left hand presses before the right plucks: the press has settled.
-    const double target = std::pow(2.0, pressed * pressReach / 12.0);
+    const double target = std::pow(2.0, keyPress(pressed, voice.cents) / 12.0);
     voice.pressTarget = voice.pressRatio = target;
     voice.raised = pressed > 0;
     pluck(index, midiNote, velocity);

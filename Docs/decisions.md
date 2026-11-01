@@ -8,6 +8,38 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-01 — A press lands on its key's pitch
+
+**Decided:** where a key's press takes its string. Since 0.11.2 a press was
+103% of its interval from the string's own tuning, so a pressed note kept
+that string's tuning: on Koto Hirajoshi the fifteen pressed keys, each
+played alone, sat from 10.7 cents flat (E5, on the E♭5 string) to 12.3
+sharp (G♯5, on G5).
+
+- **A**, the shipping 0.15.0: 103 or 206 cents from the string's tuning.
+- **B**, the key's own pitch in equal temperament, from wherever the string
+  is tuned: E♭4, tuned 11.3 cents flat, is pressed 111.3 cents for E4.
+
+**Chosen:** B, by the owner, asked whether a press should land exactly on
+the note's pitch ("not sure, probably"), then told to make the change
+without a lettered set; not by ear. B adds no number and retires the
+owner's 3% of 2026-10-31. The same keys now sit within 3.1 cents of equal
+temperament (`RenderAcukotoMidi --dry --no-sympathy`, each key held 1.5 s,
+the fundamental over 0.3-1.2 s). The five professional recordings' pressed
+notes sit 11-18 cents sharp, so this moves the D, G and A strings' pressed
+notes away from them and the E♭ and B♭ strings' toward them.
+
+**Licensed:** `keyPress` and `StringVoice::cents` in `AcukotoEngine.cpp`,
+on the presses a key asks for (oshide and ato-oshi). The wheel's press and
+pull stay semitones from the note's press, and `RenderAcukotoPhrase`'s
+scripted presses keep the semitones their script gives.
+
+## 2026-11-01 — No piezo pickup
+
+**Decided:** whether Acukoto gets a piezo pickup, as Aculyre, the lyre it
+was forked from, has. **Chosen:** no, by the owner. The piezo path left in
+the engine from Aculyre stays silent (README, Known gaps).
+
 ## 2026-11-01 — Overlapping keys pluck unless Legato is on
 
 **Decided:** whether a legato step (one key held, the next one or two
@@ -131,6 +163,8 @@ closest on balance and early shape and the furthest on decay.
 `PhaseNetwork` for the quadrature.
 
 ## 2026-10-31 — A press reaches 103% of its interval
+
+Superseded on 2026-11-01: a press lands on its key's pitch (above).
 
 **Decided:** how far a key's press raises its string. Pressed by the interval
 alone, a pressed note took its open string's tuning: E4 and F4 sat 13 cents

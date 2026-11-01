@@ -165,13 +165,17 @@ void checkHeldGestureAttack()
         const auto hand = attack(interval, 0.0), tune = attack(0.0, interval);
         check(hand == tune, "a pre-held hand gesture's first trip differs from its propagation pitch", interval);
     }
-    // A key's automatic oshide has the same initial-period contract, with
-    // the owner's 103% reach. Unlike the wheel it also has hand-force
-    // variation, so allow 10% RMS error (the fixed engine gives 1-3%, the
-    // open-period regression over 100%). This is deliberately not bitwise.
+    // A key's automatic oshide has the same initial-period contract, and it
+    // lands on the key's pitch whatever the string's tuning: tuned 11.3
+    // cents flat, as E-flat 4 is, the string is pressed 11.3 cents past the
+    // interval. Unlike the wheel it also has hand-force variation, so allow
+    // 10% RMS error (the fixed engine gives 1-3%, the open-period regression
+    // over 100%). This is deliberately not bitwise.
+    isolated.strings[0].cents = -11.3;
+    engine->setInstrument(isolated);
     for (const int step : { 1, 2 })
     {
-        const auto pressed = attack(0.0, 0.0, 50 + step), tune = attack(0.0, step * 1.03);
+        const auto pressed = attack(0.0, 0.0, 50 + step), tune = attack(0.0, step + 0.113);
         double error = 0.0, energy = 0.0;
         for (std::size_t i = 0; i < tune.size(); ++i)
         {
