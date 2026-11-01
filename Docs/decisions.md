@@ -52,12 +52,12 @@ against 0.2-0.3. B and C differed by under 0.5 dB in every band measured.
 The set is in the project files (`acukoto/listening/2026-10-31-repluck/`),
 not committed.
 
-**Chosen:** C, not by ear. The owner had not listened; it was adopted under
-the owner's standing rule that a candidate wins over the baseline unless
-the owner says otherwise. Between the two candidates, C is the one that
-models the tsume's contact rather than ignoring it, and costs nothing B
-does not. The shipped code reproduces C's render sample for sample on its
-0.12.0 base. On 0.13.0 the soft A4's fall goes from 6.0 to 2.9 dB, D3's
+**Chosen:** C, by ear. It first shipped in 0.14.0 under the owner's
+standing rule that a candidate wins over the baseline unless the owner says
+otherwise; on 2026-11-01 the owner listened to the set and said C sounds
+best. That choice licenses C's mechanism, the contact at the pluck point,
+over the uniform stop and over no stop; it fits no number. The shipped code
+reproduces C's render sample for sample on its 0.12.0 base. On 0.13.0 the soft A4's fall goes from 6.0 to 2.9 dB, D3's
 from 2.4 to 0.1.
 
 **Licensed:** the contact as the tsume's whole effect on a ringing string.
