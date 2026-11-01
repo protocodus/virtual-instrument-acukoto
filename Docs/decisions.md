@@ -31,12 +31,13 @@ the closest of the three: mean error 9.92, 9.32 and 8.31 dB against the
 five recordings, and 6.86, 6.59 and 6.47 dB early shape error against 18
 tracks. Its decays over 18 tracks are the furthest: 1.48x, 1.59x and 1.66x.
 
-**Chosen:** C shipped as 0.13.0, because the measurements favour it on the
-low strings the owner asked about. Shipping it follows the project's rule
-that a candidate wins unless the owner says otherwise. The lettered set
+**Chosen:** C, by ear. The owner listened to the lettered set
 (`listening-tests/2026-10-31-low-notes/` in the project files, not
-committed) was sent to the owner the same night, and **no choice has been
-made by ear yet**. Record the owner's choice here when it comes.
+committed) and judged C better (2026-11-01). C had already shipped as
+0.13.0 the night before, under the project's rule that a candidate wins
+unless the owner says otherwise, so nothing changes in the engine. The
+measurements above do not settle the choice by themselves: C is the
+closest on balance and early shape and the furthest on decay.
 
 **Licensed:** the arch's coupling and membrane stiffness in `designBody`, and
 `PhaseNetwork` for the quadrature.
