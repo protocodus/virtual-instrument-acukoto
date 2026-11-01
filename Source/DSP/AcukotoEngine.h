@@ -181,10 +181,12 @@ struct PlayingControls
     double width { 1.0 };       // stereo width, 0 (mono) to 2
     double volume { 1.0 };      // gain on the instrument's outputGain
     double pitchBend { 0.0 };   // semitones, on every string
-    // The left hand pressing the last plucked string behind its ji, 0-3
-    // semitones on top of its note's own press: ato-oshi, oshi-hanashi and
-    // yuri played on purpose (a front end's pitch wheel up). It follows the
-    // hand at once; a string the hand leaves for another lets go of it.
+    // The left hand on the last plucked string: -1..3 semitones on top of
+    // its note's own press. Positive presses behind the ji (ato-oshi,
+    // oshi-hanashi and yuri); negative reduces speaking tension by drawing
+    // the string toward its ji (hiki-iro). It follows the hand at once; a
+    // string the hand leaves for another lets go of it. The downward range
+    // models the pitch gesture, not the finger's frictional slip.
     double handPress { 0.0 };
     // Oshide follows the notes played: a note one or two semitones above a
     // string's own, which no string is tuned to, presses the nearest string
@@ -246,7 +248,7 @@ public:
         double energy;  // as stringEnergy()
         bool held;      // its key is down or sustain holds it
         bool plucked;   // played, and still sounding from that pluck
-        bool raised;    // the left hand presses it, for its note or by handPress
+        bool raised;    // left hand engaged, by its note's press or signed handPress
     };
     [[nodiscard]] StringActivity stringActivity(int string) const noexcept;
     // Asleep: everything has died away below -170 dBFS, so process() writes

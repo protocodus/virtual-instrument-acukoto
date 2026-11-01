@@ -63,7 +63,11 @@ constexpr double pressGlide = 0.08;
 // E4 and F4 took E-flat 4's tuning, 13 cents flat.
 constexpr double pressReach = 1.03;
 
-constexpr int delayCapacity = 8192;  // a string down to A0 (27.5 Hz) at 192 kHz
+// A0 (27.5 Hz) at 192 kHz, including the full -12 semitone master tune and
+// -1 semitone hand gesture, needs about 14,800 samples. 8192 held the open
+// note but overran the excitation buffer on a lowered one. Fixed storage
+// keeps every supported bend allocation-free rather than flattening its pitch.
+constexpr int delayCapacity = 16384;
 // The keys of a piano, A0 to C8: every one sounds at its own pitch
 // (AcukotoEngine::noteOn, State::extension).
 constexpr int lowestKey = 21;
@@ -979,6 +983,10 @@ struct Loop
     // unbroken.
     void setLineDelay(double samples) noexcept
     {
+        // The supported key/rate/bend range fits. Keep a future/custom
+        // design beyond that range from turning a capped integer tap into
+        // an enormous (and unstable) Thiran fraction.
+        samples = std::min(samples, static_cast<double>(delayCapacity - 6));
         const double current = samples - whole;
         if (current < 1.1 || current >= 2.3)
         {
@@ -3797,7 +3805,7 @@ void AcukotoEngine::updateDamping(int string) noexcept
     // at D4's pitch, rang on at D4 10 dB over a D4 pressed up a whole tone,
     // at Sympathy 0 as at 1.
     double left = s.muteRate;
-    if (voice.pressTarget > 1.0 || (string == s.handString && s.handTarget > 1.0))
+    if (voice.pressTarget > 1.0 || (string == s.handString && s.handTarget != 1.0))
         left += handRate(0.0);
     else if (!voice.plucked && !voice.keyDown && !voice.sustained)
         left += s.sympathyRate;
@@ -3821,7 +3829,13 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     c.volume = c.volume >= 0.0 && c.volume <= 4.0 ? c.volume : (c.volume > 4.0 ? 4.0 : 0.0);
     c.pitchBend = c.pitchBend >= -12.0 && c.pitchBend <= 12.0 ? c.pitchBend
                                                                : (c.pitchBend > 12.0 ? 12.0 : 0.0);
-    c.handPress = c.handPress >= 0.0 && c.handPress <= 3.0 ? c.handPress : (c.handPress > 3.0 ? 3.0 : 0.0);
+    // Hiki-iro draws a ringing string toward the ji, reducing its speaking
+    // tension: Pro Musica Nipponia, "Koto", technique 6, describes half- or
+    // whole-tone falls on the middle strings, harder on the lowest/highest
+    // (https://www.promusica.or.jp/english/koto.html). Allow the conservative
+    // half-tone downward gesture, beside the existing upward press. This is
+    // a pitch/tension gesture; the finger's frictional slip is not modelled.
+    c.handPress = std::isfinite(c.handPress) ? std::clamp(c.handPress, -1.0, 3.0) : 0.0;
 
     s.releaseRate = handRate(c.release);
     s.sympathyRate = handRate(c.sympathy);
@@ -3837,7 +3851,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
         s.handTarget = std::pow(2.0, c.handPress / 12.0);
         // The hand resting on the stretch beyond the ji comes and goes with
         // the press.
-        if (s.handString >= 0 && (c.handPress > 0.0) != (previous.handPress > 0.0))
+        if (s.handString >= 0 && (c.handPress != 0.0) != (previous.handPress != 0.0))
             s.strings[static_cast<std::size_t>(s.handString)].dampingDirty = true;
     }
     // Mid/side: width 1 is the two microphones as they are.
@@ -4148,7 +4162,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         releasedEnergy += length * length * frequency * frequency * amplitude * amplitude
                         * (1.0 / pluckPoint + 1.0 / (length - pluckPoint)) / length;
     }
-    const double releasedRatio = (tensionModulation_ ? 1.0 + voice.glidePerEnergy * releasedEnergy : 1.0) * s.bend;
+    // A press already in place changes the first journey as well as every
+    // return. Omitting it here injected an open-pitch period into a pressed
+    // loop: at a whole tone the first wave overran its return by 12.2%.
+    const double releasedRatio = (tensionModulation_ ? 1.0 + voice.glidePerEnergy * releasedEnergy : 1.0)
+                               * s.bend * voice.pressRatio * voice.handRatio;
 
     for (int plane = 0; plane < 2; ++plane)
     {
@@ -4173,7 +4191,10 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         // (c/2) y0'(c t), then the half that went to the yoke,
         // (c/2) y0'(2L - c t). Each sample holds its cell's mean slope, which
         // band-limits the release; the last cell ends at the round trip.
-        const double period = loop.loopDelay / releasedRatio;
+        // Fixed capacity covers every supported key, rate and downward
+        // gesture. Bound a future/custom design too, before indexing the
+        // scratch wave; clipping only its count would change the wave shape.
+        const double period = std::min(loop.loopDelay / releasedRatio, static_cast<double>(delayCapacity - 8));
         const int count = static_cast<int>(std::ceil(period));
         const double cellLength = 2.0 * length / period;
         std::array<double, delayCapacity>& wave = s.pluckWave;
@@ -4597,7 +4618,7 @@ AcukotoEngine::StringActivity AcukotoEngine::stringActivity(int string) const no
     if (string < 0 || string >= stringCount_)
         return {};
     const auto& voice = state_->strings[static_cast<std::size_t>(string)];
-    const bool pressedByHand = string == state_->handString && state_->handTarget > 1.0;
+    const bool pressedByHand = string == state_->handString && state_->handTarget != 1.0;
     return { voice.energy, voice.keyDown || voice.sustained, voice.plucked, voice.raised || pressedByHand };
 }
 

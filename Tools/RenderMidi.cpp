@@ -258,7 +258,8 @@ int main(int argc, char** argv)
                     performer->setSustain(e.data2 >= 64);
                 else if (kind == 0xe0)
                 {
-                    controls.handPress = std::max(0, (e.data2 << 7 | e.data1) - 8192) / 8191.0 * 2.0;
+                    const int wheel = (e.data2 << 7 | e.data1) - 8192;
+                    controls.handPress = wheel < 0 ? wheel / 8192.0 : wheel / 8191.0 * 2.0;
                     performer->setControls(controls);
                 }
             }

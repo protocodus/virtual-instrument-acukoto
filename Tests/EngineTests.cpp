@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -128,6 +129,60 @@ bool finite(const std::vector<float>& x)
 {
     return std::all_of(x.begin(), x.end(), [] (float v) { return std::isfinite(v); });
 }
+
+// A pre-held hand gesture and an equal master tuning give the same speaking
+// string the same propagation ratio. Isolate one string and lengthen its
+// non-speaking tail so none of that tail's differently damped reflections
+// returns during the first 10 ms. This is an excitation contract, not a fit
+// to a recording. Before the fix the hand's first trip stayed at open pitch:
+// +1/+2 semitones differed by 3.2/4.7 dB relative error from master tuning.
+void checkHeldGestureAttack()
+{
+    auto engine = std::make_unique<acukoto::AcukotoEngine>();
+    engine->prepare(48000.0);
+    auto isolated = acukoto::kotoHirajoshi;
+    isolated.stringCount = 1;
+    isolated.body.stringSpan = 4.0;
+    engine->setInstrument(isolated);
+    engine->setTensionModulation(false);
+    const auto attack = [&] (double hand, double tune, int note = 50)
+    {
+        auto controls = acukoto::Performer::defaultControls(0);
+        controls.handPress = hand;
+        controls.pitchBend = tune;
+        controls.room = 0.0;
+        controls.sympathy = 0.0;
+        engine->setControls(controls);
+        engine->reset();
+        engine->noteOn(note, 0.7f);
+        std::vector<float> left(480), right(480);
+        engine->process(left.data(), right.data(), 480);
+        left.insert(left.end(), right.begin(), right.end());
+        return left;
+    };
+    for (const double interval : { -1.0, 1.0, 2.0 })
+    {
+        const auto hand = attack(interval, 0.0), tune = attack(0.0, interval);
+        check(hand == tune, "a pre-held hand gesture's first trip differs from its propagation pitch", interval);
+    }
+    // A key's automatic oshide has the same initial-period contract, with
+    // the owner's 103% reach. Unlike the wheel it also has hand-force
+    // variation, so allow 10% RMS error (the fixed engine gives 1-3%, the
+    // open-period regression over 100%). This is deliberately not bitwise.
+    for (const int step : { 1, 2 })
+    {
+        const auto pressed = attack(0.0, 0.0, 50 + step), tune = attack(0.0, step * 1.03);
+        double error = 0.0, energy = 0.0;
+        for (std::size_t i = 0; i < tune.size(); ++i)
+        {
+            const double difference = pressed[i] - tune[i];
+            error += difference * difference;
+            energy += static_cast<double>(tune[i]) * tune[i];
+        }
+        check(energy > 0.0 && error < 0.01 * energy,
+              "an automatic oshide's first trip differs from its propagation pitch", std::sqrt(error / energy));
+    }
+}
 } // namespace
 
 int main()
@@ -226,6 +281,44 @@ int main()
           "the hand's press does not move to the next string", 0.0);
     const double next = peakDb(moved, rate, 0.4, 0.8, 493.9, 0.01) - peakDb(moved, rate, 0.4, 0.8, 466.2, 0.01);
     check(next > 20.0, "the next string is not pressed before its pluck", next);
+
+    // Hiki-iro lowers a ringing middle string, then releases it to its open
+    // pitch. It acts only on the last plucked string, over another held note.
+    // The return and transfer use the same smoothing/contact state as a
+    // press; neither should leave a silent control or a stuck hand behind.
+    acukoto::PlayingControls pull = open;
+    pull.handPress = -1.0;
+    const auto lowered = render(*performer, { { 0.0, 62, 0.7f }, { 0.1, 67, 0.7f } }, 1.5, { 256 },
+                                { { 0.0, open }, { 0.3, pull }, { 0.9, open } });
+    const double falling = peakDb(lowered, rate, 0.5, 0.9, 370.0, 0.01)
+                         - peakDb(lowered, rate, 0.5, 0.9, 392.0, 0.01);
+    check(falling > 10.0, "hiki-iro does not lower the last string", falling);
+    const double returnPitch = peakDb(lowered, rate, 1.1, 1.5, 392.0, 0.01)
+                             - peakDb(lowered, rate, 1.1, 1.5, 370.0, 0.01);
+    check(returnPitch > 10.0, "hiki-iro does not return to the open pitch", returnPitch);
+    const double heldPitch = peakDb(lowered, rate, 0.5, 0.9, 294.1, 0.01)
+                           - peakDb(lowered, rate, 0.5, 0.9, 277.6, 0.01);
+    check(heldPitch > 10.0, "hiki-iro bends an unselected held string", heldPitch);
+    const auto pulledNext = render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 70, 0.7f } }, 0.8, { 256 },
+                                   { { 0.0, pull } });
+    check(performer->engine().stringActivity(8).raised && !performer->engine().stringActivity(6).raised,
+          "a downward hand gesture does not transfer to the next string", 0.0);
+    const double nextPull = peakDb(pulledNext, rate, 0.4, 0.8, 440.0, 0.01)
+                         - peakDb(pulledNext, rate, 0.4, 0.8, 466.2, 0.01);
+    check(nextPull > 10.0, "the next string is not lowered before its pluck", nextPull);
+    const auto pulledAgain = render(*performer, { { 0.0, 67, 0.7f }, { 0.3, 70, 0.7f } }, 0.8,
+                                    { 1, 7, 64, 333, 2, 256, 129 }, { { 0.0, pull } });
+    check(pulledNext == pulledAgain, "a held downward gesture changes after reset or with block sizes", 0.0);
+    for (const double invalid : { std::numeric_limits<double>::quiet_NaN(),
+                                  std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity() })
+    {
+        auto unsafe = pull;
+        unsafe.handPress = invalid;
+        performer->setControls(unsafe);
+        check(performer->engine().controls().handPress == 0.0,
+              "a nonfinite hand gesture does not return to neutral", invalid);
+    }
+    checkHeldGestureAttack();
     performer->setControls(acukoto::Performer::defaultControls(0));
 
     // A pressed note keeps its pitch after its key-up while it rings (E4,
@@ -287,6 +380,25 @@ int main()
             const auto out = render(*other, phrase, 3.5, { 256 });
             check(finite(out), "a non-finite sample", hostRate);
             check(rmsDb(out, hostRate, 0.0, 3.5) > -60.0, "silent at this rate", hostRate);
+            if (hostRate == 96000.0 && factor == 2)
+            {
+                // 192 kHz internally: A0 lowered by the allowed octave
+                // master tune plus a half-tone hand gesture needs about
+                // 14,800 delay cells. The old 8192-cell scratch wave wrote
+                // past its allocation (ASan); even master -2 plus hand -1
+                // overran it. Re-pluck while the first trip is pending too.
+                auto lowest = acukoto::Performer::defaultControls(1);
+                lowest.pitchBend = -12.0;
+                lowest.handPress = -1.0;
+                auto neutral = lowest;
+                neutral.pitchBend = neutral.handPress = 0.0;
+                const auto extreme = render(*other, { { 0.0, 21, 0.1f }, { 0.04, 21, 0.1f } }, 0.25,
+                                             { 1, 7, 64, 333, 2, 256, 129 },
+                                             { { 0.0, lowest }, { 0.14, neutral } });
+                check(finite(extreme), "the lowest downward gesture is not finite at 192 kHz", 0.0);
+                check(rmsDb(extreme, hostRate, 0.0, 0.25) > -100.0,
+                      "the lowest downward gesture is silent at 192 kHz", rmsDb(extreme, hostRate, 0.0, 0.25));
+            }
         }
 
     // An audio reset leaves nothing of what was played: after a phrase that
@@ -301,6 +413,7 @@ int main()
                 acukoto::PlayingControls controls = acukoto::Performer::defaultControls(instrument);
                 controls.room = 1.0;
                 controls.pitchBend = bend;
+                controls.handPress = bend != 0.0 ? -1.0 : 0.0;
                 performer.setControls(controls);
                 performer.setInstrument(instrument);
                 std::vector<float> out;
@@ -335,6 +448,6 @@ int main()
         }
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses by hand, holds presses, shares chords, counts keys and rests sympathy\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses and lowers by hand, aligns pressed attacks, holds presses, shares chords, counts keys and rests sympathy\n");
     return failures == 0 ? 0 : 1;
 }

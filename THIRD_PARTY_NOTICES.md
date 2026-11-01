@@ -87,3 +87,15 @@ beside it, but nothing is fitted to it, and it is not distributed.
 
 Every product, company and instrument maker named in Acukoto's documentation
 is named for identification only, and implies no endorsement.
+
+## Technique demonstration recordings used for analysis, 2026-11-01
+
+Minoru Miki, *Composing for Japanese Instruments*, audio examples performed
+and produced by Pro Musica Nipponia, supervised by Miki, available from the
+[University of Rochester repository](https://urresearch.rochester.edu/institutionalPublicationPublicView.action?institutionalItemId=29597).
+The collection credits copyright 2008 Minoru Miki, all rights reserved.
+Fourteen public downloads were retained outside the repository for analysis;
+no audio is embedded in the engine or redistributed with it. The repository
+licence is not a downstream sampling/redistribution licence. See
+[the technique study](Docs/research/koto-techniques-2026-11-01.md) for provenance,
+checksums, the observed hiki-iro gestures and the limits of the measurements.
