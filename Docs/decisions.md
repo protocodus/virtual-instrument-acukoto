@@ -8,6 +8,42 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-01 — The tsume stops only the stretch it touches
+
+**Decided:** what the tsume does to a string still ringing when it plucks
+it again. Until 0.14.0 it stopped 70% of the whole wave, every partial
+alike (Acustra's picking-hand contact, as one step), and the second review
+of 0.11.1 found that repeated notes choked.
+
+- **A**, the shipping engine (0.12.0 when rendered): the uniform 70% stop.
+  Its 0.3 is authored.
+- **B**, no stop: the new pluck laid over the ringing string.
+- **C**, a contact at the pluck point: the tsume holds the stretch between
+  it and the ryukaku still, the rest rings on. The stretch is the pluck
+  distance the presets already fit to the recordings, so C adds no number.
+
+**Test:** `repeats.mid`, D4, A3 and G4 repeated, then A4 and D3 loud and
+soft again 0.35 s later, on Koto Hirajoshi at its defaults through the
+Performer and output stage at 48 kHz; the candidates were compile-time
+switches in `pluck()`. Level-matched on whole-file RMS to A: B -1.48 dB,
+C -0.27 dB. Over 50-300 ms after the soft A4, against the 200 ms before
+it, the sound fell 6.3 dB in A and 3.3 dB in B and C; after D3's, 2.3 dB
+against 0.2-0.3. B and C differed by under 0.5 dB in every band measured.
+The set is in the project files (`acukoto/listening/2026-10-31-repluck/`),
+not committed.
+
+**Chosen:** C, not by ear. The owner had not listened; it was adopted under
+the owner's standing rule that a candidate wins over the baseline unless
+the owner says otherwise. Between the two candidates, C is the one that
+models the tsume's contact rather than ignoring it, and costs nothing B
+does not. The shipped code reproduces C's render sample for sample on its
+0.12.0 base. On 0.13.0 the soft A4's fall goes from 6.0 to 2.9 dB, D3's
+from 2.4 to 0.1.
+
+**Licensed:** the contact as the tsume's whole effect on a ringing string.
+A by-ear verdict of B or A, or a measured re-pluck from a recording, would
+reopen it.
+
 ## 2026-10-31 — The arched top moves with the box's bending
 
 **Decided:** whether the box's bending changes its volume. The owner found

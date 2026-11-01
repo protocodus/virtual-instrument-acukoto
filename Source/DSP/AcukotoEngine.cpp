@@ -3978,38 +3978,24 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // A finger meeting a sounding string stops it before it lets go: a
     // harpist's finger holds the string 56 to 431 ms (Chadefaux et al., JASA
     // 131 (2012) 844, Table II), several times the 10 ms in which a finger's
-    // contact silences a plucked string (Laurson et al., CMJ 25(3) 2001). A
-    // plectrum glances off and stops most of it (Acustra's picking-hand
-    // contact, as one step). The finger's 10 ms are slow against the body's
-    // periods, so the body takes the force the stopped wave leaves as the
-    // held force below: preloaded, without the click of a step.
+    // contact silences a plucked string (Laurson et al., CMJ 25(3) 2001). The
+    // finger's 10 ms are slow against the body's periods, so the body takes
+    // the force the stopped wave leaves as the held force below: preloaded,
+    // without the click of a step. The tsume's contact is below.
     BarVector preload {};
     const BarVector port = voice.normalPort();
-    if (voice.keyDown || voice.sustained || voice.energy > silentEnergy)
+    const bool sounding = voice.keyDown || voice.sustained || voice.energy > silentEnergy;
+    const bool tsume = controls.technique == Technique::Plectrum;
+    if (sounding && !tsume)
     {
-        const double stopped = controls.technique == Technique::Plectrum ? 0.7 : 1.0;
-        const double normalForce = 2.0 * voice.impedance * stopped * voice.normal.last;
+        const double normalForce = 2.0 * voice.impedance * voice.normal.last;
         for (std::size_t c = 0; c < barCoordinates; ++c)
             preload[c] -= normalForce * port[c];
-        preload[voice.tipCoordinate()] -= 2.0 * voice.impedance * stopped * voice.parallel.last;
-        for (Loop* loop : { &voice.normal, &voice.parallel })
-        {
-            if (controls.technique != Technique::Plectrum)
-            {
-                loop->silence();
-                continue;
-            }
-            for (float& sample : loop->line)
-                sample *= 0.3f;
-            for (float& sample : loop->pending)
-                sample *= 0.3f;
-        }
-    }
-    if (voice.keyDown || voice.sustained || voice.energy > silentEnergy)
-    {
-        const float kept = controls.technique == Technique::Plectrum ? 0.09f : 0.0f;
+        preload[voice.tipCoordinate()] -= 2.0 * voice.impedance * voice.parallel.last;
+        voice.normal.silence();
+        voice.parallel.silence();
         for (float& square : voice.squares)
-            square *= kept;
+            square = 0.0f;
     }
 
     // The tsume plucks just beside the ryukaku, the far end from the ji, the
@@ -4032,6 +4018,44 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     const double distance = std::clamp((controls.pluckDistance + distanceSpread * s.random.gaussian()) / voice.length,
                                        0.01, 0.5);
     const double position = 1.0 - distance;
+    // The tsume meets a ringing string where it plucks and holds the stretch
+    // between there and the ryukaku still before it slips off; the rest of
+    // the string rings on (the owner's choice over a stop of 70% of the whole
+    // wave, Docs/decisions.md, 2026-11-01). In each loop that stretch is what
+    // arrives at the ji from P (1 - d) / 2 to P (1 + d) / 2 samples from now,
+    // P the round trip and d the pluck's share of the string: in the pending
+    // first trip, or in the line once the loop's filters' lag is allowed for.
+    if (sounding && tsume)
+    {
+        double before = 0.0, after = 0.0;
+        for (Loop* loop : { &voice.normal, &voice.parallel })
+        {
+            const double period = loop->whole + loop->fraction + (loop->loopDelay - loop->restLineDelay);
+            const double lag = period - loop->whole;
+            const double from = 0.5 * period * (1.0 - distance), to = 0.5 * period * (1.0 + distance);
+            for (int k = 0; k < static_cast<int>(std::ceil(period)); ++k)
+            {
+                const double cover = std::clamp(std::min(to, k + 1.0) - std::max(from, static_cast<double>(k)), 0.0, 1.0);
+                float& arriving = loop->pending[static_cast<std::size_t>((loop->write + k) & (delayCapacity - 1))];
+                const int j = static_cast<int>(std::lround(k - lag));
+                float* inLine = j >= 0 && j < loop->whole
+                    ? &loop->line[static_cast<std::size_t>((loop->write - loop->whole + j) & (delayCapacity - 1))]
+                    : nullptr;
+                for (float* sample : { &arriving, inLine })
+                {
+                    if (sample == nullptr)
+                        continue;
+                    before += static_cast<double>(*sample) * *sample;
+                    *sample = static_cast<float>(*sample * (1.0 - cover));
+                    after += static_cast<double>(*sample) * *sample;
+                }
+            }
+        }
+        // The running energy keeps what the contact left.
+        const float kept = before > 0.0 ? static_cast<float>(after / before) : 1.0f;
+        for (float& square : voice.squares)
+            square *= kept;
+    }
     // The player evens the scale by what is heard: the microphones, the
     // piezo, or between the two as the blend sets.
     const StringSpec& string = instrument.strings[static_cast<std::size_t>(index)];
