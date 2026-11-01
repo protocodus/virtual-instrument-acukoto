@@ -44,6 +44,38 @@ from 2.4 to 0.1.
 A by-ear verdict of B or A, or a measured re-pluck from a recording, would
 reopen it.
 
+## 2026-11-01 — The scanned struts, walls and holes stay out
+
+**Decided:** whether the koto's struts, and the walls and holes Coaldrake's
+CT scan shows (ICA 2019, Fig. 2), go into the body. The owner chose to look
+for the struts after a gagaku koto's recordings, like the five classical
+ones, gave A3 and B-flat 3 the fundamental the model lacks.
+
+- **The struts**, as ties between the side walls at the four scanned places,
+  under the top, at mid-side, at the bottom or all three, wooden or rigid.
+  The scan does not show their height or which walls they join, so each
+  form takes an attachment it does not give.
+- **The scanned walls**: a top of 27 mm, sides of 17 and a back of 11.5,
+  against the fitted 15.4, 11.2 and 5.6.
+- **The scanned holes**, near the ends, with sizes refitted to the air modes.
+
+**Measured, not by ear:** against the five recordings the mean balance
+error is 8.31 dB with none of them, 8.3-10.0 with the struts and 8.64 with
+the scanned walls. Ties at the bottom of the sides change nothing; every
+other form takes D4 or E-flat 4 down 28-31 dB, by lifting the 299 Hz
+breathing off it. The scanned walls fix A3 (-2.1 dB
+against the recordings' -2.8) and lift D3 by 6 dB, but in this body they
+put the twist at 210-221 Hz against Coaldrake's measured 184-195. The holes
+at the scanned places give a first air mode of 60-73 Hz against her 85 Hz
+([comparison](validation/scanned-body-2026-11-01.md)).
+
+**Chosen:** none. The struts take an invented attachment, and the scanned
+walls and holes break the measured modes the fitted body keeps, so no
+listening test was run.
+
+**Licensed:** nothing new. A body whose section varies along its length,
+with the struts' attachment from a fuller source, would reopen it.
+
 ## 2026-10-31 — The arched top moves with the box's bending
 
 **Decided:** whether the box's bending changes its volume. The owner found
