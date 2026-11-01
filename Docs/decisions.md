@@ -8,6 +8,26 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-01 — Overlapping keys pluck unless Legato is on
+
+**Decided:** whether a legato step (one key held, the next one or two
+semitones above its string) plays ato-oshi by default, now that
+`PlayingControls::legato` (0.12.0) can turn it on or off.
+
+- **Off by default**, as 0.12.0 ships: every key plucks unless Legato is
+  on. On a keyboard notes overlap without a player meaning to slur: in a
+  D4-D5 scale played with 30 ms overlaps, 4 of 15 notes were bent instead
+  of plucked (0.11.1).
+- **On by default**: a legato step slides the press without a new pluck
+  unless Legato is turned off.
+
+**Chosen:** Off by default, by the owner on a decision card (2026-11-01),
+not by ear. Nothing changes in the engine. The Rack device's Oshide step
+On, the default and every factory patch's setting, already plucks.
+
+**Licensed:** `legato` false in `PlayingControls`'s defaults and in every
+front end's default.
+
 ## 2026-11-01 — The tsume stops only the stretch it touches
 
 **Decided:** what the tsume does to a string still ringing when it plucks
