@@ -610,6 +610,7 @@ bool fitSections(DispersionFit& fit, int pairs, int stages, double omega1, doubl
         DispersionFit next = fit;
         for (int k = 0; k < parameters; ++k)
             next[static_cast<std::size_t>(k)] += delta[static_cast<std::size_t>(k)];
+        next[0] = std::min(0.0, next[0]);
         const double candidate = solved ? cost(next, trial) : std::numeric_limits<double>::infinity();
         if (candidate < current)
         {
@@ -3442,19 +3443,20 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 + 2.0 * pi * spec.diameter * std::sqrt(pi * airViscosity * airDensity * frequency);
             const double airDecay = material.measuredAirDamping ? airRoot * std::sqrt(frequency)
                                                                 : airResistance / (2.0 * voice.linearMass);
-            DispersionDesign design {};
+            const double gain = std::exp(-airDecay / frequency) * yokeRoundTripGain;
+            const LossSectionDesign constantDesign = constantLossSection(constantLoss, airRoot, inharmonicity, frequency, fs);
+            const LossSectionDesign bendingDesign = bendingLossSection(bendingLoss, inharmonicity, frequency, fs);
+            // Dispersion (designDispersion), the line then solved so the
+            // fundamental is exact once the junction exists and the ji's
+            // reflection phase is known (tuning below).
+            const DispersionDesign design = designDispersion(frequency, inharmonicity, fs, refine);
             for (int plane = 0; plane < 2; ++plane)
             {
                 LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
                 loop.frequency = frequency;
-                loop.gain = std::exp(-airDecay / frequency) * yokeRoundTripGain;
-                loop.constantDesign = constantLossSection(constantLoss, airRoot, inharmonicity, frequency, fs);
-                loop.bendingDesign = bendingLossSection(bendingLoss, inharmonicity, frequency, fs);
-                // Dispersion (designDispersion), the line then solved so the
-                // fundamental is exact once the junction exists and the
-                // ji's reflection phase is known (tuning below).
-                if (plane == 0)
-                    design = designDispersion(frequency, inharmonicity, fs, refine);
+                loop.gain = gain;
+                loop.constantDesign = constantDesign;
+                loop.bendingDesign = bendingDesign;
                 loop.dispersionStages = design.stages;
                 loop.dispersion = design.coefficient;
                 loop.dispersionPairs = design.pairs;
@@ -3551,12 +3553,14 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         // otherwise its phase at rest stands for the bend's (a moved ji's
         // keys, which would take several times the whole setup's time; a
         // bend there can sit a few cents off where it crosses a body mode).
-        const auto tune = [&] (LoopDesign& loop, int plane, bool bends)
+        const auto tune = [&] (std::array<LoopDesign, 2>& planes, bool bends)
         {
-            const double f0 = loop.frequency;
-            const std::size_t port = plane == 0 ? static_cast<std::size_t>(voice.ji) : voice.tipCoordinate();
-            // The port's admittance with every other port loading the ji.
-            const auto reflectionLead = [&] (double frequency)
+            const double f0 = planes[0].frequency;
+            const std::array<std::size_t, 2> ports { static_cast<std::size_t>(voice.ji), voice.tipCoordinate() };
+            // Each port's admittance with every other port loading the ji;
+            // both planes share the stretch's frequency and the body's
+            // mobility there.
+            const auto reflectionLeads = [&] (double frequency)
             {
                 const double omega = 2.0 * pi * frequency;
                 std::array<std::array<Complex, barCoordinates>, barCoordinates> mobility {};
@@ -3567,26 +3571,38 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                     const Complex response = Complex(0.0, omega)
                         / Complex(wm * wm - omega * omega, omega * wm / mode.q);
                     for (std::size_t i = 0; i < barCoordinates; ++i)
-                        for (std::size_t j = 0; j < barCoordinates; ++j)
-                            mobility[i][j] += response * mode.participation[i] * mode.participation[j];
-                }
-                // Y_port = e^T (I + Y W)^-1 Y e, W the other stretches.
-                std::array<std::array<Complex, barCoordinates>, barCoordinates> system {};
-                for (std::size_t i = 0; i < barCoordinates; ++i)
-                    for (std::size_t j = 0; j < barCoordinates; ++j)
                     {
-                        const double others = zg.m[j][j] - (j == port ? voice.impedance : 0.0);
-                        system[i][j] = (i == j ? 1.0 : 0.0) + mobility[i][j] * others;
+                        const Complex scaled = response * mode.participation[i];
+                        for (std::size_t j = i; j < barCoordinates; ++j)
+                            mobility[i][j] += scaled * mode.participation[j];
                     }
-                const auto inverted = inverse(system);
-                Complex admittance = 0.0;
-                for (std::size_t k = 0; k < barCoordinates; ++k)
-                    admittance += inverted[port][k] * mobility[k][port];
-                const Complex zy = voice.impedance * admittance;
-                // R = (ZY - 1)/(1 + ZY); the loop carries -R.
-                return std::arg((1.0 - zy) / (1.0 + zy));
+                }
+                for (std::size_t i = 0; i < barCoordinates; ++i)
+                    for (std::size_t j = 0; j < i; ++j)
+                        mobility[i][j] = mobility[j][i];
+                std::array<double, 2> leads {};
+                for (int plane = 0; plane < 2; ++plane)
+                {
+                    const std::size_t port = ports[static_cast<std::size_t>(plane)];
+                    // Y_port = e^T (I + Y W)^-1 Y e, W the other stretches.
+                    std::array<std::array<Complex, barCoordinates>, barCoordinates> system {};
+                    for (std::size_t i = 0; i < barCoordinates; ++i)
+                        for (std::size_t j = 0; j < barCoordinates; ++j)
+                        {
+                            const double others = zg.m[j][j] - (j == port ? voice.impedance : 0.0);
+                            system[i][j] = (i == j ? 1.0 : 0.0) + mobility[i][j] * others;
+                        }
+                    const auto inverted = inverse(system);
+                    Complex admittance = 0.0;
+                    for (std::size_t k = 0; k < barCoordinates; ++k)
+                        admittance += inverted[port][k] * mobility[k][port];
+                    const Complex zy = voice.impedance * admittance;
+                    // R = (ZY - 1)/(1 + ZY); the loop carries -R.
+                    leads[static_cast<std::size_t>(plane)] = std::arg((1.0 - zy) / (1.0 + zy));
+                }
+                return leads;
             };
-            const auto lagAt = [&] (double omega, double lineDelay, double lead)
+            const auto lagAt = [&] (const LoopDesign& loop, double omega, double lineDelay, double lead)
             {
                 const int whole = wholeFor(lineDelay);
                 const double fraction = lineDelay - whole;
@@ -3595,35 +3611,38 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 return omega * whole + allpassLag(2, t1, t2, omega) + loop.filterLag(omega) - lead;
             };
             const double omega0 = 2.0 * pi * f0 / fs;
-            const double lead0 = reflectionLead(f0);
-            double lower = 6.0, upper = delayCapacity - 16.0;
-            for (int iteration = 0; iteration < 60; ++iteration)
+            const auto lead0 = reflectionLeads(f0);
+            for (int plane = 0; plane < 2; ++plane)
             {
-                const double middle = 0.5 * (lower + upper);
-                if (lagAt(omega0, middle, lead0) < 2.0 * pi)
-                    lower = middle;
-                else
-                    upper = middle;
+                LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
+                double lower = 6.0, upper = delayCapacity - 16.0;
+                for (int iteration = 0; iteration < 60; ++iteration)
+                {
+                    const double middle = 0.5 * (lower + upper);
+                    if (lagAt(loop, omega0, middle, lead0[static_cast<std::size_t>(plane)]) < 2.0 * pi)
+                        lower = middle;
+                    else
+                        upper = middle;
+                }
+                loop.restLineDelay = 0.5 * (lower + upper);
             }
-            loop.restLineDelay = 0.5 * (lower + upper);
             for (std::size_t k = 0; k < bendRatios.size(); ++k)
             {
                 const double omega = omega0 * bendRatios[k];
-                const double lead = bends ? reflectionLead(omega * fs / (2.0 * pi)) : lead0;
-                loop.lagCycles[k] = (lagAt(omega, loop.restLineDelay, lead) - omega * loop.restLineDelay) / (2.0 * pi);
+                const auto lead = bends ? reflectionLeads(omega * fs / (2.0 * pi)) : lead0;
+                for (int plane = 0; plane < 2; ++plane)
+                {
+                    LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
+                    loop.lagCycles[k] = (lagAt(loop, omega, loop.restLineDelay, lead[static_cast<std::size_t>(plane)])
+                                         - omega * loop.restLineDelay) / (2.0 * pi);
+                }
             }
         };
-        for (int design = 0; design < 4; ++design)
-        {
-            const int plane = design & 1;
-            tune(design < 2 ? voice.pitch[0].planes[static_cast<std::size_t>(plane)]
-                            : voice.left[static_cast<std::size_t>(plane)],
-                 plane, true);
-        }
+        tune(voice.pitch[0].planes, true);
+        tune(voice.left, true);
         for (int key = lowestKey; key <= highestKey; ++key)
             if (s.extensionString[static_cast<std::size_t>(key)] == index)
-                for (int plane = 0; plane < 2; ++plane)
-                    tune(s.extension[static_cast<std::size_t>(key)].planes[static_cast<std::size_t>(plane)], plane, false);
+                tune(s.extension[static_cast<std::size_t>(key)].planes, false);
         voice.normal.whole = wholeFor(voice.pitch[0].planes[0].restLineDelay);
         voice.parallel.whole = wholeFor(voice.pitch[0].planes[1].restLineDelay);
         voice.leftNormal.whole = wholeFor(voice.left[0].restLineDelay);
@@ -3945,9 +3964,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     if (voice.extensionKey != extensionKey)
         applyPitch(index, false, extensionKey);
     // The left hand presses before the right plucks: the press has settled.
-    const double target = std::pow(2.0, keyPress(pressed, voice.cents) / 12.0);
-    voice.pressTarget = voice.pressRatio = target;
-    voice.raised = pressed > 0;
+    press(index, keyPress(pressed, voice.cents), 0.0);
     pluck(index, midiNote, velocity);
 }
 
@@ -3986,12 +4003,13 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     s.quietSamples = 0;
     State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
     // The left hand follows the right to the string it plucks and presses it
-    // by handPress before the pluck; the string it leaves lets go.
+    // by handPress before the pluck; the string it leaves lets go at once.
     if (s.handString != index)
     {
-        if (s.handString >= 0)
-            s.strings[static_cast<std::size_t>(s.handString)].dampingDirty = true;
+        const int previous = s.handString;
         s.handString = index;
+        if (previous >= 0)
+            updateDamping(previous);
         voice.dampingDirty = true;
     }
     voice.handRatio = s.handTarget;
@@ -4175,8 +4193,22 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // A press already in place changes the first journey as well as every
     // return. Omitting it here injected an open-pitch period into a pressed
     // loop: at a whole tone the first wave overran its return by 12.2%.
+    // Set the string's delay lines and running-energy period to that ratio at
+    // once too, so a pluck while the engine is already active does not run at
+    // its old delay until the next control tick or lay its wave's squares
+    // over the unpressed period.
     const double releasedRatio = (tensionModulation_ ? 1.0 + voice.glidePerEnergy * releasedEnergy : 1.0)
                                * s.bend * voice.pressRatio * voice.handRatio;
+    for (Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
+        loop->setLineDelay(loop->lineDelayAt(releasedRatio));
+    const int releasedRoundTrip = std::clamp(
+        static_cast<int>(std::lround(sampleRate_ / (voice.frequency * releasedRatio))), 1, delayCapacity - 1);
+    while (voice.roundTrip < releasedRoundTrip)
+    {
+        ++voice.roundTrip;
+        voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip) & (delayCapacity - 1))] = 0.0f;
+    }
+    voice.roundTrip = releasedRoundTrip;
 
     for (int plane = 0; plane < 2; ++plane)
     {

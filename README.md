@@ -11,6 +11,12 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.15.2 — 2026-11-02 — Non-idle pressed plucks, dispersion bounds and faster setup
+
+- **A pluck while the instrument is already sounding sets its loop delay, energy period and hand damping at once.** When `pluck()` ran on a non-idle engine (`controlCountdown > 0`), the newly plucked string kept its previous delay length for up to 15 samples until the next control tick, and its initial squared-velocity window (`voice.squares`) used the unpressed period (`pitch.roundTrip`), dropping the first `oldRoundTrip - releasedRoundTrip` samples of energy on a press or truncating the last `releasedRoundTrip - oldRoundTrip` samples on a `hiki-iro` pull. All four loops of the plucked string, its `roundTrip` energy window and the previous `handString`'s damping now update immediately in `pluck()`, and `noteOn()` resets `pressSmoothing` through `press()`.
+- **Refined dispersion fits no longer stall at the zero first-order bound.** Projecting trial steps in `fitSections()` onto `p[0] <= 0` lets the four-pole Levenberg–Marquardt fit on B♭3 and E♭4 move past the boundary instead of rejecting the whole step: all six refined low strings now settle to `0.00–0.02` cents below 5 kHz with smooth negative first-order coefficients (`-0.42` to `-0.14`), where B♭3 and E♭4 had stalled at `a = 0.0000` (`0.08` and `0.52` cents).
+- **Faster setup.** `designPlanes()` computes each stretch's constant- and bending-loss sections once for both planes, `setInstrument()` evaluates the `26 x 26` modal mobility matrix once per frequency for both planes using upper-triangle symmetry, and `Performer::prepare()` avoids calling `setInstrument()` a second time when `AcukotoEngine::prepare()` has already re-run it.
+
 ### 0.15.1 — 2026-11-01 — A press lands on its key's pitch
 
 - **Pressed notes sound at their key's pitch.** A key a semitone or a whole tone above a string now presses that string to the key's own pitch in equal temperament, however the string is tuned: E♭4, tuned 11 cents flat as Ando's players tune it, is pressed 111 cents for E4. Before, a press was 3% past its interval from the string's own tuning, so pressed notes kept that tuning. Each of the fifteen pressed keys played alone on Koto Hirajoshi, dry and at Sympathy 0, now sounds within 3 cents of equal temperament, against 11 cents flat to 12 sharp in 0.15.0. The open strings keep their tuning. The owner's choice ([decisions](Docs/decisions.md)).

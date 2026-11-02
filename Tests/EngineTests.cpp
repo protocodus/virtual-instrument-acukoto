@@ -160,10 +160,44 @@ void checkHeldGestureAttack()
         left.insert(left.end(), right.begin(), right.end());
         return left;
     };
+    for (const bool modulation : { false, true })
+    {
+        engine->setTensionModulation(modulation);
+        for (const double interval : { -1.0, 1.0, 2.0 })
+        {
+            const auto hand = attack(interval, 0.0), tune = attack(0.0, interval);
+            check(hand == tune, "a pre-held hand gesture's first trip differs from its propagation pitch", interval);
+        }
+    }
+    // Mid-control-period too, while the engine is already active (5 samples in,
+    // controlCountdown 11): a newly pressed pluck must set its delay lines and
+    // running-energy period at once rather than waiting for the next control
+    // tick.
+    const auto activeAttack = [&] (double hand, double tune, int note)
+    {
+        auto controls = acukoto::Performer::defaultControls(0);
+        controls.handPress = hand;
+        controls.pitchBend = tune;
+        controls.room = 0.0;
+        controls.sympathy = 0.0;
+        engine->setControls(controls);
+        engine->reset();
+        // Wake the engine on a moved-ji pitch so noteOn(note) below calls
+        // applyPitch() back to the open string mid-control-period.
+        engine->noteOn(48, 0.2f);
+        std::vector<float> warmLeft(5), warmRight(5);
+        engine->process(warmLeft.data(), warmRight.data(), 5);
+        engine->noteOn(note, 0.7f);
+        std::vector<float> left(480), right(480);
+        engine->process(left.data(), right.data(), 480);
+        left.insert(left.end(), right.begin(), right.end());
+        return left;
+    };
+    engine->setTensionModulation(false);
     for (const double interval : { -1.0, 1.0, 2.0 })
     {
-        const auto hand = attack(interval, 0.0), tune = attack(0.0, interval);
-        check(hand == tune, "a pre-held hand gesture's first trip differs from its propagation pitch", interval);
+        const auto hand = activeAttack(interval, 0.0, 50), tune = activeAttack(0.0, interval, 50);
+        check(hand == tune, "a non-idle pre-held hand gesture waits for the next control tick", interval);
     }
     // A key's automatic oshide has the same initial-period contract, and it
     // lands on the key's pitch whatever the string's tuning: tuned 11.3

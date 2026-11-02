@@ -120,7 +120,8 @@ int main()
         {
             const acukoto::StringSpec& tuning = spec.strings[static_cast<std::size_t>(string)];
             const int note = tuning.midiNote;
-            const double designed = performer->engine().stringReport(string).frequency;
+            const acukoto::AcukotoEngine::StringReport report = performer->engine().stringReport(string);
+            const double designed = report.frequency;
             const double tuned = 1200.0 * std::log2(designed / (440.0 * std::pow(2.0, (note - 69) / 12.0)));
             const double sounded = centsOff(renderNote(*performer, note), designed);
             std::printf("%s string %2d note %d: tuned %+.2f cents, sounds %+.2f from that\n", spec.name, string + 1,
@@ -128,7 +129,26 @@ int main()
             check(std::abs(tuned - tuning.cents) <= 3.0 * tuning.centsSpread + 0.5, "string tuned off the players' tuning",
                   tuned - tuning.cents);
             check(std::abs(sounded) <= soundedCents, "string sounds off its tuning", sounded);
+            if (report.dispersionPairs > 0)
+                check(report.dispersionCents <= 0.05, "refined dispersion fit stalled", report.dispersionCents);
         }
+    }
+
+    // Pressed keys (oshide) land on the key's equal-tempered pitch, whatever
+    // the underlying string's tuning (0.15.1: dry and at Sympathy 0, over
+    // 0.3-1.2 s).
+    performer->setInstrument(0);
+    acukoto::PlayingControls dryPressed = acukoto::Performer::defaultControls(0);
+    dryPressed.room = 0.0;
+    dryPressed.sympathy = 0.0;
+    performer->setControls(dryPressed);
+    for (const int note : { 51, 52, 64, 65, 71, 72 })
+    {
+        const auto audio = renderNote(*performer, note);
+        const double equalPitch = 440.0 * std::pow(2.0, (note - 69) / 12.0);
+        const double sounded = centsOff(audio, equalPitch, 0.3, 0.9);
+        std::printf("pressed key %d: sounds %+.2f cents from equal temperament\n", note, sounded);
+        check(std::abs(sounded) <= soundedCents, "pressed key sounds off equal temperament", sounded);
     }
 
     // Every key of a piano, A0 to C8, sounds at its own pitch, with oshide
@@ -173,7 +193,12 @@ int main()
                 const bool reached = own >= 0 || (oshide && note > spec.strings[0].midiNote
                                                   && (note - spec.strings[static_cast<std::size_t>(below)].midiNote <= 2));
                 if (reached)
+                {
+                    if (own < 0)
+                        check(performer->engine().stringActivity(below).raised,
+                              "an oshide key does not raise its string", note);
                     continue;
+                }
                 // A pluck that pressed a string would have been reached; the
                 // nearest string below sounds the key instead.
                 const int string = note < spec.strings[0].midiNote ? 0 : below;
