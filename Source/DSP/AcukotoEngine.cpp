@@ -3247,18 +3247,6 @@ struct AcukotoEngine::State
     double pressureRight { 0.0 };
     Room room {};
     double outputGain { 1.0 };
-    // The piezo's coupling into its preamp (prepare()), as a bilinear
-    // one-pole high-pass: y = piezoScale (x - x[n-1]) + piezoPole y[n-1].
-    double piezoGain { 0.0 };
-    double piezoScale { 0.0 };
-    double piezoPole { 0.0 };
-    double piezoPreviousForce { 0.0 };
-    double piezoPrevious { 0.0 };
-    // The strip's compliance under the bar's mass (setInstrument()), a
-    // biquad on the bar's heave force: b0 b1 b2 a1 a2, transposed direct
-    // form II.
-    std::array<double, 5> piezoMount { 1.0, 0.0, 0.0, 0.0, 0.0 };
-    double piezoMountZ1 { 0.0 }, piezoMountZ2 { 0.0 };
     bool sustain { false };
     Random random {};
     // The left hand's own draws, so a press leaves the plucks' unchanged.
@@ -3283,9 +3271,9 @@ struct AcukotoEngine::State
     // string plucked, or -1.
     double handTarget { 1.0 };
     int handString { -1 };
-    // Room send, direct and crossed gain, volume, piezo blend.
-    std::array<double, 5> outputTarget {};
-    std::array<double, 5> output {};
+    // Room send, direct and crossed gain, volume.
+    std::array<double, 4> outputTarget {};
+    std::array<double, 4> output {};
     double outputSmoothing { 0.0 };
     double bendSmoothing { 0.0 };
 };
@@ -3299,20 +3287,6 @@ void AcukotoEngine::prepare(double sampleRate)
         ? sampleRate : 48000.0;
     state_->room.prepare(sampleRate_);
     state_->outputSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sampleRate_));
-    // The piezo is Aculele's pickup system (Acustra's documented chain): an
-    // element of 0.2 V/N at 1.45 nF, 3 m of cable, the ESP Project 202
-    // preamp at a gain of 1.62 and a 1 MOhm DI. At a lyre's bridge forces it
-    // stays linear: its op-amps reach their limits at about 13 N, and a
-    // glissando at full velocity on any factory patch presses at most 7.6 N.
-    // Linear, the chain is flat but for its coupling capacitors, and only C3
-    // into R5 || R6 (220 nF into 23.5 kOhm) lies above 2 Hz: a first-order
-    // high-pass at 31 Hz. Its level is InstrumentSpec::piezoGain.
-    {
-        const double corner = 1.0 / (2.0 * pi * 23.5e3 * 220.0e-9);
-        const double k = std::tan(pi * corner / sampleRate_);
-        state_->piezoScale = 1.0 / (1.0 + k);
-        state_->piezoPole = (1.0 - k) / (1.0 + k);
-    }
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
     state_->waverPole = std::exp(-2.0 * pi * pressWaverHz * controlPeriod / sampleRate_);
     if (stringCount_ > 0)
@@ -3650,56 +3624,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         applyPitch(index, false);
     }
 
-    // The piezo strip is no rigid seat: the bar's mass rides on the element,
-    // so the force the element feels falls away above their resonance.
-    // Acustra's element is the sibling evidence: a 3.8 g saddle on it rings
-    // at 6 kHz (the documented 5-7 kHz), so the element and its seat are
-    // 3.8e-3 (2 pi 6000)^2 / 0.072 = 7.5e7 N/m per metre of its 72 mm saddle,
-    // with a loss factor of 1/18 (Acustra's PiezoDesign; Zollner, Physics of
-    // the Electric Guitar, 2005, ch. 6). Here the strip runs the bar's length
-    // under the bar's mass: 8.7 kHz on the lyre harp, 6.5 kHz on the gut
-    // lyre. As in Acustra, F_p / F_r = Zk Q / (1 + Zk Q), Zk = k/s + c,
-    // Q = 1/(s M + SZ) + G, with SZ the strings' summed wave impedance and G
-    // the top's heave conductance under the bar, the mean of Re(Y) within a
-    // sixth of the resonance (as Acustra's 5-7 kHz about 6). Bilinear,
-    // prewarped at the resonance.
-    {
-        const double length = stringCount_ * body.stringSpacing;
-        const double stiffness = 3.8e-3 * std::pow(2.0 * pi * 6000.0, 2.0) / 0.072 * length;
-        const double mass = body.bridgeMass;
-        const double omega0 = std::sqrt(stiffness / mass);
-        const double loss = stiffness / (18.0 * omega0);
-        double impedance = 0.0;
-        for (int index = 0; index < stringCount_; ++index)
-            impedance += s.strings[static_cast<std::size_t>(index)].impedance;
-        constexpr int points = 64;
-        double g = 0.0;
-        for (int point = 0; point < points; ++point)
-        {
-            const double omega = omega0 * (5.0 / 6.0 + (point + 0.5) / (3.0 * points));
-            for (int m = 0; m < s.modeCount; ++m)
-            {
-                const Mode& mode = s.modes[static_cast<std::size_t>(m)];
-                const double wm = 2.0 * pi * mode.frequency;
-                const Complex response = Complex(0.0, omega) / Complex(wm * wm - omega * omega, omega * wm / mode.q);
-                g += response.real() * mode.participation[0] * mode.participation[0] / points;
-            }
-        }
-        const double n2 = loss * g * mass;
-        const double n1 = loss * (1.0 + g * impedance) + stiffness * g * mass;
-        const double n0 = stiffness * (1.0 + g * impedance);
-        const double d2 = n2 + mass;
-        const double d1 = n1 + impedance;
-        const double d0 = n0;
-        const double k = omega0 / std::tan(std::min(0.49 * pi, 0.5 * omega0 / fs));
-        const double a0 = d2 * k * k + d1 * k + d0;
-        s.piezoMount = { (n2 * k * k + n1 * k + n0) / a0, 2.0 * (n0 - n2 * k * k) / a0,
-                         (n2 * k * k - n1 * k + n0) / a0, 2.0 * (d0 - d2 * k * k) / a0,
-                         (d2 * k * k - d1 * k + d0) / a0 };
-    }
-
     s.outputGain = instrument.outputGain;
-    s.piezoGain = instrument.piezoGain;
     PlayingControls controls {};
     controls.technique = instrument.technique;
     controls.pluckDistance = instrument.pluckDistance;
@@ -3742,8 +3667,6 @@ void AcukotoEngine::reset() noexcept
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
     s.phaseState = {};
-    s.piezoPreviousForce = s.piezoPrevious = 0.0;
-    s.piezoMountZ1 = s.piezoMountZ2 = 0.0;
     s.room.reset();
     s.sustain = false;
     s.idle = true;
@@ -3884,7 +3807,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
             s.strings[static_cast<std::size_t>(s.handString)].dampingDirty = true;
     }
     // Mid/side: width 1 is the two microphones as they are.
-    s.outputTarget = { 0.5 * c.room, 0.5 * (1.0 + c.width), 0.5 * (1.0 - c.width), c.volume, 0.0 };
+    s.outputTarget = { 0.5 * c.room, 0.5 * (1.0 + c.width), 0.5 * (1.0 - c.width), c.volume };
     // A silent engine has nothing to glide: take the controls at once, as
     // process() does while idle, so the first pluck after prepare() sounds
     // as one after reset() does rather than fading in from zero.
@@ -4098,8 +4021,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         for (float& square : voice.squares)
             square *= kept;
     }
-    // The player evens the scale by what is heard: the microphones, the
-    // piezo, or between the two as the blend sets.
+    // The player evens the scale by what is heard (StringSpec::touch).
     const StringSpec& string = instrument.strings[static_cast<std::size_t>(index)];
     const double touch = string.touch;
     // Each pluck differs as a harpist's do too (Chadefaux et al. 2012). How
@@ -4381,8 +4303,6 @@ void AcukotoEngine::sleep() noexcept
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
     s.phaseState = {};
-    s.piezoPreviousForce = s.piezoPrevious = 0.0;
-    s.piezoMountZ1 = s.piezoMountZ2 = 0.0;
     s.room.reset();
     s.idle = true;
 }
@@ -4586,34 +4506,17 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // The room runs even unsent, so turning it up meets a live tail.
         double wetLeft = 0.0, wetRight = 0.0;
         s.room.process(0.5 * (pressureLeft + pressureRight), wetLeft, wetRight);
-        // The piezo strip under the bar presses with the bar's whole force on
-        // the top, so it hears the heave and not the rock; it runs unheard
-        // too, for the same reason as the room.
-        const std::array<double, 5>& mount = s.piezoMount;
-        const double element = mount[0] * plateForce[0] + s.piezoMountZ1;
-        s.piezoMountZ1 = mount[1] * plateForce[0] - mount[3] * element + s.piezoMountZ2;
-        s.piezoMountZ2 = mount[2] * plateForce[0] - mount[4] * element;
-        const double piezo = s.piezoScale * (element - s.piezoPreviousForce) + s.piezoPole * s.piezoPrevious;
-        s.piezoPreviousForce = element;
-        s.piezoPrevious = piezo;
-        const double level = std::max(s.outputGain * std::max(std::max(std::abs(pressureLeft), std::abs(pressureRight)),
-                                                              std::max(std::abs(wetLeft), std::abs(wetRight))),
-                                      s.piezoGain * std::abs(piezo));
+        const double level = s.outputGain * std::max(std::max(std::abs(pressureLeft), std::abs(pressureRight)),
+                                                     std::max(std::abs(wetLeft), std::abs(wetRight)));
         s.quietSamples = level > idleLevel ? 0 : s.quietSamples + 1;
         const double outLeft = pressureLeft + s.output[0] * wetLeft;
         const double outRight = pressureRight + s.output[0] * wetRight;
         const double micLeft = s.outputGain * (s.output[1] * outLeft + s.output[2] * outRight);
         const double micRight = s.outputGain * (s.output[1] * outRight + s.output[2] * outLeft);
-        // Which way the element is wired is a choice: this way round, a
-        // blend with the microphones adds in the low mids instead of
-        // cancelling there.
-        const double pickup = -s.piezoGain * piezo;
-        const double blend = s.output[4];
         const double volume = s.output[3];
         // Unlimited: the Performer's output stage keeps it under full scale.
-        // Written so that either end of the blend is exactly one source.
-        left[sample] = static_cast<float>(volume * ((1.0 - blend) * micLeft + blend * pickup));
-        right[sample] = static_cast<float>(volume * ((1.0 - blend) * micRight + blend * pickup));
+        left[sample] = static_cast<float>(volume * micLeft);
+        right[sample] = static_cast<float>(volume * micRight);
         if (s.quietSamples >= static_cast<int>(0.5 * sampleRate_))
         {
             sleep();

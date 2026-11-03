@@ -63,10 +63,8 @@ struct StringSpec
     double length;    // speaking length, ryukaku to the ji, m (the rest runs on to the unkaku)
     double diameter;  // m
     // The player's force on this string as a share of the instrument's
-    // pluckForce: an even touch by the microphones and by the piezo
-    // (AcukotoPresets.h).
+    // pluckForce: an even touch by the microphones (AcukotoPresets.h).
     double touch { 1.0 };
-    double piezoTouch { 1.0 };
     // A wound string: its maker's unit weight (kg/m), and the core diameter
     // (m) that sets its bending stiffness and carries its tension, the wrap
     // adding mass but almost no stiffness. Zero for plain wire.
@@ -155,7 +153,6 @@ struct InstrumentSpec
     double pluckForce;     // N held before release at full velocity
     double room;           // room send, 0-1
     double outputGain;     // digital full scale per pascal at the microphones
-    double piezoGain;      // digital full scale per newton on the piezo
 };
 
 // What a player and the room change while the instrument sounds. Every
