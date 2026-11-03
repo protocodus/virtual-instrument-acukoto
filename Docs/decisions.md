@@ -37,9 +37,34 @@ C2 and A2) on Koto Hirajoshi, each through the Performer at its defaults and
 constants changed. Level-matched on whole-file RMS to A: B -7.99 and -4.56 dB, C
 -10.73 and -5.01 dB, D -11.67 and -7.32 dB (places, then groove).
 
-**Chosen:** not yet. 0.17.0 ships B, the palm, as the first estimate; the
-owner's choice by ear, when made, replaces this line and sets the two
-constants (`handMass`, `handStiffness`).
+**Chosen** (by ear, after listening to the set): B, C and D, all three
+("i like all, A sucks"). A is dropped: the keys below D3 no longer play a moved
+ji. The owner then asked for the keys to carry "different hits (various places,
+various hand positions, velocity = intensity)" and, on seeing that would fill
+29 keys, limited it: "just one octave of percussion, keep other free for
+future".
+
+What that licensed, built as 0.18.0 and not yet heard as a set:
+
+- The twelve keys under the lowest string (D2 to C♯3 on both presets) are twelve
+  hits, four to each hand in order: the palm (B) on D2-F2, the knuckle (C) on
+  F♯2-A2 and the rap (D) on A♯2-C♯3, each on the top's far edge twice, the near
+  side once and the back once, at places 22% to 76% of the way along the body
+  from the head, no two of a hand's mirroring each other about the middle. The
+  keys A0 to C♯2 are free: they sound nothing, kept for the techniques to come.
+  Which hand is on which key and which place is the engine's choice, not the
+  owner's by ear, and open to change (`Source/DSP/AcukotoStrikes.h`).
+- "Velocity = intensity": the twelve hits would stand 18.8 dB apart at one
+  velocity (the back and the rap loudest), so each carries a touch on its
+  arrival speed that takes 80% of the way to the strings' mean level, the share
+  the owner chose for the strings (see "The scale is evened by touch" below).
+  The 80% is that choice reused, not a new one for strikes. `AcukotoLevels`
+  measures and checks them: all twelve within 0.3 dB of intended on both presets
+  at velocity 0.7, 3.6 dB apart.
+- The three hands are as heard, except that the touches lower the arrival speed
+  of the harder hands, so a rap lasts a little longer than the 1.65 ms of D and
+  a knuckle than the 3.8 ms of C. Heard files were level-matched by whole-file
+  RMS, which scaled their levels in the same direction.
 
 ## 2026-11-03 — The scale is evened by touch
 
