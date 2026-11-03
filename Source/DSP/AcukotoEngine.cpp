@@ -74,10 +74,17 @@ constexpr double keyPress(int step, double cents) noexcept
 // note but overran the excitation buffer on a lowered one. Fixed storage
 // keeps every supported bend allocation-free rather than flattening its pitch.
 constexpr int delayCapacity = 16384;
-// The keys of a piano, A0 to C8: every one sounds at its own pitch
-// (AcukotoEngine::noteOn, State::extension).
+// The keys of a piano, A0 to C8: from the lowest string up every one sounds at
+// its own pitch (AcukotoEngine::noteOn, State::extension); below it a hand
+// strikes the body (strikePlaces).
 constexpr int lowestKey = 21;
 constexpr int highestKey = 108;
+// The keys below the lowest string: no koto has those strings, so each key is
+// a place where a hand strikes the body (AcukotoEngine::noteOn). Three
+// surfaces, each struck at ten stations along the body: the top's far edge
+// beside the first string, the near side, and the back.
+constexpr int strikeStations = 10;
+constexpr int strikePlaces = 3 * strikeStations;
 constexpr int controlPeriod = 16;
 constexpr int maxDispersionStages = 8;
 constexpr int dispersionPairs = 4;
@@ -1121,6 +1128,9 @@ struct Mode
     double q { 1.0 };
     double b0 { 0.0 }, a1 { 0.0 }, a2 { 0.0 };
     BarVector participation {};  // each ji's heave, then each ji's tip
+    // The body's outward displacement under a hand at each strike place (the
+    // mean over the hand's patch) per unit of this mode.
+    std::array<float, strikePlaces> strike {};
     // Each microphone's pressure per unit of the mode's volume acceleration,
     // W = in phase + j quadrature at the mode's frequency, which the mode
     // keeps at every frequency (PhaseNetwork).
@@ -1150,6 +1160,7 @@ struct ModeBank
     static constexpr int capacity = maxModes + 3 * lanes;
     int count { 0 };
     std::array<std::array<float, capacity>, barCoordinates> participation {};
+    std::array<std::array<float, capacity>, strikePlaces> strike {};
     std::array<float, capacity> pullState {};
     std::array<double, capacity> b0 {}, a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
 };
@@ -1219,11 +1230,39 @@ double weightedSum(const double* weight, const double* y, int count) noexcept
     return total;
 }
 
-// Runs the bank's modes one sample on under the force on the bar. Returns what
-// they radiate to each microphone (in phase and in quadrature) and their pull
-// on the bar's next velocity.
-void runModes(ModeBank& bank, const BarVector& force, double& left, double& right, double& leftQuadrature,
-              double& rightQuadrature, BarVector& pull) noexcept
+// The striking hand (AcukotoEngine::strike). Every figure is an estimate, not
+// a measurement. The mass is a hand and the forearm behind it; the stiffness
+// of the Hertzian contact F = k d^1.5 puts the contact at about 7 ms for a
+// 0.3 kg hand arriving at 1 m/s, with a peak force near 150 N; a hand keeps
+// 40% of its speed on leaving (Hunt and Crossley's restitution). The key's
+// velocity sets the arrival speed, 0.02 to 0.5 m/s, geometrically. A real
+// slap is faster: at 1 m/s a hand on the body stands 15 to 25 dB over a
+// plucked string's level, so the range is scaled to put velocity 0.7 about as
+// loud as a note.
+constexpr double handMass = 0.3;
+constexpr double handStiffness = 1.36e6;
+constexpr double handRestitution = 0.4;
+constexpr double handSlowest = 0.02;
+constexpr double handFastest = 0.5;
+// A contact never lasts this long; it ends a hand that sticks.
+constexpr double handLongest = 0.05;
+
+// A hand's force on the body at one strike place: `shape` is the body's
+// outward displacement there per unit of each mode, `force` the generalized
+// force along that outward direction (a hand pressing in is negative), and
+// `velocity` comes back as the surface's outward velocity there.
+struct StrikeDrive
+{
+    const float* shape { nullptr };
+    double force { 0.0 };
+    double velocity { 0.0 };
+};
+
+// Runs the bank's modes one sample on under the force on the bar (and a
+// hand's, if one strikes). Returns what they radiate to each microphone (in
+// phase and in quadrature) and their pull on the bar's next velocity.
+void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, double& left, double& right,
+              double& leftQuadrature, double& rightQuadrature, BarVector& pull) noexcept
 {
     const int count = bank.count;
     // Each mode's generalized force, one coordinate at a time over every
@@ -1235,6 +1274,12 @@ void runModes(ModeBank& bank, const BarVector& force, double& left, double& righ
         const auto share = static_cast<float>(force[c]);
         for (int k = 0; k < count; ++k)
             drive[k] += participation[k] * share;
+    }
+    if (strike.shape)
+    {
+        const auto share = static_cast<float>(strike.force);
+        for (int k = 0; k < count; ++k)
+            drive[k] += strike.shape[k] * share;
     }
     // Plain pointers: the compiler vectorizes these loops only when it can
     // see which arrays the stores leave alone.
@@ -1253,6 +1298,12 @@ void runModes(ModeBank& bank, const BarVector& force, double& left, double& righ
         s2[k] = -x - a2[k] * y[k];
         s1[k] = next;
         pullState[k] = static_cast<float>(next);
+    }
+    if (strike.shape)
+    {
+        strike.velocity = 0.0;
+        for (int k = 0; k < count; ++k)
+            strike.velocity += static_cast<double>(strike.shape[k]) * y[k];
     }
     left = weightedSum(bank.left.data(), y, count);
     right = weightedSum(bank.right.data(), y, count);
@@ -3117,6 +3168,35 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
             u[static_cast<std::size_t>(holePoint + h)] = psi(holeBase + h);
             monopole += psi(holeBase + h);
         }
+        // The hand at each strike place: the mean of the surface's displacement
+        // under a patch five stations long, which at 120 stations is a palm's
+        // width. Surface 0 is the top's three cells beside the first string,
+        // 1 the near side's full height, 2 the back's four middle cells; the
+        // stations run from 20% to 80% of the body from the head, where it
+        // answers best.
+        constexpr int patchReach = 2;
+        for (int place = 0; place < strikePlaces; ++place)
+        {
+            const int surface = place / strikeStations;
+            const double along = 0.2 + 0.6 * (place % strikeStations) / (strikeStations - 1);
+            const int centre = std::clamp(static_cast<int>(along * gridAlong), patchReach, gridAlong - 1 - patchReach);
+            double sum = 0.0;
+            int cells = 0;
+            for (int ix = centre - patchReach; ix <= centre + patchReach; ++ix)
+            {
+                if (surface == 1)
+                {
+                    for (int iz = 0; iz < gridUp; ++iz, ++cells)
+                        sum += u[static_cast<std::size_t>(2 * gridAlong * gridAcross + ix * gridUp + iz)];
+                    continue;
+                }
+                const int first = surface == 0 ? 0 : 3, last = surface == 0 ? 2 : 6;
+                const int base = surface == 0 ? 0 : gridAlong * gridAcross;
+                for (int iy = first; iy <= last; ++iy, ++cells)
+                    sum += u[static_cast<std::size_t>(base + ix * gridAcross + iy)];
+            }
+            mode.strike[static_cast<std::size_t>(place)] = static_cast<float>(sum / cells);
+        }
         const double wavenumber = 2.0 * pi * frequency / soundSpeed;
         double radiation[2][2] {};
         for (int mic = 0; mic < 2; ++mic)
@@ -3232,18 +3312,35 @@ struct AcukotoEngine::State
         std::size_t tipCoordinate() const noexcept { return maxStrings + static_cast<std::size_t>(ji); }
     };
     std::array<StringVoice, maxStrings> strings {};
-    // Keys no string sounds by its own note or by oshide, lowestKey to
-    // highestKey: the nearest string below the key (the lowest string, for a
-    // key below it) with its ji moved to sound the key, its speaking length
-    // scaled at its own tension, as a player retunes a string by moving its
-    // ji. The rest of the string, from the ji on, keeps its own length. Below
-    // about B2 the ji would stand past the unkaku and above about C6 nearer
-    // the ryukaku than the tsume plays: no koto has those strings, an
-    // artificial range so that every key of a piano sounds at its own pitch
+    // Keys above the lowest string that no string sounds by its own note or
+    // by oshide, up to highestKey: the nearest string below the key with its
+    // ji moved to sound the key, its speaking length scaled at its own
+    // tension, as a player retunes a string by moving its ji. The rest of the
+    // string, from the ji on, keeps its own length. Above about C6 the ji
+    // would stand nearer the ryukaku than the tsume plays: no koto has those
+    // strings, an artificial range so that every key of a piano sounds
     // (owner requirement, 2026-10-30). extensionString is the string, or -1
-    // where a string's own note is the key.
+    // where a string's own note is the key or the key lies below every
+    // string, where a hand strikes the body (strike).
     std::array<PitchDesign, 128> extension {};
     std::array<int, 128> extensionString {};
+    int lowestStringNote { 0 };
+
+    // A hand striking the body: a mass pressing into the surface through a
+    // Hertzian spring with Hunt and Crossley's damping, the force going into
+    // the body's modes at the place struck and the surface's velocity there
+    // coming back (strike, process). Compression and speeds are inward.
+    struct Strike
+    {
+        bool active { false };
+        int place { 0 };
+        int samples { 0 };
+        double depth { 0.0 };
+        double handVelocity { 0.0 };
+        double surfaceVelocity { 0.0 };  // outward
+        double damping { 0.0 };          // s/m
+    };
+    Strike strike {};
 
     std::array<Mode, maxModes> modes {};
     int modeCount { 0 };
@@ -3363,12 +3460,15 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             detune[static_cast<std::size_t>(index)] = spec.cents + spec.centsSpread * tuning.gaussian();
         }
     }
-    // The keys no string's own note plays, each given to the nearest string
-    // below it, or to the lowest string (State::extension).
+    // The keys above the lowest string that no string's own note plays, each
+    // given to the nearest string below it (State::extension).
     s.extensionString.fill(-1);
-    for (int key = lowestKey; key <= highestKey; ++key)
+    s.lowestStringNote = instrument.strings[0].midiNote;
+    for (int index = 1; index < stringCount_; ++index)
+        s.lowestStringNote = std::min(s.lowestStringNote, instrument.strings[static_cast<std::size_t>(index)].midiNote);
+    for (int key = std::max(lowestKey, s.lowestStringNote); key <= highestKey; ++key)
     {
-        int nearest = -1, lowest = 0;
+        int nearest = -1;
         bool own = false;
         for (int index = 0; index < stringCount_; ++index)
         {
@@ -3376,11 +3476,9 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             own = own || note == key;
             if (note < key && (nearest < 0 || note > instrument.strings[static_cast<std::size_t>(nearest)].midiNote))
                 nearest = index;
-            if (note < instrument.strings[static_cast<std::size_t>(lowest)].midiNote)
-                lowest = index;
         }
         if (!own)
-            s.extensionString[static_cast<std::size_t>(key)] = nearest >= 0 ? nearest : lowest;
+            s.extensionString[static_cast<std::size_t>(key)] = nearest;
     }
     for (int index = 0; index < stringCount_; ++index)
     {
@@ -3506,6 +3604,8 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         const auto k = static_cast<std::size_t>(bank.count++);
         for (std::size_t c = 0; c < barCoordinates; ++c)
             bank.participation[c][k] = static_cast<float>(mode.participation[c]);
+        for (std::size_t p = 0; p < strikePlaces; ++p)
+            bank.strike[p][k] = mode.strike[p];
         bank.b0[k] = mode.b0;
         bank.a1[k] = mode.a1;
         bank.a2[k] = mode.a2;
@@ -3685,6 +3785,7 @@ void AcukotoEngine::reset() noexcept
     s.bank.s2.fill(0.0);
     s.modalPast = {};
     s.modalPastStale = true;
+    s.strike.active = false;
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
     s.phaseState = {};
@@ -3893,6 +3994,13 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
             if ((index = stringForNote(midiNote - step)) >= 0)
                 pressed = step;
     }
+    // A key below every string: no koto plays it, so a hand strikes the body,
+    // as players do (Pornprasit 2010, section 2.9).
+    if (index < 0 && midiNote >= lowestKey && midiNote < state_->lowestStringNote)
+    {
+        strike(midiNote - lowestKey, velocity);
+        return;
+    }
     // A key no string or press reaches: the nearest string below, its ji
     // moved to the key (State::extension).
     int extensionKey = -1;
@@ -3910,6 +4018,30 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     // The left hand presses before the right plucks: the press has settled.
     press(index, keyPress(pressed, voice.cents), 0.0);
     pluck(index, midiNote, velocity);
+}
+
+// A hand arrives at the body at the speed the key's velocity sets and meets it
+// at once (process runs the contact). A strike while another is still in
+// contact replaces it: the contacts last milliseconds.
+void AcukotoEngine::strike(int place, float velocity) noexcept
+{
+    State& s = *state_;
+    if (s.idle)
+    {
+        s.idle = false;
+        s.controlCountdown = 0;
+    }
+    s.quietSamples = 0;
+    const double v = std::clamp(static_cast<double>(velocity), 0.0, 1.0);
+    const double speed = handSlowest * std::pow(handFastest / handSlowest, v);
+    State::Strike& hit = s.strike;
+    hit.active = true;
+    hit.place = std::clamp(place, 0, strikePlaces - 1);
+    hit.samples = 0;
+    hit.depth = 0.0;
+    hit.handVelocity = speed;
+    hit.surfaceVelocity = 0.0;
+    hit.damping = 1.5 * (1.0 - handRestitution) / speed;
 }
 
 void AcukotoEngine::pluckString(int string, float velocity) noexcept
@@ -4321,6 +4453,7 @@ void AcukotoEngine::sleep() noexcept
     s.bank.s1.fill(0.0);
     s.bank.s2.fill(0.0);
     s.modalPastStale = true;
+    s.strike.active = false;
     s.lastGeneralizedVelocity = {};
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
@@ -4473,8 +4606,32 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         for (std::size_t i = 0; i < barCoordinates; ++i)
             plateForce[i] = drive[i] - zg[i] * velocity[i];
 
+        // A hand in contact with the body: it closes on the surface at its own
+        // speed less the surface's, the Hertzian spring pushes back, and what
+        // it pushes with goes into the modes at its place.
+        StrikeDrive hand;
+        State::Strike& hit = s.strike;
+        if (hit.active)
+        {
+            const double closing = hit.handVelocity + hit.surfaceVelocity;
+            hit.depth += closing / sampleRate_;
+            if (hit.depth <= 0.0 || ++hit.samples > handLongest * sampleRate_)
+            {
+                hit.active = false;
+            }
+            else
+            {
+                const double elastic = handStiffness * hit.depth * std::sqrt(hit.depth);
+                const double push = std::max(0.0, elastic * (1.0 + hit.damping * closing));
+                hit.handVelocity -= push / (handMass * sampleRate_);
+                hand.shape = bank.strike[static_cast<std::size_t>(hit.place)].data();
+                hand.force = -push;
+            }
+        }
         double radiatedLeft, radiatedRight, quadratureLeft, quadratureRight;
-        runModes(bank, plateForce, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
+        runModes(bank, plateForce, hand, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
+        if (hand.shape)
+            hit.surfaceVelocity = hand.velocity;
 
         for (int index = 0; index < count; ++index)
         {

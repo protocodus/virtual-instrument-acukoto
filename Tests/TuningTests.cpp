@@ -151,10 +151,12 @@ int main()
         check(std::abs(sounded) <= soundedCents, "pressed key sounds off equal temperament", sounded);
     }
 
-    // Every key of a piano, A0 to C8, sounds at its own pitch, with oshide
-    // and without: a key no string or press reaches moves the nearest
-    // string's ji to it (AcukotoEngine.cpp, State::extension), tuned as that
-    // string is. Keys past those 88 stay silent.
+    // Every key of a piano, A0 to C8, sounds, with oshide and without. From
+    // the lowest string up it sounds at its own pitch: a key no string or
+    // press reaches moves the nearest string's ji to it (AcukotoEngine.cpp,
+    // State::extension), tuned as that string is. Below the lowest string a
+    // hand strikes the body, which has no pitch to tune (checkStrikes in
+    // Tests/EngineTests.cpp). Keys past those 88 stay silent.
     for (int preset = 0; preset < acukoto::Performer::instrumentCount; ++preset)
         for (const bool oshide : { true, false })
         {
@@ -181,6 +183,8 @@ int main()
                     continue;
                 }
                 silent += sounds ? 0 : 1;
+                if (note < spec.strings[0].midiNote)
+                    continue;
                 // The moved ji's design against the string's own tuning.
                 int own = -1, below = 0;
                 for (int string = 0; string < spec.stringCount; ++string)
@@ -201,7 +205,7 @@ int main()
                 }
                 // A pluck that pressed a string would have been reached; the
                 // nearest string below sounds the key instead.
-                const int string = note < spec.strings[0].midiNote ? 0 : below;
+                const int string = below;
                 const acukoto::StringSpec& tuning = spec.strings[static_cast<std::size_t>(string)];
                 const double expected = performer->engine().stringReport(string).frequency;
                 const double ownPitch = 440.0 * std::pow(2.0, (tuning.midiNote - 69) / 12.0);
@@ -216,13 +220,12 @@ int main()
             check(sounding == 0, "a key past A0 or C8 sounds", sounding);
             check(worstCents < 0.01, "a moved ji is not tuned as its string", worstCents);
         }
-    // They sound where they are tuned. The lowest keys' fundamentals lie far
-    // under the body's lowest mode, so their second partial is read. The
-    // highest keys die away within a second, under what the rest of the
-    // instrument rings with, so they are read from 0.3 to 0.8 s.
+    // They sound where they are tuned. The highest keys die away within a
+    // second, under what the rest of the instrument rings with, so they are
+    // read from 0.3 to 0.8 s.
     performer->setInstrument(0);
     performer->setControls(acukoto::Performer::defaultControls(0));
-    for (const int note : { 21, 36, 54, 66, 96, 108 })
+    for (const int note : { 54, 66, 96, 108 })
     {
         const auto audio = renderNote(*performer, note);
         const acukoto::InstrumentSpec& spec = *acukoto::presets[0];
@@ -231,17 +234,14 @@ int main()
             if (spec.strings[static_cast<std::size_t>(index)].midiNote < note)
                 string = index;
         const double designed = performer->engine().stringReport(string).frequency;
-        const int partial = note < 40 ? 2 : 1;
-        const double sounded = note > 84 ? centsOff(audio, partial * designed, 0.3, 0.5)
-                                         : centsOff(audio, partial * designed);
-        std::printf("key %d on string %d's moved ji: partial %d sounds %+.2f cents from its tuning\n", note,
-                    string + 1, partial, sounded);
+        const double sounded = note > 84 ? centsOff(audio, designed, 0.3, 0.5) : centsOff(audio, designed);
+        std::printf("key %d on string %d's moved ji: sounds %+.2f cents from its tuning\n", note, string + 1, sounded);
         check(std::abs(sounded) <= 15.0, "a moved ji's key sounds off its pitch", sounded);
     }
 
     if (failures == 0)
         std::printf("Acukoto.Tuning: every string tuned as the players tune it and sounding within %.0f cents of that, "
-                    "and every key from A0 to C8 at its own pitch\n",
+                    "every key from the lowest string to C8 at its own pitch and every key below it sounding\n",
                     soundedCents);
     return failures == 0 ? 0 : 1;
 }

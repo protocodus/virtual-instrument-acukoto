@@ -6,8 +6,10 @@
 // press raises the last plucked string and leaves it for the next, a
 // pressed note keeps its pitch after its key-up, a chord's pressed
 // note leaves a held string alone when another will do, a key struck twice
-// is let go at its last key-up, and Sympathy at 0 rests the whole of every
-// string nobody plays.
+// is let go at its last key-up, Sympathy at 0 rests the whole of every
+// string nobody plays, and a key below the lowest string is a hand striking
+// the body: it sounds, harder with velocity, dies away, plucks no string and
+// does not depend on the block sizes.
 
 #include "DSP/AcukotoPerformer.h"
 
@@ -221,6 +223,39 @@ void checkHeldGestureAttack()
               "an automatic oshide's first trip differs from its propagation pitch", std::sqrt(error / energy));
     }
 }
+
+// A key below the lowest string is a hand on the body (AcukotoEngine::strike).
+void checkStrikes(acukoto::Performer& performer)
+{
+    constexpr double rate = 48000.0;
+    const int lowestString = acukoto::presets[0]->strings[0].midiNote;
+    for (int key = 21; key < lowestString; ++key)
+    {
+        // Every key sounds, plucks nothing, and splits into blocks alike; a
+        // few, across the three surfaces, are followed to silence and
+        // compared at two velocities.
+        const bool followed = key == 21 || key == 25 || key == 35 || key == 45 || key == lowestString - 1;
+        const auto loud = render(performer, { { 0.0, key, 0.9f } }, followed ? 3.0 : 0.5, { 256 });
+        check(finite(loud), "a strike is not finite", key);
+        const double early = rmsDb(loud, rate, 0.0, 0.3);
+        check(early > -80.0, "a key below the lowest string is silent", key);
+        for (int string = 0; string < performer.engine().instrument().stringCount; ++string)
+            check(!performer.engine().stringActivity(string).plucked, "a strike plucks a string", key);
+        const auto split = render(performer, { { 0.0, key, 0.9f } }, followed ? 3.0 : 0.5,
+                                  { 1, 7, 64, 333, 2, 256, 129 });
+        check(loud == split, "a strike depends on the block sizes", key);
+        if (!followed)
+            continue;
+        check(early - rmsDb(loud, rate, 2.0, 3.0) >= 30.0, "a strike does not die away", key);
+        const auto soft = render(performer, { { 0.0, key, 0.3f } }, 0.5, { 256 });
+        check(early - rmsDb(soft, rate, 0.0, 0.3) >= 10.0, "a harder strike is not louder", key);
+    }
+    // The body answers differently at different places.
+    const auto top = render(performer, { { 0.0, 25, 0.7f } }, 0.5, { 256 });
+    const auto side = render(performer, { { 0.0, 35, 0.7f } }, 0.5, { 256 });
+    check(top != side, "two places on the body sound alike", 0.0);
+}
+
 } // namespace
 
 int main()
@@ -420,17 +455,20 @@ int main()
             check(rmsDb(out, hostRate, 0.0, 3.5) > -60.0, "silent at this rate", hostRate);
             if (hostRate == 96000.0 && factor == 2)
             {
-                // 192 kHz internally: A0 lowered by the allowed octave
-                // master tune plus a half-tone hand gesture needs about
-                // 14,800 delay cells. The old 8192-cell scratch wave wrote
-                // past its allocation (ASan); even master -2 plus hand -1
-                // overran it. Re-pluck while the first trip is pending too.
+                // 192 kHz internally: the lowest note lowered by the allowed
+                // octave master tune plus a half-tone hand gesture. Until
+                // 0.17.0 that was A0's moved ji, about 14,800 delay cells;
+                // the old 8192-cell scratch wave wrote past its allocation
+                // (ASan), and even master -2 plus hand -1 overran it. The
+                // lowest string, D3, now needs about 2,600, with the
+                // buffers' size unchanged. Re-pluck while the first trip is
+                // pending too.
                 auto lowest = acukoto::Performer::defaultControls(1);
                 lowest.pitchBend = -12.0;
                 lowest.handPress = -1.0;
                 auto neutral = lowest;
                 neutral.pitchBend = neutral.handPress = 0.0;
-                const auto extreme = render(*other, { { 0.0, 21, 0.1f }, { 0.04, 21, 0.1f } }, 0.25,
+                const auto extreme = render(*other, { { 0.0, 50, 0.1f }, { 0.04, 50, 0.1f } }, 0.25,
                                              { 1, 7, 64, 333, 2, 256, 129 },
                                              { { 0.0, lowest }, { 0.14, neutral } });
                 check(finite(extreme), "the lowest downward gesture is not finite at 192 kHz", 0.0);
@@ -485,7 +523,10 @@ int main()
             check(a == b, "a reset plays as a fresh instance, sample for sample (largest difference)", worst);
         }
 
+    performer->setControls(acukoto::Performer::defaultControls(0));
+    checkStrikes(*performer);
+
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses and lowers by hand, aligns pressed attacks, holds presses, shares chords, counts keys and rests sympathy\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses and lowers by hand, aligns pressed attacks, holds presses, shares chords, counts keys, rests sympathy and strikes the body below the strings\n");
     return failures == 0 ? 0 : 1;
 }
