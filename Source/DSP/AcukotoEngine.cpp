@@ -1136,18 +1136,22 @@ struct Mode
 
 // The modes as process() runs them, in transposed direct form II: a
 // structure of arrays, padded with silent modes to whole groups of `lanes`
-// so the compiler can vectorize each group. `drive` is the participation
-// times b0, `pull` the participation alone. The modes that meet only the
-// even coordinates come first, up to evenEnd, then those that meet only the
-// odd ones, up to oddEnd, then the rest, each part padded, so that process()
-// runs each part with only its own coordinates.
+// so the compiler can vectorize each group. A mode's drive is its
+// participation times b0 and its pull on the bar the participation alone, so
+// one single-precision table serves both, and with the pull's copy of the
+// states it runs the two sums over 26 coordinates and 356 modes four to a
+// vector. The participations are rounded to single precision where the
+// modes are built (Mode::participation), so the junction's mobility is
+// exactly the bank's. The states, the filters and the radiation stay double.
+// Every ji meets every mode, so the bank is one part.
 struct ModeBank
 {
     static constexpr int lanes = 8;
     static constexpr int capacity = maxModes + 3 * lanes;
-    int evenEnd { 0 }, oddEnd { 0 }, count { 0 };
-    std::array<std::array<double, capacity>, barCoordinates> drive {}, pull {};
-    std::array<double, capacity> a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
+    int count { 0 };
+    std::array<std::array<float, capacity>, barCoordinates> participation {};
+    std::array<float, capacity> pullState {};
+    std::array<double, capacity> b0 {}, a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
 };
 
 // Each mode radiates j w W times its velocity, with W found at its own
@@ -1201,52 +1205,71 @@ struct PhaseNetwork
     }
 };
 
-// Runs the bank's modes [from, to) one sample on, adding what they radiate to
-// each microphone (in phase and in quadrature) and their pull on the bar's
-// next velocity, each lane in its own sum so that a group runs as one vector.
-void runModes(ModeBank& bank, int from, int to, const BarVector& force, double (&left)[ModeBank::lanes],
-              double (&right)[ModeBank::lanes], double (&leftQuadrature)[ModeBank::lanes],
-              double (&rightQuadrature)[ModeBank::lanes], double (&past)[barCoordinates][ModeBank::lanes]) noexcept
+// The sum of weight * y over the bank, each lane in its own sum so that a
+// group runs as one vector.
+double weightedSum(const double* weight, const double* y, int count) noexcept
 {
-    for (int group = from; group < to; group += ModeBank::lanes)
-    {
-        // Each mode's generalized force, the coordinates in the same order
-        // as one sum per mode, a group's lanes side by side.
-        double drive[ModeBank::lanes];
-        for (int lane = 0; lane < ModeBank::lanes; ++lane)
-            drive[lane] = 0.0 + bank.drive[0][static_cast<std::size_t>(group + lane)] * force[0];
-        for (std::size_t c = 1; c < barCoordinates; ++c)
-            for (int lane = 0; lane < ModeBank::lanes; ++lane)
-                drive[lane] += bank.drive[c][static_cast<std::size_t>(group + lane)] * force[c];
-        for (int lane = 0; lane < ModeBank::lanes; ++lane)
-        {
-            const auto k = static_cast<std::size_t>(group + lane);
-            const double x = drive[lane];
-            const double y = x + bank.s1[k];
-            const double s1 = bank.s2[k] - bank.a1[k] * y;
-            bank.s2[k] = -x - bank.a2[k] * y;
-            bank.s1[k] = s1;
-            left[lane] += bank.left[k] * y;
-            right[lane] += bank.right[k] * y;
-            leftQuadrature[lane] += bank.leftQuadrature[k] * y;
-            rightQuadrature[lane] += bank.rightQuadrature[k] * y;
-        }
-    }
-    // The pull on the bar, one coordinate at a time over every group, so a
-    // coordinate's lane sums stay in registers instead of all 26 spilling.
-    // Each sum still adds the same products in the same group order.
+    double lane[ModeBank::lanes] {};
+    for (int group = 0; group < count; group += ModeBank::lanes)
+        for (int i = 0; i < ModeBank::lanes; ++i)
+            lane[i] += weight[group + i] * y[group + i];
+    double total = 0.0;
+    for (int i = 0; i < ModeBank::lanes; ++i)
+        total += lane[i];
+    return total;
+}
+
+// Runs the bank's modes one sample on under the force on the bar. Returns what
+// they radiate to each microphone (in phase and in quadrature) and their pull
+// on the bar's next velocity.
+void runModes(ModeBank& bank, const BarVector& force, double& left, double& right, double& leftQuadrature,
+              double& rightQuadrature, BarVector& pull) noexcept
+{
+    const int count = bank.count;
+    // Each mode's generalized force, one coordinate at a time over every
+    // mode so that each sum runs as vectors.
+    float drive[ModeBank::capacity] {};
     for (std::size_t c = 0; c < barCoordinates; ++c)
     {
-        double sum[ModeBank::lanes];
-        for (int lane = 0; lane < ModeBank::lanes; ++lane)
-            sum[lane] = past[c][lane];
-        const double* pull = bank.pull[c].data();
-        const double* state = bank.s1.data();
-        for (int group = from; group < to; group += ModeBank::lanes)
-            for (int lane = 0; lane < ModeBank::lanes; ++lane)
-                sum[lane] += pull[group + lane] * state[group + lane];
-        for (int lane = 0; lane < ModeBank::lanes; ++lane)
-            past[c][lane] = sum[lane];
+        const float* participation = bank.participation[c].data();
+        const auto share = static_cast<float>(force[c]);
+        for (int k = 0; k < count; ++k)
+            drive[k] += participation[k] * share;
+    }
+    // Plain pointers: the compiler vectorizes these loops only when it can
+    // see which arrays the stores leave alone.
+    const double* b0 = bank.b0.data();
+    const double* a1 = bank.a1.data();
+    const double* a2 = bank.a2.data();
+    double* s1 = bank.s1.data();
+    double* s2 = bank.s2.data();
+    float* pullState = bank.pullState.data();
+    double y[ModeBank::capacity];
+    for (int k = 0; k < count; ++k)
+    {
+        const double x = b0[k] * drive[k];
+        y[k] = x + s1[k];
+        const double next = s2[k] - a1[k] * y[k];
+        s2[k] = -x - a2[k] * y[k];
+        s1[k] = next;
+        pullState[k] = static_cast<float>(next);
+    }
+    left = weightedSum(bank.left.data(), y, count);
+    right = weightedSum(bank.right.data(), y, count);
+    leftQuadrature = weightedSum(bank.leftQuadrature.data(), y, count);
+    rightQuadrature = weightedSum(bank.rightQuadrature.data(), y, count);
+    // The pull on the bar, one coordinate at a time over every group, so a
+    // coordinate's lane sums stay in registers instead of all 26 spilling.
+    for (std::size_t c = 0; c < barCoordinates; ++c)
+    {
+        float lane[ModeBank::lanes] {};
+        const float* participation = bank.participation[c].data();
+        for (int group = 0; group < count; group += ModeBank::lanes)
+            for (int i = 0; i < ModeBank::lanes; ++i)
+                lane[i] += participation[group + i] * pullState[group + i];
+        pull[c] = 0.0;
+        for (int i = 0; i < ModeBank::lanes; ++i)
+            pull[c] += lane[i];
     }
 }
 
@@ -3007,10 +3030,12 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
         mode.bodyShare = rest + box;
         mode.wallShare = wall;
         mode.bridgeShare = bridge;
+        // Single precision, the bank's (ModeBank).
+        const auto single = [] (double value) { return static_cast<double>(static_cast<float>(value)); };
         for (int index = 0; index < stringCount; ++index)
         {
-            mode.participation[static_cast<std::size_t>(index)] = psi(heaveBase + index);
-            mode.participation[maxStrings + static_cast<std::size_t>(index)] = psi(rockBase + index);
+            mode.participation[static_cast<std::size_t>(index)] = single(psi(heaveBase + index));
+            mode.participation[maxStrings + static_cast<std::size_t>(index)] = single(psi(rockBase + index));
         }
 
         // The surface's outward displacement per unit of this mode.
@@ -3475,17 +3500,13 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
     s.immediateMobility = y0m;
     ModeBank& bank = s.bank;
     bank = {};
-    // Every ji meets every mode, so the bank is one part: evenEnd and oddEnd
-    // stay at its start.
     for (int index = 0; index < s.modeCount; ++index)
     {
         const Mode& mode = s.modes[static_cast<std::size_t>(index)];
         const auto k = static_cast<std::size_t>(bank.count++);
         for (std::size_t c = 0; c < barCoordinates; ++c)
-        {
-            bank.drive[c][k] = mode.b0 * mode.participation[c];
-            bank.pull[c][k] = mode.participation[c];
-        }
+            bank.participation[c][k] = static_cast<float>(mode.participation[c]);
+        bank.b0[k] = mode.b0;
         bank.a1[k] = mode.a1;
         bank.a2[k] = mode.a2;
         // Its share of the volume acceleration (process()) carries the
@@ -3500,7 +3521,6 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         bank.rightQuadrature[k] = mode.radiationRightQuadrature * warp;
     }
     bank.count = (bank.count + ModeBank::lanes - 1) / ModeBank::lanes * ModeBank::lanes;
-    bank.evenEnd = bank.oddEnd = 0;
     // Both stretches of a string meet at its ji, each a wave impedance.
     BarMatrix zg {};
     for (int index = 0; index < stringCount_; ++index)
@@ -4234,7 +4254,8 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         const auto m = static_cast<std::size_t>(k);
         double modal = 0.0;
         for (std::size_t c = 0; c < barCoordinates; ++c)
-            modal += bank.drive[c][m] * preload[c];
+            modal += bank.participation[c][m] * preload[c];
+        modal *= bank.b0[m];
         bank.s1[m] -= modal;
         bank.s2[m] -= modal;
     }
@@ -4439,7 +4460,7 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             s.modalPast = {};
             for (std::size_t c = 0; c < barCoordinates; ++c)
                 for (int k = 0; k < bank.count; ++k)
-                    s.modalPast[c] += bank.pull[c][static_cast<std::size_t>(k)] * bank.s1[static_cast<std::size_t>(k)];
+                    s.modalPast[c] += bank.participation[c][static_cast<std::size_t>(k)] * bank.s1[static_cast<std::size_t>(k)];
             s.modalPastStale = false;
         }
         const BarVector& past = s.modalPast;
@@ -4452,22 +4473,8 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         for (std::size_t i = 0; i < barCoordinates; ++i)
             plateForce[i] = drive[i] - stringLoad[i];
 
-        constexpr int lanes = ModeBank::lanes;
-        double laneLeft[lanes] {}, laneRight[lanes] {}, laneLeftQuadrature[lanes] {}, laneRightQuadrature[lanes] {},
-            lanePast[barCoordinates][lanes] {};
-        runModes(bank, bank.oddEnd, bank.count, plateForce, laneLeft, laneRight, laneLeftQuadrature,
-                 laneRightQuadrature, lanePast);
-        double radiatedLeft = 0.0, radiatedRight = 0.0, quadratureLeft = 0.0, quadratureRight = 0.0;
-        s.modalPast = {};
-        for (int lane = 0; lane < lanes; ++lane)
-        {
-            radiatedLeft += laneLeft[lane];
-            radiatedRight += laneRight[lane];
-            quadratureLeft += laneLeftQuadrature[lane];
-            quadratureRight += laneRightQuadrature[lane];
-            for (std::size_t c = 0; c < barCoordinates; ++c)
-                s.modalPast[c] += lanePast[c][lane];
-        }
+        double radiatedLeft, radiatedRight, quadratureLeft, quadratureRight;
+        runModes(bank, plateForce, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
 
         for (int index = 0; index < count; ++index)
         {
