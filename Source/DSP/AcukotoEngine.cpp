@@ -3255,10 +3255,10 @@ struct AcukotoEngine::State
 
     // The ji junction (process() derives it): the immediate generalized
     // mobility Y0 of the modes, which hold each ji's own mass and feet, the
-    // strings' generalized impedance Zg (both stretches of every string) and
-    // solve = (I + Y0 Zg)^-1.
+    // strings' generalized impedance Zg (both stretches of every string; it
+    // is diagonal, kept as its diagonal) and solve = (I + Y0 Zg)^-1.
     BarMatrix immediateMobility {};
-    BarMatrix stringImpedance {};
+    BarVector stringImpedance {};
     BarMatrix solve {};
     BodyWork work {};
 
@@ -3529,7 +3529,8 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         zg.m[static_cast<std::size_t>(voice.ji)][static_cast<std::size_t>(voice.ji)] += 2.0 * voice.impedance;
         zg.m[voice.tipCoordinate()][voice.tipCoordinate()] += 2.0 * voice.impedance;
     }
-    s.stringImpedance = zg;
+    for (std::size_t i = 0; i < barCoordinates; ++i)
+        s.stringImpedance[i] = zg.m[i][i];
     BarMatrix junction = BarMatrix::identity();
     const BarMatrix product = y0m * zg;
     for (std::size_t i = 0; i < barCoordinates; ++i)
@@ -4347,7 +4348,7 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
     std::array<double, maxStrings> leftNormalIn {};
     std::array<double, maxStrings> leftParallelIn {};
     const BarMatrix& y0 = s.immediateMobility;
-    const BarMatrix& zg = s.stringImpedance;
+    const BarVector& zg = s.stringImpedance;
     const BarMatrix& solve = s.solve;
 
     for (int sample = 0; sample < numSamples; ++sample)
@@ -4468,10 +4469,9 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         for (std::size_t i = 0; i < barCoordinates; ++i)
             rhs[i] += past[i];
         const BarVector velocity = solve.apply(rhs);
-        const BarVector stringLoad = zg.apply(velocity);
-        BarVector plateForce {};
+        BarVector plateForce;
         for (std::size_t i = 0; i < barCoordinates; ++i)
-            plateForce[i] = drive[i] - stringLoad[i];
+            plateForce[i] = drive[i] - zg[i] * velocity[i];
 
         double radiatedLeft, radiatedRight, quadratureLeft, quadratureRight;
         runModes(bank, plateForce, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
