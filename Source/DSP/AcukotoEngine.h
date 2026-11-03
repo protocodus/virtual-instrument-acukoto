@@ -213,12 +213,12 @@ public:
     // two semitones below, pressed up to it). A key above the lowest string
     // that none of those reaches plays the nearest string below it with its
     // ji moved to the key, past the strings an artificial range no koto has.
-    // A key from A0 to the one under the lowest string is a hand striking the
-    // body, each key a place on it and its velocity the hand's speed; keys
-    // outside A0-C8 are ignored. With oshide and legato, a note played legato
-    // that a held, sounding string reaches by its press alone, while no other
-    // key is down, moves the press without a pluck (ato-oshi, or letting the
-    // press go).
+    // The twelve keys under the lowest string are each a hand striking the body
+    // at one place (AcukotoStrikes.h), its velocity the hand's speed; the keys
+    // further down are free and silent, and keys outside A0-C8 are ignored.
+    // With oshide and legato, a note played legato that a held, sounding
+    // string reaches by its press alone, while no other key is down, moves the
+    // press without a pluck (ato-oshi, or letting the press go).
     void noteOn(int midiNote, float velocity) noexcept;
     // The playing hand damps the string (PlayingControls::release), unless
     // sustain holds it.
@@ -305,7 +305,7 @@ private:
     struct State;
     void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
     void pluck(int index, int midiNote, float velocity) noexcept;
-    void strike(int place, float velocity) noexcept;
+    void strike(int key, float velocity) noexcept;
     void updateDamping(int string) noexcept;
     void sleep() noexcept;
 

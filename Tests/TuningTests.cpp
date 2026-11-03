@@ -19,6 +19,7 @@
 // designPlanes).
 
 #include "DSP/AcukotoPerformer.h"
+#include "DSP/AcukotoStrikes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -151,12 +152,13 @@ int main()
         check(std::abs(sounded) <= soundedCents, "pressed key sounds off equal temperament", sounded);
     }
 
-    // Every key of a piano, A0 to C8, sounds, with oshide and without. From
-    // the lowest string up it sounds at its own pitch: a key no string or
-    // press reaches moves the nearest string's ji to it (AcukotoEngine.cpp,
-    // State::extension), tuned as that string is. Below the lowest string a
-    // hand strikes the body, which has no pitch to tune (checkStrikes in
-    // Tests/EngineTests.cpp). Keys past those 88 stay silent.
+    // Every key from the lowest string's note less twelve to C8 sounds, with
+    // oshide and without. From the lowest string up it sounds at its own
+    // pitch: a key no string or press reaches moves the nearest string's ji to
+    // it (AcukotoEngine.cpp, State::extension), tuned as that string is. The
+    // twelve under the lowest string are a hand striking the body, which has
+    // no pitch to tune (checkStrikes in Tests/EngineTests.cpp). The keys below
+    // those and past C8 stay silent.
     for (int preset = 0; preset < acukoto::Performer::instrumentCount; ++preset)
         for (const bool oshide : { true, false })
         {
@@ -167,6 +169,7 @@ int main()
             const acukoto::InstrumentSpec& spec = *acukoto::presets[static_cast<std::size_t>(preset)];
             int silent = 0, sounding = 0;
             double worstCents = 0.0;
+            const int firstStruck = spec.strings[0].midiNote - static_cast<int>(acukoto::strikeKeys.size());
             std::vector<float> left(4800), right(4800);
             for (int note = 0; note < 128; ++note)
             {
@@ -177,7 +180,7 @@ int main()
                 for (const float x : left)
                     sum += static_cast<double>(x) * x;
                 const bool sounds = std::sqrt(sum / 4800.0) > 1.0e-4;
-                if (note < 21 || note > 108)
+                if (note < std::max(21, firstStruck) || note > 108)
                 {
                     sounding += sounds ? 1 : 0;
                     continue;
@@ -214,10 +217,11 @@ int main()
                 const double stringCents = 1200.0 * std::log2(expected / ownPitch) - 100.0 * (note - tuning.midiNote);
                 worstCents = std::max(worstCents, std::abs(cents - stringCents));
             }
-            std::printf("%s, oshide %s: A0-C8 %d silent, past them %d sound; moved ji within %.3f cents of their "
-                        "strings' tuning\n", spec.name, oshide ? "on" : "off", silent, sounding, worstCents);
-            check(silent == 0, "a key from A0 to C8 is silent", silent);
-            check(sounding == 0, "a key past A0 or C8 sounds", sounding);
+            std::printf("%s, oshide %s: keys %d-108 %d silent, outside them %d sound; moved ji within %.3f cents of "
+                        "their strings' tuning\n", spec.name, oshide ? "on" : "off", firstStruck, silent, sounding,
+                        worstCents);
+            check(silent == 0, "a key from the strikes to C8 is silent", silent);
+            check(sounding == 0, "a free key or one past C8 sounds", sounding);
             check(worstCents < 0.01, "a moved ji is not tuned as its string", worstCents);
         }
     // They sound where they are tuned. The highest keys die away within a
@@ -241,7 +245,7 @@ int main()
 
     if (failures == 0)
         std::printf("Acukoto.Tuning: every string tuned as the players tune it and sounding within %.0f cents of that, "
-                    "every key from the lowest string to C8 at its own pitch and every key below it sounding\n",
+                    "every key from the lowest string to C8 at its own pitch and the twelve under it sounding\n",
                     soundedCents);
     return failures == 0 ? 0 : 1;
 }

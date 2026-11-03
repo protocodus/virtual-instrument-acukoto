@@ -7,11 +7,13 @@
 // pressed note keeps its pitch after its key-up, a chord's pressed
 // note leaves a held string alone when another will do, a key struck twice
 // is let go at its last key-up, Sympathy at 0 rests the whole of every
-// string nobody plays, and a key below the lowest string is a hand striking
-// the body: it sounds, harder with velocity, dies away, plucks no string and
-// does not depend on the block sizes.
+// string nobody plays, and the twelve keys under the lowest string are each a
+// hand striking the body: it sounds, harder with velocity, dies away, plucks
+// no string and does not depend on the block sizes, while the keys further down
+// are free and silent.
 
 #include "DSP/AcukotoPerformer.h"
+#include "DSP/AcukotoStrikes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -224,21 +226,30 @@ void checkHeldGestureAttack()
     }
 }
 
-// A key below the lowest string is a hand on the body (AcukotoEngine::strike).
+// The twelve keys under the lowest string are a hand on the body
+// (AcukotoEngine::strike); those further down are free and silent.
 void checkStrikes(acukoto::Performer& performer)
 {
     constexpr double rate = 48000.0;
+    constexpr int keyCount = static_cast<int>(acukoto::strikeKeys.size());
     const int lowestString = acukoto::presets[0]->strings[0].midiNote;
-    for (int key = 21; key < lowestString; ++key)
+    const int firstStruck = lowestString - keyCount;
+    for (int key = 21; key < firstStruck; ++key)
+    {
+        const auto free = render(performer, { { 0.0, key, 0.9f } }, 0.5, { 256 });
+        check(std::all_of(free.begin(), free.end(), [] (float x) { return x == 0.0f; }), "a free key sounds", key);
+    }
+    for (int key = firstStruck; key < lowestString; ++key)
     {
         // Every key sounds, plucks nothing, and splits into blocks alike; a
-        // few, across the three surfaces, are followed to silence and
-        // compared at two velocities.
-        const bool followed = key == 21 || key == 25 || key == 35 || key == 45 || key == lowestString - 1;
+        // few, across the three hands and surfaces, are followed to silence
+        // and compared at two velocities.
+        const int offset = key - firstStruck;
+        const bool followed = offset == 0 || offset == 3 || offset == 6 || offset == 9 || offset == keyCount - 1;
         const auto loud = render(performer, { { 0.0, key, 0.9f } }, followed ? 3.0 : 0.5, { 256 });
         check(finite(loud), "a strike is not finite", key);
         const double early = rmsDb(loud, rate, 0.0, 0.3);
-        check(early > -80.0, "a key below the lowest string is silent", key);
+        check(early > -80.0, "a key under the lowest string is silent", key);
         for (int string = 0; string < performer.engine().instrument().stringCount; ++string)
             check(!performer.engine().stringActivity(string).plucked, "a strike plucks a string", key);
         const auto split = render(performer, { { 0.0, key, 0.9f } }, followed ? 3.0 : 0.5,
@@ -250,10 +261,13 @@ void checkStrikes(acukoto::Performer& performer)
         const auto soft = render(performer, { { 0.0, key, 0.3f } }, 0.5, { 256 });
         check(early - rmsDb(soft, rate, 0.0, 0.3) >= 10.0, "a harder strike is not louder", key);
     }
-    // The body answers differently at different places.
-    const auto top = render(performer, { { 0.0, 25, 0.7f } }, 0.5, { 256 });
-    const auto side = render(performer, { { 0.0, 35, 0.7f } }, 0.5, { 256 });
-    check(top != side, "two places on the body sound alike", 0.0);
+    // The body answers differently at different places and to different hands:
+    // the same top place under the palm and the knuckle is a different hit.
+    const auto palmTop = render(performer, { { 0.0, firstStruck, 0.7f } }, 0.5, { 256 });
+    const auto palmSide = render(performer, { { 0.0, firstStruck + 2, 0.7f } }, 0.5, { 256 });
+    const auto rapTop = render(performer, { { 0.0, firstStruck + 8, 0.7f } }, 0.5, { 256 });
+    check(palmTop != palmSide, "two places on the body sound alike", 0.0);
+    check(palmTop != rapTop, "two hands on the body sound alike", 0.0);
 }
 
 } // namespace
