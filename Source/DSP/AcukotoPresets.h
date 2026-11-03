@@ -68,11 +68,12 @@ constexpr double lengthFor(int midiNote)
     return waveSpeed / (2.0 * frequency);
 }
 
-constexpr StringSpec koto(int midiNote, double cents, double spread)
+constexpr StringSpec koto(int midiNote, double cents, double spread, double touch)
 {
     StringSpec string { midiNote, lengthFor(midiNote), 1.225e-3 };
     string.cents = cents;
     string.centsSpread = spread;
+    string.touch = touch;
     return string;
 }
 
@@ -89,10 +90,10 @@ constexpr StringSpec koto(int midiNote, double cents, double spread)
 // spreads are the standard deviation among the six (Fig. 8), largest at the
 // minor seconds; string 1 is everyone's reference.
 constexpr std::array<StringSpec, maxStrings> hirajoshi {{
-    koto(50, 0.0, 0.0), koto(55, -1.7, 0.8), koto(57, 0.9, 1.8), koto(58, -5.1, 2.7),
-    koto(62, 1.0, 2.0), koto(63, -11.3, 4.2), koto(67, -1.1, 2.0), koto(69, 2.1, 1.7),
-    koto(70, -4.6, 2.8), koto(74, 2.0, 2.0), koto(75, -9.7, 4.3), koto(79, 2.2, 2.6),
-    koto(81, 5.3, 2.1)
+    koto(50, 0.0, 0.0, 1.326), koto(55, -1.7, 0.8, 0.967), koto(57, 0.9, 1.8, 1.042), koto(58, -5.1, 2.7, 1.465),
+    koto(62, 1.0, 2.0, 1.126), koto(63, -11.3, 4.2, 0.753), koto(67, -1.1, 2.0, 0.911), koto(69, 2.1, 1.7, 0.970),
+    koto(70, -4.6, 2.8, 1.054), koto(74, 2.0, 2.0, 0.714), koto(75, -9.7, 4.3, 0.663), koto(79, 2.2, 2.6, 1.169),
+    koto(81, 5.3, 2.1, 1.168)
 }};
 
 // Hankumoijoshi: hirajoshi with string 8 lowered a semitone and string 9
@@ -102,10 +103,10 @@ constexpr std::array<StringSpec, maxStrings> hirajoshi {{
 // 9, C5, a perfect fourth above 7. Their spreads add 7's to a minor second's
 // own (4's and 6's over 3's and 5's, 2.9 cents) and to a fourth's (2's, 0.8).
 constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
-    koto(50, 0.0, 0.0), koto(55, -1.7, 0.8), koto(57, 0.9, 1.8), koto(58, -5.1, 2.7),
-    koto(62, 1.0, 2.0), koto(63, -11.3, 4.2), koto(67, -1.1, 2.0), koto(68, -10.2, 3.5),
-    koto(72, -3.1, 2.2), koto(74, 2.0, 2.0), koto(75, -9.7, 4.3), koto(79, 2.2, 2.6),
-    koto(81, 5.3, 2.1)
+    koto(50, 0.0, 0.0, 1.478), koto(55, -1.7, 0.8, 0.991), koto(57, 0.9, 1.8, 1.086), koto(58, -5.1, 2.7, 1.436),
+    koto(62, 1.0, 2.0, 1.220), koto(63, -11.3, 4.2, 0.848), koto(67, -1.1, 2.0, 0.891), koto(68, -10.2, 3.5, 1.068),
+    koto(72, -3.1, 2.2, 0.550), koto(74, 2.0, 2.0, 0.764), koto(75, -9.7, 4.3, 0.701), koto(79, 2.2, 2.6, 1.277),
+    koto(81, 5.3, 2.1, 1.185)
 }};
 
 // The body. Coaldrake's koto is 1.83 m long (ICA 2019); a 1981 Yamada-style

@@ -79,6 +79,10 @@ if(ACUKOTO_BUILD_TOOLS)
     # yuri) and plucks by string number.
     add_executable(RenderAcukotoPhrase Tools/RenderPhrase.cpp)
     target_link_libraries(RenderAcukotoPhrase PRIVATE AcukotoDSP)
+
+    # How evenly each preset's strings sound (StringSpec::touch).
+    add_executable(AcukotoLevels Tools/MeasureLevels.cpp)
+    target_link_libraries(AcukotoLevels PRIVATE AcukotoDSP)
 endif()
 
 if(BUILD_TESTING)
@@ -140,6 +144,9 @@ if(BUILD_TESTING)
         add_test(NAME Acukoto.AudioDemos
                  COMMAND RenderAcukotoPresetDemos --jobs 2 --check "${CMAKE_CURRENT_SOURCE_DIR}/Docs/audio/midi")
         set_tests_properties(Acukoto.AudioDemos PROPERTIES LABELS audio TIMEOUT 900)
+        # Every preset's strings sound within 0.5 dB of one another, K-weighted.
+        add_test(NAME Acukoto.Levels COMMAND AcukotoLevels --check)
+        set_tests_properties(Acukoto.Levels PROPERTIES LABELS audio TIMEOUT 600)
         if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT ACUKOTO_ENABLE_SANITIZERS)
             add_test(NAME Acukoto.CpuBudget
                      COMMAND RenderAcukotoPresetDemos --cpu --json "${CMAKE_BINARY_DIR}/cpu.json"
