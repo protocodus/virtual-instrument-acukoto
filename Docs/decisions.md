@@ -8,6 +8,39 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-03 — The keys below the lowest string are a hand on the body
+
+**Decided:** what the keys from A0 to C♯3 do. Until 0.16.0 each played the
+lowest string with its ji moved to the key, a pitched string no koto has (the
+owner's requirement of 2026-10-30). On 2026-11-03 the owner asked whether they
+could carry "something that players can do on koto" instead, required every
+technique and effect to be physically simulated, and chose to build them one at
+a time, body strikes first.
+
+The strike's contact is not settled by the model: the hand's mass, stiffness and
+restitution are estimates, and a palm, a knuckle and a hard rap are each
+defensible.
+
+- **A**, the shipping 0.16.0: the moved ji.
+- **B**, a palm: 0.3 kg, stiffness 1.36e6 N/m^1.5; contact 10.5 ms at velocity
+  0.7, 8.6 ms at 1.0.
+- **C**, a knuckle: 0.1 kg, 5.9e6; 3.8 and 3.2 ms.
+- **D**, a hard rap: 0.05 kg, 2.4e7; 1.65 and 1.35 ms.
+
+All three hands have a restitution of 0.4, the same speeds (0.02-0.5 m/s by
+velocity) and the same places on the body.
+
+**Test:** `places` (every key from A0 to C♯3, ascending, 0.45 s apart, velocity
+90) and `groove` (eight bars of an arpeggio on the strings with strikes at C♯1,
+C2 and A2) on Koto Hirajoshi, each through the Performer at its defaults and
+48 kHz with `RenderAcukotoMidi`. C and D are copies of the source with the two
+constants changed. Level-matched on whole-file RMS to A: B -7.99 and -4.56 dB, C
+-10.73 and -5.01 dB, D -11.67 and -7.32 dB (places, then groove).
+
+**Chosen:** not yet. 0.17.0 ships B, the palm, as the first estimate; the
+owner's choice by ear, when made, replaces this line and sets the two
+constants (`handMass`, `handStiffness`).
+
 ## 2026-11-03 — The scale is evened by touch
 
 **Decided:** whether each string's touch is set so the scale sounds even.
