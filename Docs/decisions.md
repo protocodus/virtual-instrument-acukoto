@@ -8,6 +8,38 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-03 — The scale is evened by touch
+
+**Decided:** whether each string's touch is set so the scale sounds even.
+Every touch was 1.0, so in 0.15.2 the strings plucked alone at velocity 0.7
+stood 6.9 dB (Koto Hirajoshi) and 8.6 dB (Koto Hankumoijoshi) apart,
+K-weighted over the first 0.6 s (`AcukotoLevels`); D3 and B♭3 sat 2.5-3.4 dB
+under their scale's mean and E♭5 and D5 2.3-3.6 over, C5 of Koto
+Hankumoijoshi 5.2.
+
+- **A**, the shipping 0.15.2: every touch 1.0.
+- **B**, 0.16.0: each string's touch brings its level to its scale's mean,
+  in dB, so the scale's average touch is unchanged. Touches 0.55 to 1.48.
+- **C**, halfway: each touch the square root of B's, half of B's correction
+  in dB.
+
+**Test:** `scale-hirajoshi.mid` and `scale-hankumoijoshi.mid` (all thirteen
+strings up and down, 0.3 s apart, velocity 90) on their own presets, and the
+first 20 s of the Sakura demo on Koto Hirajoshi, each through the Performer
+at its defaults and 48 kHz with `RenderAcukotoMidi`. C is a copy of the
+source with the roots written into the presets. Level-matched on whole-file
+RMS to A: B +0.77, +0.90 and +0.75 dB, C +0.49, +0.61 and +0.45 dB (the
+three pieces in that order). Before the trim, peaks fall from A to B by 2.3,
+1.5 and 2.3 dB.
+
+**Chosen:** not yet. B is the shipping default of the branch because the
+engine's own comment says the player evens the scale by what is heard
+(`StringSpec::touch`), and B adds no free number: each touch is the
+measurement of one string. The set (`key.md` unread by design) is with the
+owner, and the owner's letter goes here, with whether it was chosen by ear.
+B's target is a level, not a recorded koto's balance; no per-note level was
+measured on the recordings.
+
 ## 2026-11-01 — A press lands on its key's pitch
 
 **Decided:** where a key's press takes its string. Since 0.11.2 a press was
@@ -38,7 +70,8 @@ scripted presses keep the semitones their script gives.
 
 **Decided:** whether Acukoto gets a piezo pickup, as Aculyre, the lyre it
 was forked from, has. **Chosen:** no, by the owner. The piezo path left in
-the engine from Aculyre stays silent (README, Known gaps).
+the engine from Aculyre stayed silent (README, Known gaps) until 0.16.0, which
+removed it.
 
 ## 2026-11-01 — Overlapping keys pluck unless Legato is on
 
