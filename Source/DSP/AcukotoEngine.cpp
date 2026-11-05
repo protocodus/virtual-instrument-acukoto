@@ -1393,7 +1393,9 @@ struct BarMatrix
     }
 };
 
-// Gauss-Jordan with partial pivoting (setup only).
+// Gauss-Jordan with partial pivoting (setup only). After column c is
+// eliminated, a's columns up to c are read by nothing that reaches r, the
+// pivots or the factors, so each step updates only the columns after it.
 template <typename T, std::size_t N>
 std::array<std::array<T, N>, N> inverse(std::array<std::array<T, N>, N> a) noexcept
 {
@@ -1409,20 +1411,18 @@ std::array<std::array<T, N>, N> inverse(std::array<std::array<T, N>, N> a) noexc
         std::swap(a[c], a[pivot]);
         std::swap(r[c], r[pivot]);
         const T scale = T(1.0) / a[c][c];
-        for (std::size_t j = 0; j < N; ++j)
-        {
+        for (std::size_t j = c + 1; j < N; ++j)
             a[c][j] *= scale;
+        for (std::size_t j = 0; j < N; ++j)
             r[c][j] *= scale;
-        }
         for (std::size_t i = 0; i < N; ++i)
             if (i != c)
             {
                 const T factor = a[i][c];
-                for (std::size_t j = 0; j < N; ++j)
-                {
+                for (std::size_t j = c + 1; j < N; ++j)
                     a[i][j] -= factor * a[c][j];
+                for (std::size_t j = 0; j < N; ++j)
                     r[i][j] -= factor * r[c][j];
-                }
             }
     }
     return r;
@@ -3700,7 +3700,9 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             const auto reflectionLeads = [&] (double frequency)
             {
                 const double omega = 2.0 * pi * frequency;
-                std::array<std::array<Complex, barCoordinates>, barCoordinates> mobility {};
+                // Summed as real and imaginary parts apart, which a complex
+                // times a real keeps apart anyway, so that the sums vectorize.
+                BarMatrix real {}, imaginary {};
                 for (int m = 0; m < s.modeCount; ++m)
                 {
                     const Mode& mode = s.modes[static_cast<std::size_t>(m)];
@@ -3710,13 +3712,18 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                     for (std::size_t i = 0; i < barCoordinates; ++i)
                     {
                         const Complex scaled = response * mode.participation[i];
+                        const double scaledReal = scaled.real(), scaledImaginary = scaled.imag();
                         for (std::size_t j = i; j < barCoordinates; ++j)
-                            mobility[i][j] += scaled * mode.participation[j];
+                        {
+                            real.m[i][j] += scaledReal * mode.participation[j];
+                            imaginary.m[i][j] += scaledImaginary * mode.participation[j];
+                        }
                     }
                 }
+                std::array<std::array<Complex, barCoordinates>, barCoordinates> mobility;
                 for (std::size_t i = 0; i < barCoordinates; ++i)
-                    for (std::size_t j = 0; j < i; ++j)
-                        mobility[i][j] = mobility[j][i];
+                    for (std::size_t j = i; j < barCoordinates; ++j)
+                        mobility[i][j] = mobility[j][i] = Complex(real.m[i][j], imaginary.m[i][j]);
                 std::array<double, 2> leads {};
                 for (int plane = 0; plane < 2; ++plane)
                 {
