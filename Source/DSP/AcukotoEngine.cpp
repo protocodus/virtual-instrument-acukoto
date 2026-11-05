@@ -1249,6 +1249,23 @@ struct StrikeDrive
     double velocity { 0.0 };
 };
 
+// The generalized force on `width` modes from `first`: each coordinate's
+// share times its participations, summed in coordinate order.
+constexpr int driveBlock = 4 * ModeBank::lanes;
+template <int width>
+void driveModes(const ModeBank& bank, const float* share, int first, float* drive) noexcept
+{
+    float sum[width] {};
+    for (std::size_t c = 0; c < barCoordinates; ++c)
+    {
+        const float* participation = bank.participation[c].data() + first;
+        for (int i = 0; i < width; ++i)
+            sum[i] += participation[i] * share[c];
+    }
+    for (int i = 0; i < width; ++i)
+        drive[first + i] = sum[i];
+}
+
 // Runs the bank's modes one sample on under the force on the bar (and a
 // hand's, if one strikes). Returns what they radiate to each microphone (in
 // phase and in quadrature) and their pull on the bar's next velocity.
@@ -1256,16 +1273,19 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
               double& leftQuadrature, double& rightQuadrature, BarVector& pull) noexcept
 {
     const int count = bank.count;
-    // Each mode's generalized force, one coordinate at a time over every
-    // mode so that each sum runs as vectors.
-    float drive[ModeBank::capacity] {};
+    // Each mode's generalized force. A block of modes takes every
+    // coordinate in turn, so its sums stay in registers instead of going
+    // through memory once per coordinate; each still adds the coordinates
+    // in order, so the result is the same to the bit.
+    float share[barCoordinates];
     for (std::size_t c = 0; c < barCoordinates; ++c)
-    {
-        const float* participation = bank.participation[c].data();
-        const auto share = static_cast<float>(force[c]);
-        for (int k = 0; k < count; ++k)
-            drive[k] += participation[k] * share;
-    }
+        share[c] = static_cast<float>(force[c]);
+    float drive[ModeBank::capacity];
+    int first = 0;
+    for (; first + driveBlock <= count; first += driveBlock)
+        driveModes<driveBlock>(bank, share, first, drive);
+    for (; first < count; first += ModeBank::lanes)
+        driveModes<ModeBank::lanes>(bank, share, first, drive);
     if (strike.shape)
     {
         const auto share = static_cast<float>(strike.force);
