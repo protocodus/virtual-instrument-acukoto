@@ -2243,20 +2243,39 @@ void generalizedEigen(double* stiffness, double* mass, int n, double* values, do
             m(i, j) = sum / m(j, j);
         }
     }
-    // X = L^-1 K by columns, then L^-1 X^T: K symmetric, so the result is.
+    // X = L^-1 K, then L^-1 X^T: K symmetric, so the result is. Forward
+    // substitution in place, a row of every column at a time and a block of
+    // columns in registers: each column still subtracts its terms in order
+    // of p, and the block runs as vectors.
+    constexpr int block = 8;
     for (int pass = 0; pass < 2; ++pass)
     {
-        for (int col = 0; col < n; ++col)
+        for (int i = 0; i < n; ++i)
         {
-            for (int i = 0; i < n; ++i)
+            double* row = &k(i, 0);
+            const double* factors = &m(i, 0);
+            int first = 0;
+            for (; first + block <= n; first += block)
             {
-                double sum = k(i, col);
+                double sum[block];
+                for (int col = 0; col < block; ++col)
+                    sum[col] = row[first + col];
                 for (int p = 0; p < i; ++p)
-                    sum -= m(i, p) * scratch[p];
-                scratch[i] = sum / m(i, i);
+                {
+                    const double* solved = &k(p, first);
+                    for (int col = 0; col < block; ++col)
+                        sum[col] -= factors[p] * solved[col];
+                }
+                for (int col = 0; col < block; ++col)
+                    row[first + col] = sum[col] / factors[i];
             }
-            for (int i = 0; i < n; ++i)
-                k(i, col) = scratch[i];
+            for (int col = first; col < n; ++col)
+            {
+                double sum = row[col];
+                for (int p = 0; p < i; ++p)
+                    sum -= factors[p] * k(p, col);
+                row[col] = sum / factors[i];
+            }
         }
         for (int i = 0; i < n; ++i)
             for (int j = i + 1; j < n; ++j)
