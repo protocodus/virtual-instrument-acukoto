@@ -1266,6 +1266,29 @@ void driveModes(const ModeBank& bank, const float* share, int first, float* driv
         drive[first + i] = sum[i];
 }
 
+// The modes' pull on `coordinates` bar coordinates from `first`: each
+// coordinate's participations times the states, in lanes, then the lanes.
+constexpr std::size_t pullBlock = 6;
+template <std::size_t coordinates>
+void pullOnBar(const ModeBank& bank, std::size_t first, BarVector& pull) noexcept
+{
+    const float* pullState = bank.pullState.data();
+    float lane[coordinates][ModeBank::lanes] {};
+    for (int group = 0; group < bank.count; group += ModeBank::lanes)
+        for (std::size_t c = 0; c < coordinates; ++c)
+        {
+            const float* participation = bank.participation[first + c].data() + group;
+            for (int i = 0; i < ModeBank::lanes; ++i)
+                lane[c][i] += participation[i] * pullState[group + i];
+        }
+    for (std::size_t c = 0; c < coordinates; ++c)
+    {
+        pull[first + c] = 0.0;
+        for (int i = 0; i < ModeBank::lanes; ++i)
+            pull[first + c] += lane[c][i];
+    }
+}
+
 // Runs the bank's modes one sample on under the force on the bar (and a
 // hand's, if one strikes). Returns what they radiate to each microphone (in
 // phase and in quadrature) and their pull on the bar's next velocity.
@@ -1320,19 +1343,14 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
     right = weightedSum(bank.right.data(), y, count);
     leftQuadrature = weightedSum(bank.leftQuadrature.data(), y, count);
     rightQuadrature = weightedSum(bank.rightQuadrature.data(), y, count);
-    // The pull on the bar, one coordinate at a time over every group, so a
-    // coordinate's lane sums stay in registers instead of all 26 spilling.
-    for (std::size_t c = 0; c < barCoordinates; ++c)
-    {
-        float lane[ModeBank::lanes] {};
-        const float* participation = bank.participation[c].data();
-        for (int group = 0; group < count; group += ModeBank::lanes)
-            for (int i = 0; i < ModeBank::lanes; ++i)
-                lane[i] += participation[group + i] * pullState[group + i];
-        pull[c] = 0.0;
-        for (int i = 0; i < ModeBank::lanes; ++i)
-            pull[c] += lane[i];
-    }
+    // The pull on the bar, a few coordinates at a time over every group, so
+    // their lane sums stay in registers instead of all 26 spilling and each
+    // load of the states serves them all.
+    std::size_t c = 0;
+    for (; c + pullBlock <= barCoordinates; c += pullBlock)
+        pullOnBar<pullBlock>(bank, c, pull);
+    for (; c < barCoordinates; ++c)
+        pullOnBar<1>(bank, c, pull);
 }
 
 struct BarMatrix
