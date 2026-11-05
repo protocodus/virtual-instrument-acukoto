@@ -1373,12 +1373,22 @@ struct BarMatrix
                     r.m[i][j] += m[i][k] * o.m[k][j];
         return r;
     }
-    BarVector apply(const BarVector& v) const noexcept
+    BarMatrix transposed() const noexcept
     {
-        BarVector r {};
+        BarMatrix r;
         for (std::size_t i = 0; i < barCoordinates; ++i)
             for (std::size_t j = 0; j < barCoordinates; ++j)
-                r[i] += m[i][j] * v[j];
+                r.m[j][i] = m[i][j];
+        return r;
+    }
+    // m^T v. Each output's sum runs over j in order, as m v's would on the
+    // untransposed matrix, while the outputs run side by side as vectors.
+    BarVector transposeApply(const BarVector& v) const noexcept
+    {
+        BarVector r {};
+        for (std::size_t j = 0; j < barCoordinates; ++j)
+            for (std::size_t i = 0; i < barCoordinates; ++i)
+                r[i] += m[j][i] * v[j];
         return r;
     }
 };
@@ -3382,10 +3392,11 @@ struct AcukotoEngine::State
     // The ji junction (process() derives it): the immediate generalized
     // mobility Y0 of the modes, which hold each ji's own mass and feet, the
     // strings' generalized impedance Zg (both stretches of every string; it
-    // is diagonal, kept as its diagonal) and solve = (I + Y0 Zg)^-1.
-    BarMatrix immediateMobility {};
+    // is diagonal, kept as its diagonal) and solve = (I + Y0 Zg)^-1. The
+    // two matrices are kept transposed for BarMatrix::transposeApply.
+    BarMatrix immediateMobilityTransposed {};
     BarVector stringImpedance {};
-    BarMatrix solve {};
+    BarMatrix solveTransposed {};
     BodyWork work {};
 
     double radiationScale { 0.0 };
@@ -3624,7 +3635,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
             for (std::size_t j = 0; j < barCoordinates; ++j)
                 y0m.m[i][j] += mode.b0 * mode.participation[i] * mode.participation[j];
     }
-    s.immediateMobility = y0m;
+    s.immediateMobilityTransposed = y0m.transposed();
     ModeBank& bank = s.bank;
     bank = {};
     for (int index = 0; index < s.modeCount; ++index)
@@ -3665,7 +3676,9 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
     for (std::size_t i = 0; i < barCoordinates; ++i)
         for (std::size_t j = 0; j < barCoordinates; ++j)
             junction.m[i][j] += product.m[i][j];
-    s.solve.m = inverse(junction.m);
+    BarMatrix solve;
+    solve.m = inverse(junction.m);
+    s.solveTransposed = solve.transposed();
 
     // ---- Tuning: each port's reflection phase from the continuous model --
     // Each stretch's loop, both planes, sees the ji loaded by every other
@@ -4513,9 +4526,9 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
     std::array<double, maxStrings> parallelIn {};
     std::array<double, maxStrings> leftNormalIn {};
     std::array<double, maxStrings> leftParallelIn {};
-    const BarMatrix& y0 = s.immediateMobility;
+    const BarMatrix& y0 = s.immediateMobilityTransposed;
     const BarVector& zg = s.stringImpedance;
-    const BarMatrix& solve = s.solve;
+    const BarMatrix& solve = s.solveTransposed;
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
@@ -4631,10 +4644,10 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             s.modalPastStale = false;
         }
         const BarVector& past = s.modalPast;
-        BarVector rhs = y0.apply(drive);
+        BarVector rhs = y0.transposeApply(drive);
         for (std::size_t i = 0; i < barCoordinates; ++i)
             rhs[i] += past[i];
-        const BarVector velocity = solve.apply(rhs);
+        const BarVector velocity = solve.transposeApply(rhs);
         BarVector plateForce;
         for (std::size_t i = 0; i < barCoordinates; ++i)
             plateForce[i] = drive[i] - zg[i] * velocity[i];
