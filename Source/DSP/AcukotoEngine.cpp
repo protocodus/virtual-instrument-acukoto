@@ -4926,7 +4926,12 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     constexpr double distanceSpread = 0.008;
     const double place = (style & nearStroke) != 0 ? nearDistance
                        : (style & offStroke) != 0 ? offDistance : controls.pluckDistance;
-    const double distance = std::clamp((place + distanceSpread * deviation(0)) / voice.length, 0.01, 0.5);
+    // A moved ji's key, which no koto has, is plucked at the share of its
+    // string's own length: at 4.5 cm from the ryukaku, the strings above C6
+    // would be plucked at their middle and lose every even partial, the
+    // tone breaking above A5.
+    const double measuredOn = voice.extensionKey >= 0 ? voice.pitch[0].length : voice.length;
+    const double distance = std::clamp((place + distanceSpread * deviation(0)) / measuredOn, 0.01, 0.5);
     const double position = 1.0 - distance;
     // The tsume meets a ringing string where it plucks and holds the stretch
     // between there and the ryukaku still before it slips off; the rest of
@@ -4967,9 +4972,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         for (float& square : voice.squares)
             square *= kept;
     }
-    // The player evens the scale by what is heard (StringSpec::touch).
+    // The player evens the scale by what is heard (StringSpec::touch), and
+    // the keys between and above the strings' own notes too
+    // (InstrumentSpec::keyTouch).
     const StringSpec& string = instrument.strings[static_cast<std::size_t>(index)];
-    const double touch = string.touch;
+    const double touch = string.touch * instrument.keyTouch[static_cast<std::size_t>(std::clamp(midiNote, 0, 127))];
     // Each pluck differs as a harpist's do too (Chadefaux et al. 2012). How
     // hard: one player's string displacement at release spreads by about 14%
     // (Fig. 8, 95% intervals of about 15% over five to seven plucks). Which

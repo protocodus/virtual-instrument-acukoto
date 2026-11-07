@@ -212,6 +212,10 @@ void checkHeldGestureAttack()
     // 10% RMS error (the fixed engine gives 1-3%, the open-period regression
     // over 100%). This is deliberately not bitwise.
     isolated.strings[0].cents = -11.3;
+    // The pressed keys' touches level them in the full scale (0.23.0), which
+    // would scale the pressed pluck against the bent one: this compares the
+    // first trip's period alone, so both are plucked at the string's touch.
+    isolated.keyTouch.fill(1.0f);
     engine->setInstrument(isolated);
     for (const int step : { 1, 2 })
     {

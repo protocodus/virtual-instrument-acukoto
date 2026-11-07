@@ -5,6 +5,7 @@
 #pragma once
 
 #include "AcukotoEngine.h"
+#include "AcukotoKeyTouches.h"
 
 #include <cmath>
 
@@ -223,12 +224,12 @@ constexpr BodySpec kotoBody {
 // of the upper strings, made both demos 3.3-3.7 dB louder.
 inline constexpr InstrumentSpec kotoHirajoshi {
     "Koto Hirajoshi", silk, 13, detail::hirajoshi, detail::kotoBody,
-    Technique::Plectrum, 0.045, 0.3, 3.0, 0.25, 1.4
+    Technique::Plectrum, 0.045, 0.3, 3.0, 0.25, 1.4, detail::hirajoshiKeyTouches
 };
 
 inline constexpr InstrumentSpec kotoHankumoijoshi {
     "Koto Hankumoijoshi", silk, 13, detail::hankumoijoshi, detail::kotoBody,
-    Technique::Plectrum, 0.045, 0.3, 3.0, 0.25, 1.4
+    Technique::Plectrum, 0.045, 0.3, 3.0, 0.25, 1.4, detail::hankumoijoshiKeyTouches
 };
 
 inline constexpr std::array<const InstrumentSpec*, 2> presets {{

@@ -162,6 +162,10 @@ struct InstrumentSpec
     double pluckForce;     // N held before release at full velocity
     double room;           // room send, 0-1
     double outputGain;     // digital full scale per pascal at the microphones
+    // The player's force on each key that no string's own note plays, a
+    // pressed or a moved-ji key, as a share of its string's touch; 1 on every
+    // other key (AcukotoKeyTouches.h).
+    std::array<float, 128> keyTouch;
 };
 
 // What a player and the room change while the instrument sounds. Every
