@@ -8,6 +8,13 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — The keys take the strings' share
+
+The pressed and moved-ji keys take the same 80% of the way to the strings'
+mean as the strings and the hits (2026-11-03, below), by the owner's request
+for every key to be even: a measurement decision, not a choice by ear
+([measurements](validation/key-sweep-2026-11-07.md)).
+
 ## 2026-11-07 — Recordings may calibrate a commercial build
 
 **Decided:** whether a commercial build may carry values fitted to recordings
