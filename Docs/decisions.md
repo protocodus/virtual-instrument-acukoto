@@ -8,6 +8,16 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — Each string at the players' mean, a moved ji at its key
+
+By the owner's request for every key to be well tuned, each string now takes
+Ando's six-player mean, without the scatter drawn about it from their spread,
+and a moved ji's key its equal-tempered pitch, not its string's offset: a
+measurement decision following the 2026-11-01 press decision (below). An A/B
+was rendered for the owner (A the 0.23.0 engine, B this) and B ships under the
+standing rule that the candidate wins; the renders are kept outside the
+repository ([measurements](validation/key-sweep-2026-11-07.md#tuning)).
+
 ## 2026-11-07 — The keys take the strings' share
 
 The pressed and moved-ji keys take the same 80% of the way to the strings'
