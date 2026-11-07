@@ -54,9 +54,38 @@ constexpr double yokeRoundTripGain = 0.9995;
 // 7 cents RMS, a semitone's by 3.
 constexpr double pressForceSpread = 0.015;
 constexpr double pressWaverHz = 5.0;
-// The left hand's glide onto a press after the pluck (ato-oshi) and off it,
-// over about 80 ms.
-constexpr double pressGlide = 0.08;
+// The left hand's movement onto a press after the pluck (ato-oshi) and off
+// it, in 0.35 s. A hand moving between two points follows the path of least
+// jerk, the rate of change of its acceleration: x0 + (x1 - x0)(10 t^3 - 15
+// t^4 + 6 t^5) over the movement's time, setting out and arriving at rest
+// (Flash and Hogan, J. Neurosci. 5 (1985) 1688; it holds for the fingers,
+// Kelso et al. and later work). The pitch follows the press in cents. Until
+// 0.19.0 the press glided exponentially with a time constant of 80 ms, so it
+// set off at its fastest and crept the last few cents; this movement's 10%
+// to 90% take the same 176 ms that glide's did (0.506 of 0.35 s). The time
+// is authored, no ato-oshi having been measured.
+constexpr double pressGlide = 0.35;
+
+// How fast the right hand's tsume crosses the strings: harpists' fingers leave
+// the string at 0.2 to 5 m/s, about 2 on average (Chadefaux et al., JASA 131
+// (2012) 844, Sec. III.B.1), here geometrically over the key's velocity, so
+// 1.9 m/s at velocity 0.7. Taken for the tsume crossing from one string to
+// the next, 16.5 mm away (BodySpec::stringSpacing): 8.7 ms at velocity 0.7,
+// 31 ms at 0.3, 3.3 ms at 1.
+double strokeSpeed(double velocity) noexcept
+{
+    return 0.2 * std::pow(25.0, std::clamp(velocity, 0.0, 1.0));
+}
+// The thumb's tsume rests on the string it lands on until it moves to its
+// next stroke, at most this long (estimated).
+constexpr double thumbRestLongest = 0.2;
+constexpr int maxScheduled = 64;
+
+// The minimum-jerk path, 0 at t = 0 to 1 at t = 1, at rest at both ends.
+constexpr double leastJerk(double t) noexcept
+{
+    return t <= 0.0 ? 0.0 : (t >= 1.0 ? 1.0 : t * t * t * (10.0 + t * (-15.0 + 6.0 * t)));
+}
 // A key a semitone or a whole tone above a string presses it to the key's
 // own pitch in equal temperament, from wherever the player tuned the string
 // (StringVoice::cents): the owner's choice (Docs/decisions.md, 2026-11-01).
@@ -3340,6 +3369,11 @@ struct AcukotoEngine::State
         // target and where the glide has reached.
         double pressTarget { 1.0 };
         double pressRatio { 1.0 };
+        // The movement under way: from where, its control periods so far and
+        // in all (pressGlide).
+        double pressFrom { 1.0 };
+        int pressElapsed { 0 };
+        int pressPeriods { 0 };
         // Its tuning against equal temperament, the player's and their
         // scatter (prepare), which a key's press makes up (keyPress).
         double cents { 0.0 };
@@ -3348,13 +3382,15 @@ struct AcukotoEngine::State
         // PlayingControls::handPress as a pitch ratio, where the hand has
         // reached on this string: 1 on every string but the hand's.
         double handRatio { 1.0 };
-        double pressSmoothing { 1.0 };
         double energy { 0.0 };
         bool keyDown { false };
         bool sustained { false };
         bool plucked { false };   // played, and still sounding from that pluck
         bool raised { false };    // the left hand presses it
         int extensionKey { -1 };  // the key its moved ji sounds (extension), or -1
+        // Samples the thumb's tsume still rests on it after a stroke on the
+        // next string up (noteOn): it damps the string as a resting hand does.
+        int thumbRest { 0 };
         bool dampingDirty { true };
         int midiNote { -1 };      // its own note, lever down
         int ownerNote { -1 };     // the note that last plucked it
@@ -3439,6 +3475,32 @@ struct AcukotoEngine::State
     int controlCountdown { 0 };
     BarVector lastGeneralizedVelocity {};
     std::array<double, delayCapacity> pluckWave {};
+
+    // What the right hand does a little later: the second string of one
+    // stroke across two (kakite), or the thumb landing on the next string
+    // down. Counted in samples at the engine's rate, run at the top of a
+    // sample, so every block size plays alike.
+    enum class Later { Note, ThumbLands };
+    struct Scheduled
+    {
+        Later kind { Later::Note };
+        int samples { 0 };
+        int string { 0 };
+        int midiNote { 0 };
+        float velocity { 0.0f };
+        int pressed { 0 };
+        int extensionKey { -1 };
+        int moment { 0 };
+        bool keyUp { false };
+    };
+    std::array<Scheduled, maxScheduled> scheduled {};
+    int scheduledCount { 0 };
+    // Notes played at one moment (no sample between them) are one gesture of
+    // the hand: a chord, or one stroke across neighbouring strings.
+    std::int64_t clock { 0 };
+    std::int64_t momentClock { -1 };
+    int moment { 0 };
+    std::array<int, maxStrings> momentDelay {};  // -1: not played this moment
 
     // PlayingControls as the signal path uses them. The hands' damping as
     // decay rates (1/s, they add); the output gains glide to their targets
@@ -3576,7 +3638,6 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 / (material.density * spec.diameter) * std::sqrt(airViscosity / airDensity / (2.0 * pi))
             : 0.0;
         voice.ji = index;
-        voice.pressSmoothing = 1.0;
 
         // Both planes of one stretch of the string, at its tension.
         const auto designPlanes = [&] (double stretch, std::array<LoopDesign, 2>& planes, bool refine)
@@ -3626,7 +3687,8 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         {
             pitch.length = length;
             pitch.inharmonicity = pi * pi * modulus * secondMoment / (voice.tension * length * length);
-            pitch.glidePerEnergy = modulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
+            const double stretchModulus = material.axialModulus > 0.0 ? material.axialModulus : modulus;
+            pitch.glidePerEnergy = stretchModulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
             const double frequency = waveSpeed / (2.0 * length);
             const double intrinsicDecay = designPlanes(length, pitch.planes, refine)
                 + pi * frequency * constantLoss - std::log(yokeRoundTripGain) * frequency;
@@ -3832,7 +3894,8 @@ void AcukotoEngine::reset() noexcept
         // Every ji back in its place, as a fresh instance has them, and
         // always: a ringing string's round trip follows its tension glide.
         applyPitch(index, false);
-        voice.pressTarget = voice.pressRatio = 1.0;
+        voice.pressTarget = voice.pressRatio = voice.pressFrom = 1.0;
+        voice.pressPeriods = voice.pressElapsed = 0;
         voice.pressWaver = 0.0;
         voice.handRatio = 1.0;
         voice.raised = false;
@@ -3847,8 +3910,13 @@ void AcukotoEngine::reset() noexcept
         voice.keyDown = voice.sustained = voice.plucked = false;
         voice.ownerNote = -1;
         voice.keys = 0;
+        voice.thumbRest = 0;
         voice.dampingDirty = true;
     }
+    s.scheduledCount = 0;
+    s.clock = 0;
+    s.momentClock = -1;
+    s.moment = 0;
     s.bank.s1.fill(0.0);
     s.bank.s2.fill(0.0);
     s.modalPast = {};
@@ -3937,6 +4005,8 @@ void AcukotoEngine::updateDamping(int string) noexcept
     double rate = s.muteRate;
     if (!voice.keyDown && !voice.sustained)
         rate += voice.plucked ? s.releaseRate : s.sympathyRate;
+    if (voice.thumbRest > 0)
+        rate += handRate(0.0);
     voice.normal.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
     voice.parallel.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
     // Beyond the ji only the palm reaches the string, the left hand while it
@@ -4082,6 +4152,11 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     }
     if (index < 0)
         return;
+    startNote(index, midiNote, velocity, pressed, extensionKey);
+}
+
+void AcukotoEngine::playNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept
+{
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(index)];
     // The ji is moved, or back in its place, before the pluck.
     if (voice.extensionKey != extensionKey)
@@ -4089,6 +4164,122 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     // The left hand presses before the right plucks: the press has settled.
     press(index, keyPress(pressed, voice.cents), 0.0);
     pluck(index, midiNote, velocity);
+}
+
+// How the right hand plays a note with the tsume (Pro Musica Nipponia, "Koto",
+// https://www.promusica.or.jp/english/koto.html, technique 1): the thumb
+// plucks from the near side toward the far one, the index and middle fingers
+// from the far side toward the near. So in a chord the thumb takes the
+// highest note and the fingers those below, closing on it. Two neighbouring
+// strings played at one moment are one stroke of a finger across both
+// (kakite, warite), and the finger reaches the nearer string once it has
+// crossed to it (strokeSpeed). The thumb, its stroke over, comes to rest on
+// the next string down: "When a string is played with the thumb, the string
+// directly below that string is struck with the thumb pick and is dampened"
+// (Naoko Kikuchi, "Koto", Atlas Ensemble's instrument guide), and it lifts as
+// it moves to its next stroke. A string whose key is held, or that the pedal
+// holds, the player leaves ringing, so the thumb rests elsewhere.
+void AcukotoEngine::startNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept
+{
+    State& s = *state_;
+    if (s.momentClock != s.clock)
+    {
+        s.momentClock = s.clock;
+        ++s.moment;
+        s.momentDelay.fill(-1);
+        // A new stroke: the thumb leaves the string it rested on, and does
+        // not land where an earlier stroke was heading.
+        for (int string = 0; string < stringCount_; ++string)
+        {
+            State::StringVoice& voice = s.strings[static_cast<std::size_t>(string)];
+            if (voice.thumbRest > 0)
+            {
+                voice.thumbRest = 0;
+                voice.dampingDirty = true;
+            }
+        }
+        for (int k = 0; k < s.scheduledCount;)
+        {
+            if (s.scheduled[static_cast<std::size_t>(k)].kind == State::Later::ThumbLands)
+                s.scheduled[static_cast<std::size_t>(k)] = s.scheduled[static_cast<std::size_t>(--s.scheduledCount)];
+            else
+                ++k;
+        }
+    }
+    const auto schedule = [&s] (const State::Scheduled& event)
+    {
+        if (s.scheduledCount < maxScheduled)
+            s.scheduled[static_cast<std::size_t>(s.scheduledCount++)] = event;
+    };
+    const bool tsume = controls_.technique == Technique::Plectrum;
+    const auto crossing = [&] (float v)
+    {
+        return std::max(1, static_cast<int>(std::lround(s.instrument.body.stringSpacing / strokeSpeed(v) * sampleRate_)));
+    };
+    int delay = 0;
+    bool thumb = tsume && s.momentDelay[static_cast<std::size_t>(index)] < 0;
+    if (tsume)
+    {
+        for (int string = index + 1; string < stringCount_; ++string)
+            thumb = thumb && s.momentDelay[static_cast<std::size_t>(string)] < 0;
+        const auto cancelThumb = [&] (int below)
+        {
+            for (int k = 0; k < s.scheduledCount;)
+            {
+                const State::Scheduled& event = s.scheduled[static_cast<std::size_t>(k)];
+                if (event.kind == State::Later::ThumbLands && event.string <= below)
+                    s.scheduled[static_cast<std::size_t>(k)] = s.scheduled[static_cast<std::size_t>(--s.scheduledCount)];
+                else
+                    ++k;
+            }
+        };
+        // This note is the chord's highest so far: the thumb's, not theirs.
+        cancelThumb(index - 1);
+        if (index > 0 && s.momentDelay[static_cast<std::size_t>(index - 1)] >= 0)
+        {
+            delay = s.momentDelay[static_cast<std::size_t>(index - 1)] + crossing(velocity);
+            thumb = false;
+        }
+    }
+    s.momentDelay[static_cast<std::size_t>(index)] = delay;
+    if (delay == 0)
+        playNote(index, midiNote, velocity, pressed, extensionKey);
+    else
+        schedule({ State::Later::Note, delay, index, midiNote, velocity, pressed, extensionKey, s.moment, false });
+    if (thumb)
+        schedule({ State::Later::ThumbLands, delay + crossing(velocity), index, midiNote, velocity, 0, -1, s.moment,
+                   false });
+}
+
+void AcukotoEngine::runScheduled() noexcept
+{
+    State& s = *state_;
+    for (int k = 0; k < s.scheduledCount;)
+    {
+        State::Scheduled& due = s.scheduled[static_cast<std::size_t>(k)];
+        if (--due.samples > 0)
+        {
+            ++k;
+            continue;
+        }
+        const State::Scheduled event = due;
+        due = s.scheduled[static_cast<std::size_t>(--s.scheduledCount)];
+        if (event.kind == State::Later::Note)
+        {
+            playNote(event.string, event.midiNote, event.velocity, event.pressed, event.extensionKey);
+            if (event.keyUp)
+                noteOff(event.midiNote);
+        }
+        else if (event.string > 0)
+        {
+            State::StringVoice& below = s.strings[static_cast<std::size_t>(event.string - 1)];
+            if (!below.keyDown && !below.sustained && !s.sustain)
+            {
+                below.thumbRest = static_cast<int>(thumbRestLongest * sampleRate_);
+                below.dampingDirty = true;
+            }
+        }
+    }
 }
 
 // A hand arrives at the body at the speed the key's velocity sets and meets it
@@ -4134,9 +4325,11 @@ void AcukotoEngine::press(int string, double semitones, double seconds) noexcept
     voice.pressTarget = std::pow(2.0, amount / 12.0);
     voice.raised = amount > 0.0;
     voice.dampingDirty = true;
-    const double time = std::isfinite(seconds) ? std::max(seconds, 0.0) : 0.0;
-    voice.pressSmoothing = time > 0.0 ? 1.0 - std::exp(-controlPeriod / (time * sampleRate_)) : 1.0;
-    if (!(time > 0.0))
+    const double time = std::isfinite(seconds) ? std::clamp(seconds, 0.0, 60.0) : 0.0;
+    voice.pressFrom = voice.pressRatio;
+    voice.pressElapsed = 0;
+    voice.pressPeriods = static_cast<int>(std::lround(time * sampleRate_ / controlPeriod));
+    if (voice.pressPeriods <= 0)
         voice.pressRatio = voice.pressTarget;
 }
 
@@ -4470,6 +4663,12 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
 void AcukotoEngine::noteOff(int midiNote) noexcept
 {
     State& s = *state_;
+    for (int k = 0; k < s.scheduledCount; ++k)
+    {
+        State::Scheduled& event = s.scheduled[static_cast<std::size_t>(k)];
+        if (event.kind == State::Later::Note && event.midiNote == midiNote)
+            event.keyUp = true;
+    }
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
@@ -4545,6 +4744,7 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         std::fill(right, right + numSamples, 0.0f);
         s.output = s.outputTarget;
         s.bend = s.bendTarget;
+        s.clock += numSamples;
         return;
     }
     const int count = stringCount_;
@@ -4558,6 +4758,9 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
 
     for (int sample = 0; sample < numSamples; ++sample)
     {
+        ++s.clock;
+        if (s.scheduledCount > 0)
+            runScheduled();
         if (s.controlCountdown-- <= 0)
         {
             s.controlCountdown = controlPeriod - 1;
@@ -4580,7 +4783,13 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 if (voice.raised && !voice.keyDown && !voice.sustained && voice.energy < idleEnergy)
                 {
                     voice.pressTarget = voice.pressRatio = 1.0;
+                    voice.pressPeriods = 0;
                     voice.raised = false;
+                    voice.dampingDirty = true;
+                }
+                if (voice.thumbRest > 0 && (voice.thumbRest -= controlPeriod) <= 0)
+                {
+                    voice.thumbRest = 0;
                     voice.dampingDirty = true;
                 }
                 if (voice.dampingDirty)
@@ -4593,7 +4802,15 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 // squared slope stretches it, Delta f / f = EA <y'^2> / (4T);
                 // the pitch bend scales every string alike.
                 // The left hand's press glides to its target.
-                voice.pressRatio += (voice.pressTarget - voice.pressRatio) * voice.pressSmoothing;
+                if (voice.pressElapsed < voice.pressPeriods)
+                {
+                    const double share = leastJerk(static_cast<double>(++voice.pressElapsed) / voice.pressPeriods);
+                    voice.pressRatio = voice.pressFrom * std::pow(voice.pressTarget / voice.pressFrom, share);
+                }
+                else
+                {
+                    voice.pressRatio = voice.pressTarget;
+                }
                 double press = voice.pressRatio;
                 if (voice.pressTarget > 1.0 || voice.pressRatio > 1.0 + 1.0e-9)
                 {
@@ -4755,9 +4972,10 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // Unlimited: the Performer's output stage keeps it under full scale.
         left[sample] = static_cast<float>(volume * micLeft);
         right[sample] = static_cast<float>(volume * micRight);
-        if (s.quietSamples >= static_cast<int>(0.5 * sampleRate_))
+        if (s.quietSamples >= static_cast<int>(0.5 * sampleRate_) && s.scheduledCount == 0)
         {
             sleep();
+            s.clock += numSamples - sample - 1;
             std::fill(left + sample + 1, left + numSamples, 0.0f);
             std::fill(right + sample + 1, right + numSamples, 0.0f);
             return;

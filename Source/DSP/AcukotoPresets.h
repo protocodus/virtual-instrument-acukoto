@@ -40,7 +40,22 @@ namespace acukoto
 // that overstates the top strings' stiffness overstates their bending loss
 // with it. With a small constant loss for the friction between the twisted
 // filaments (estimated).
-inline constexpr StringMaterial silk { "silk", 1330.0, 4.15e9, 0.0, 1.0 / 20000.0, 0.008e9, true };
+// Its stretch is another matter: filaments that slide past one another in
+// bending still carry the tension together, so a wave's stretch, and the
+// hard pluck's pitch glide with it, takes the fibre's own modulus. Bombyx mori
+// silk's is 7 GPa (Gosline, Guerette, Ortlepp and Savage, J. Exp. Biol. 202
+// (1999) 3295, Table 1), and a twisted yarn's is its fibres' times cos^2 of
+// their angle to its axis (Hearle, Grosberg and Backer, Structural Mechanics
+// of Fibers, Yarns and Fabrics, 1969, the ideal helix): 6.2 GPa at an
+// estimated 20 degrees. Until 0.19.0 the glide took the bending modulus,
+// 4.15 GPa, and so glided two thirds as far.
+constexpr StringMaterial silkFor() noexcept
+{
+    StringMaterial material { "silk", 1330.0, 4.15e9, 0.0, 1.0 / 20000.0, 0.008e9, true };
+    material.axialModulus = 7.0e9 * 0.8830222215594891;  // cos^2(20 degrees)
+    return material;
+}
+inline constexpr StringMaterial silk = silkFor();
 
 // Paulownia (kiri), the koto's wood, as Coaldrake measured it for a finite
 // element model of a professional koto (JASA 148 (2020) 3153, Table I):

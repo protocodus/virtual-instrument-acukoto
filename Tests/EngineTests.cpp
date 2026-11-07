@@ -10,7 +10,9 @@
 // string nobody plays, and the twelve keys under the lowest string are each a
 // hand striking the body: it sounds, harder with velocity, dies away, plucks
 // no string and does not depend on the block sizes, while the keys further down
-// are free and silent.
+// are free and silent. The thumb rests on the string below its stroke and
+// damps it unless its key is held, and a stroke across two neighbouring
+// strings reaches the nearer one after it crosses to it.
 
 #include "DSP/AcukotoPerformer.h"
 #include "DSP/AcukotoStrikes.h"
@@ -455,6 +457,44 @@ int main()
     const double old = peakDb(pressed, rate, 0.8, 1.2, 294.1, 0.006), now = peakDb(pressed, rate, 0.8, 1.2, 330.0, 0.01);
     check(old < now - 20.0, "a resting string beyond its ji rings at a pressed note's old pitch", old - now);
     performer->setControls(acukoto::Performer::defaultControls(0));
+
+    // The thumb, its stroke over, rests on the next string down and damps it
+    // (Kikuchi): G3 let go and ringing, A3 plucked 0.3 s later takes G3's
+    // string down by more than 20 dB in the next 0.3 s against G3 alone; with
+    // G3's key still down, the thumb leaves it ringing (within 3 dB).
+    {
+        const auto& engine = performer->engine();
+        render(*performer, { { 0.0, 55, 0.7f }, { 0.1, 55, 0.0f } }, 0.6, { 256 });
+        const double alone = engine.stringEnergy(1);
+        render(*performer, { { 0.0, 55, 0.7f }, { 0.1, 55, 0.0f }, { 0.3, 57, 0.7f }, { 0.4, 57, 0.0f } }, 0.6, { 256 });
+        const double rested = engine.stringEnergy(1);
+        render(*performer, { { 0.0, 55, 0.7f }, { 0.3, 57, 0.7f }, { 0.4, 57, 0.0f } }, 0.6, { 256 });
+        const double held = engine.stringEnergy(1);
+        const double restDb = 10.0 * std::log10(rested / alone), heldDb = 10.0 * std::log10(held / alone);
+        std::printf("thumb rest: %.1f dB, held %.1f dB\n", restDb, heldDb);
+        check(restDb < -20.0, "the thumb's rest stroke does not damp the string below", restDb);
+        check(std::abs(heldDb) < 3.0, "the thumb's rest stroke damps a held string", heldDb);
+        // A chord's lower note is the fingers': the thumb's rest under it
+        // would stop the string below, here held by no key.
+        render(*performer, { { 0.0, 55, 0.7f }, { 0.1, 55, 0.0f }, { 0.3, 58, 0.7f }, { 0.3, 62, 0.7f } }, 0.6, { 256 });
+        check(10.0 * std::log10(engine.stringEnergy(1) / alone) > -3.0, "a chord's lower note rests on the string below",
+              10.0 * std::log10(engine.stringEnergy(1) / alone));
+
+        // Two neighbouring strings at one moment are one stroke (kakite): the
+        // nearer one sounds once the finger has crossed to it, 8.7 ms on at
+        // velocity 0.7, in whichever block that falls.
+        render(*performer, { { 0.0, 62, 0.7f }, { 0.0, 63, 0.7f } }, 0.004, { 64 });
+        check(engine.stringActivity(4).plucked && !engine.stringActivity(5).plucked,
+              "a stroke across two strings reaches both at once", 0.0);
+        render(*performer, { { 0.0, 62, 0.7f }, { 0.0, 63, 0.7f } }, 0.02, { 64 });
+        check(engine.stringActivity(5).plucked, "a stroke across two strings does not reach the second", 0.0);
+        const auto stroke = render(*performer, { { 0.0, 62, 0.7f }, { 0.0, 63, 0.7f }, { 0.002, 63, 0.0f } }, 0.5,
+                                   { 256 });
+        const auto strokeSplit = render(*performer, { { 0.0, 62, 0.7f }, { 0.0, 63, 0.7f }, { 0.002, 63, 0.0f } }, 0.5,
+                                        { 5, 3, 77 });
+        check(stroke == strokeSplit, "a stroke across two strings depends on the block sizes", 0.0);
+        check(!engine.stringActivity(5).held, "a key let go before its stroke reaches it stays held", 0.0);
+    }
 
     // Every host rate, with the oversampling a front end offers.
     for (const double hostRate : { 44100.0, 96000.0 })

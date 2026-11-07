@@ -55,6 +55,10 @@ struct StringMaterial
     // wire's E''/E' (AcukotoEngine::setInstrument).
     double windingFriction { 0.0 };
     double woundBendingLoss { 0.0 };
+    // Young's modulus along the string, which its stretch under a wave (the
+    // pitch glide) takes; zero for youngModulus. A twisted bundle stretches
+    // as its filaments do but bends as though they slide, so the two differ.
+    double axialModulus { 0.0 };
 };
 
 struct StringSpec
@@ -225,8 +229,8 @@ public:
     void noteOff(int midiNote) noexcept;
     void setSustain(bool down) noexcept;
     // The left hand presses string (0-12) behind its ji, raising it by
-    // semitones (0-3), reached over `seconds` (an exponential glide of that
-    // time constant). Pressing a sounding string bends its note (ato-oshi).
+    // semitones (0-3), reached in `seconds` along a hand's minimum-jerk path,
+    // at once for 0. Pressing a sounding string bends its note (ato-oshi).
     void press(int string, double semitones, double seconds) noexcept;
     // Plucks a string by its number, whatever its note.
     void pluckString(int string, float velocity) noexcept;
@@ -305,6 +309,9 @@ private:
     struct State;
     void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
     void pluck(int index, int midiNote, float velocity) noexcept;
+    void startNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept;
+    void playNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept;
+    void runScheduled() noexcept;
     void strike(int key, float velocity) noexcept;
     void updateDamping(int string) noexcept;
     void sleep() noexcept;
