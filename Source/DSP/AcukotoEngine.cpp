@@ -3856,10 +3856,30 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             // The viscous loss at the fundamental goes with the air's in the
             // loop's gain; the section takes its rise above it.
             const double viscousDecay = material.viscousLoss * 4.0 * pi * pi * frequency * frequency;
-            const double gain = std::exp(-(airDecay + viscousDecay) / frequency) * yokeRoundTripGain;
             const LossSectionDesign constantDesign
                 = constantLossSection(constantLoss, airRoot, material.viscousLoss, inharmonicity, frequency, fs);
             const LossSectionDesign bendingDesign = bendingLossSection(bendingLoss, inharmonicity, frequency, fs);
+            // The sections are fitted from the second partial up and only
+            // reach the fundamental by extrapolation: on the strings from
+            // E-flat 5 up they took three to four times the constant loss
+            // pi f delta there, and on a moved ji's key above G7, whose loop
+            // is under fifteen samples at 44.1 and 48 kHz, ten times, so
+            // those keys decayed twice as fast as at 96 kHz. The loop's gain
+            // makes up the difference, so the fundamental loses exactly the
+            // air, viscous, constant and bending rates the model gives it,
+            // at every rate (Docs/validation/key-sweep-2026-11-07.md).
+            const double fundamentalDecay = airDecay + viscousDecay + pi * frequency * constantLoss
+                                          + bendingLossRate(1.0, inharmonicity, bendingLoss, frequency);
+            const double omega0 = 2.0 * pi * frequency / fs;
+            const double sectionsAtFundamental = std::abs(lossSectionResponse(constantDesign, omega0))
+                                               * std::abs(lossSectionResponse(bendingDesign, omega0));
+            // The sections pass DC whole and lose more at every partial than
+            // at the fundamental, so the loop's gain alone is its gain at
+            // DC: kept under 1 so the loop stays passive, a bound that
+            // stands 3 parts in 10000 above the largest gain any supported
+            // key takes (C8 at 44.1 kHz, 0.99969).
+            const double gain = std::min(std::exp(-fundamentalDecay / frequency) * yokeRoundTripGain / sectionsAtFundamental,
+                                         0.9999);
             // Dispersion (designDispersion), the line then solved so the
             // fundamental is exact once the junction exists and the ji's
             // reflection phase is known (tuning below).
@@ -3878,7 +3898,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                 loop.dispersionCents = design.worstCents;
                 loop.loopDelay = fs / frequency;
             }
-            return airDecay + viscousDecay;
+            return fundamentalDecay;
         };
         const auto designPitch = [&] (State::PitchDesign& pitch, double length, bool refine)
         {
@@ -3888,7 +3908,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             pitch.glidePerEnergy = stretchModulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
             const double frequency = waveSpeed / (2.0 * length);
             const double intrinsicDecay = designPlanes(length, pitch.planes, refine)
-                + pi * frequency * constantLoss - std::log(yokeRoundTripGain) * frequency;
+                                        - std::log(yokeRoundTripGain) * frequency;
             pitch.intrinsicT60 = 3.0 * std::log(10.0) / intrinsicDecay;
             pitch.roundTrip = std::clamp(static_cast<int>(std::lround(fs / frequency)), 1, delayCapacity - 1);
         };
