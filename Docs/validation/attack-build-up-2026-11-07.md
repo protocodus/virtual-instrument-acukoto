@@ -118,3 +118,39 @@ The recordings' highs start 2-4 dB stronger and fall 6-9 dB by 15-30 ms;
 the model's fall 2. Over 20-200 ms the rates agree, so what is missing is a
 short component of the attack that dies within about 30 ms. The tsume's
 angle (normal share 0.1 or 0.6 for 0.3) does not move it.
+
+## Three places it is not
+
+Measured afterwards on the Miki notes against 0.22.0, with f0 from 250 to 900
+Hz. None of the three changes the model.
+
+- **The room.** Without the room (`RenderAcukotoMidi --dry`), the 6-14 kHz
+  trajectory above is -14.4, -15.5, -16.7, -18.1, -21.9, -27.4: the room
+  does not hold the highs up.
+- **Split partials.** Over 20-300 ms, the recorded partials above 3 kHz
+  show two or more peaks within 10 dB, 0.3-0.5% apart, and their levels
+  wobble 3-5 dB about a smooth decay. The model's partials wobble 0.5-1.3
+  dB. Most of that spread comes from the recordings' floor and the notes
+  still ringing before. Counting only partials that stand 30 dB over what
+  the same band held 60-10 ms before the onset, throughout 15-100 ms, the
+  recorded wobble is 0.8 dB below 3 kHz and 1.5 at 3-6 kHz. The model's is
+  0.3. Few partials above 6 kHz meet that margin. A split between the
+  string's two planes, which the model dropped in 0.2.0, is not shown.
+- **Periodicity.** The 6-9 kHz band correlates with itself one period
+  later (best lag within 6%) at 0.54-0.58 in the recordings' first 4 ms and
+  0.71-0.78 by 20-40 ms. The model's correlates at 0.88-0.97. At 9-14 kHz the
+  figures are 0.33-0.40 and 0.83-0.89. The recorded highs stand only 20-40
+  dB over their floor and are coded at 160-192 kb/s. The model coded the same
+  way still correlates at 0.83-0.89, but an MP3 encoder treats a tonal signal
+  differently from a noisy one, so this does not settle whether the attack
+  holds an aperiodic part.
+
+Kikuchi's guide says the string below a thumb stroke "is struck with the
+thumb pick and is dampened" (`AcukotoEngine.cpp`, `startNote`). The model
+damps that string but does not strike it. The landing comes 3-31 ms after the
+pluck (`strokeSpeed`), so it would add highs after the click rather than in
+it. Its strength would need a thumb mass and a landing speed that nothing
+measures.
+
+An uncompressed recording of single plucks would settle the early highs and
+their periodicity.
