@@ -94,7 +94,27 @@ How much the attacks vary from note to note is unchanged by the body. The
 interquartile range of the click is 2.0 dB (1.7 in 0.21.0), against the
 three archive recordings' 5.1-9.2. Neither the notes' level nor their pitch
 explains the recordings' spread (a regression on both leaves it within 0.7
-dB of the raw range), so it lies in the plucks themselves. The individual recorded notes
-often show a first event about 10 dB under the attack's peak, then the peak
-some milliseconds later, which the tsume landing on the string before it
-slips off would give. That is the next step.
+dB of the raw range), so it lies in the plucks themselves.
+
+All four recordings are MP3s. Coding the model's renders through LAME at
+192 kb/s and measuring them again moves every band above by at most 0.5 dB
+(0.21.0's 1.5-3 kHz stays at +0.7), so the codec does not make the
+build-up. It does blur what happens before the peak: a search for a
+separate tsume landing before the release, the peak's 6-14 kHz at least 25
+dB over the floor earlier than 1.5 ms before it, finds one in 71-86% of the
+recorded notes and 42% of the model's, which has none. That is not clean
+enough to fit a landing to.
+
+What is clear is how fast the highs fall in the first 30 ms. The 6-14 kHz
+level against the 0.2-1.5 kHz level at 30-60 ms, median over the notes:
+
+| | 0-3 ms | 3-8 | 8-15 | 15-30 | 30-60 | 60-120 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Miki, studio | -13.5 | -15.2 | -18.5 | -22.5 | -27.0 | -36.1 |
+| Rokudan | -11.2 | -12.5 | -14.7 | -17.5 | -20.8 | -28.7 |
+| 0.22.0, through MP3 | -15.2 | -14.6 | -15.9 | -17.5 | -21.1 | -27.0 |
+
+The recordings' highs start 2-4 dB stronger and fall 6-9 dB by 15-30 ms;
+the model's fall 2. Over 20-200 ms the rates agree, so what is missing is a
+short component of the attack that dies within about 30 ms. The tsume's
+angle (normal share 0.1 or 0.6 for 0.3) does not move it.
