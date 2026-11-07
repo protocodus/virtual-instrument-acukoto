@@ -498,6 +498,42 @@ int main()
         check(!engine.stringActivity(5).held, "a key let go before its stroke reaches it stays held", 0.0);
     }
 
+    // A repeated note keeps the hand's deviations close (repeatMemory): G4
+    // eight times 0.3 s apart varies its force far less than G4 plucked
+    // between A4s, where the hand moves every time.
+    {
+        const auto& engine = performer->engine();
+        const auto spread = [&] (bool alternate)
+        {
+            std::vector<double> forces;
+            for (int count = 1; count <= 8; ++count)
+            {
+                std::vector<Note> notes;
+                for (int k = 0; k < count; ++k)
+                {
+                    if (alternate)
+                        notes.push_back({ 0.3 * k + 0.15, 69, 0.7f });
+                    notes.push_back({ 0.3 * k, 67, 0.7f });
+                }
+                std::sort(notes.begin(), notes.end(), [] (const Note& a, const Note& b) { return a.seconds < b.seconds; });
+                if (alternate)
+                    notes.pop_back();  // end on G4
+                render(*performer, notes, 0.3 * (count - 1) + 0.01, { 256 });
+                forces.push_back(std::log(engine.lastPluck().force));
+            }
+            double mean = 0.0, square = 0.0;
+            for (double f : forces)
+                mean += f / 8.0;
+            for (double f : forces)
+                square += (f - mean) * (f - mean) / 7.0;
+            return std::sqrt(square);
+        };
+        const double repeated = spread(false), alternated = spread(true);
+        std::printf("repeated notes: force spread %.3f repeated, %.3f between other notes\n", repeated, alternated);
+        check(repeated < 0.06, "a repeated note's force scatters as freely as a moving hand's", repeated);
+        check(alternated > 0.07, "plucks between other notes keep one force", alternated);
+    }
+
     // The techniques on the free keys A0 to C-sharp 2 (AcukotoEngine.cpp,
     // TechniqueKey), each against what it is measured or derived to do.
     {

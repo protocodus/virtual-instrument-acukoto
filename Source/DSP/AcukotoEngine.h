@@ -318,6 +318,7 @@ private:
     void strokeString(int string, float velocity, int style) noexcept;
     void startScrape(bool suri, float velocity) noexcept;
     void runScrapes() noexcept;
+    int strokeInterval(double nominal) noexcept;
     void runSways() noexcept;
     void runScheduled() noexcept;
     void strike(int key, float velocity) noexcept;

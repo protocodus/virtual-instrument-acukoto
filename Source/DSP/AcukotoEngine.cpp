@@ -66,6 +66,14 @@ constexpr double pressWaverHz = 5.0;
 // is authored, no ato-oshi having been measured.
 constexpr double pressGlide = 0.35;
 
+// How long a hand's deviations last from one pluck to the next of a repeated
+// note, in seconds (see pluck()). Fitted to one player's repeated notes
+// (Docs/validation/repeated-notes-2026-11-07.md): at about 100 ms apart their
+// attacks spread by a median 1.4 dB and 7% in centroid, the model's 1.5-1.6
+// dB and 6%; at 300-440 ms, 0.6 dB and 1.8%, the model's 0.6-0.9 dB and
+// 2.2-2.8%. Independent draws gave 2.4-3.1 dB and 7-10% at every spacing.
+constexpr double repeatMemory = 10.0;
+
 // How fast the right hand's tsume crosses the strings: harpists' fingers leave
 // the string at 0.2 to 5 m/s, about 2 on average (Chadefaux et al., JASA 131
 // (2012) 844, Sec. III.B.1), here geometrically over the key's velocity, so
@@ -143,9 +151,8 @@ constexpr double nearDistance = 0.015;
 constexpr double offDistance = 0.15;
 // Left of the ji the string's rest is plucked an estimated 8 cm from it.
 constexpr double leftDistance = 0.08;
-// The tsume's back is rounder than its playing edge and its corner sharper:
-// estimated widths, beside the edge's 2 mm (pluck).
-constexpr double backContact = 0.004;
+// The tsume's corner is sharper than its playing edge: an estimated width,
+// beside the edge's 2 mm (pluck).
 constexpr double cornerContact = 0.001;
 // The strokes of a repeated note in Example 3.23 come 50 to 66 ms apart, a
 // median of 58 (nine strokes on one pitch from 49.1 s); the strings of the
@@ -153,6 +160,16 @@ constexpr double cornerContact = 0.001;
 // strokes under 25 ms apart taken as one). Both at 58 ms.
 constexpr double tremoloInterval = 0.058;
 constexpr double glissandoInterval = 0.058;
+// No hand keeps such a rhythm exactly: those nine strokes spread over 16 ms,
+// about 5.4 ms standard deviation for nine draws from a normal spread. Each
+// interval is split as Wing and Kristofferson's (Percept. Psychophys. 14
+// (1973) 5) model of repeated movements has it: an internal timekeeper's
+// interval plus the motor delay of the stroke that ends it, less the delay of
+// the one that began it, so a late stroke is followed by a short interval.
+// The two shares are taken as equal (estimated; at such fast rates the two
+// are of the same order in Wing's measurements), each 5.4 / sqrt(3) ms.
+constexpr double strokeTimerSpread = 0.0054 / 1.7320508075688772;
+constexpr double strokeMotorSpread = 0.0054 / 1.7320508075688772;
 // Tsuki-iro in Example 3.16, measured on the third partial of G4: the pitch
 // rises 120 and 145 cents above the note in about 35 ms and is back about
 // 50 ms later, 0.32 and 0.74 s after the pluck.
@@ -3627,6 +3644,17 @@ struct AcukotoEngine::State
     std::int64_t momentClock { -1 };
     int moment { 0 };
     std::array<int, maxStrings> momentDelay {};  // -1: not played this moment
+    // The hand's deviations at each string's last pluck (place, force, angle,
+    // release, in standard deviations) and when it was (clock).
+    struct PluckMemory
+    {
+        std::array<double, 4> deviation {};
+        std::int64_t at { std::numeric_limits<std::int64_t>::min() / 2 };
+    };
+    std::array<PluckMemory, maxStrings> pluckMemory {};
+    int lastPlucked { -1 };
+    // The right hand's motor delay on its last timed stroke, in samples.
+    double strokeDelay { 0.0 };
 
     // The techniques the free keys latch (StrokeStyle bits), and the left
     // hand's gestures on the last string played: a tsuki-iro's push under
@@ -4079,6 +4107,9 @@ void AcukotoEngine::reset() noexcept
     s.yuri = {};
     s.scrapes = {};
     s.clock = 0;
+    s.pluckMemory = {};
+    s.lastPlucked = -1;
+    s.strokeDelay = 0.0;
     s.momentClock = -1;
     s.moment = 0;
     s.bank.s1.fill(0.0);
@@ -4399,14 +4430,16 @@ void AcukotoEngine::techniqueKey(int key, float velocity) noexcept
             // the picks"), one string every glissandoInterval.
             const bool down = key == glissandoDownKey;
             const int style = (down ? backStroke : 0) | (s.latched & (positionGroup | mutedStroke));
-            const int interval = static_cast<int>(std::lround(glissandoInterval * sampleRate_));
+            s.strokeDelay = 0.0;
+            int at = 0;
             for (int k = 0; k < stringCount_; ++k)
             {
                 const int target = down ? stringCount_ - 1 - k : k;
                 if (k == 0)
                     strokeString(target, velocity, style);
                 else
-                    schedule({ State::Later::Sweep, k * interval, target, 0, velocity, 0, -1, s.moment, false, style });
+                    schedule({ State::Later::Sweep, at += strokeInterval(glissandoInterval), target, 0, velocity, 0, -1,
+                               s.moment, false, style });
             }
             break;
         }
@@ -4651,8 +4684,22 @@ void AcukotoEngine::startNote(int index, int midiNote, float velocity, int press
     // A tremolo: the tsume's corner strokes the string back and forth while
     // the key is held, every tremoloInterval.
     if ((style & tremoloStroke) != 0)
-        schedule({ State::Later::Tremolo, delay + static_cast<int>(std::lround(tremoloInterval * sampleRate_)), index,
+    {
+        s.strokeDelay = 0.0;
+        schedule({ State::Later::Tremolo, delay + strokeInterval(tremoloInterval), index,
                    midiNote, velocity, 0, -1, s.moment, false, (style & ~tremoloStroke) | cornerStroke | backStroke });
+    }
+}
+
+// The samples from one timed stroke of the right hand to the next, around
+// nominal seconds (see strokeTimerSpread).
+int AcukotoEngine::strokeInterval(double nominal) noexcept
+{
+    State& s = *state_;
+    const double motor = strokeMotorSpread * sampleRate_ * s.random.gaussian();
+    const double samples = (nominal + strokeTimerSpread * s.random.gaussian()) * sampleRate_ + motor - s.strokeDelay;
+    s.strokeDelay = motor;
+    return std::max(1, static_cast<int>(std::lround(samples)));
 }
 
 // The left hand's gestures, a control period at a time: tsuki-iro's push
@@ -4723,7 +4770,7 @@ void AcukotoEngine::runScheduled() noexcept
             voice.keys = keys;
             State::Scheduled next = event;
             // One more: this pass counts it down once already.
-            next.samples = static_cast<int>(std::lround(tremoloInterval * sampleRate_)) + 1;
+            next.samples = strokeInterval(tremoloInterval) + 1;
             next.style ^= backStroke;
             if (s.scheduledCount < maxScheduled)
                 s.scheduled[static_cast<std::size_t>(s.scheduledCount++)] = next;
@@ -4859,10 +4906,32 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // (Chadefaux et al., JASA 131 (2012) 844, Fig. 7: a share of the string,
     // 2.5 mm on A5 but 28 mm on D3, where the whole pluck is 5 cm from the
     // ryukaku).
+    // A hand plucking the string it has just plucked has not moved: a koto
+    // player's repeated notes keep their place, force and slip far more
+    // closely than the notes of a phrase do. Each deviation below is drawn
+    // afresh when the hand has plucked another string since, and otherwise
+    // carries on from the last pluck, correlated by exp(-dt / repeatMemory),
+    // keeping its spread over a phrase. A hand's successive movements drift rather
+    // than scatter independently (Gilden, Thornton and Mallon, Science 267
+    // (1995) 1837), and listeners hear such correlated deviations as more
+    // natural than independent ones (Hennig et al., PLoS ONE 6 (2011)
+    // e26457).
+    State::PluckMemory& memory = s.pluckMemory[static_cast<std::size_t>(index)];
+    const double held = s.lastPlucked == index
+        ? std::exp(-static_cast<double>(s.clock - memory.at) / (repeatMemory * sampleRate_)) : 0.0;
+    s.lastPlucked = index;
+    const double fresh = std::sqrt(1.0 - held * held);
+    memory.at = s.clock;
+    const auto deviation = [&] (int k)
+    {
+        double& d = memory.deviation[static_cast<std::size_t>(k)];
+        d = held * d + fresh * s.random.gaussian();
+        return d;
+    };
     constexpr double distanceSpread = 0.008;
     const double place = (style & nearStroke) != 0 ? nearDistance
                        : (style & offStroke) != 0 ? offDistance : controls.pluckDistance;
-    const double distance = std::clamp((place + distanceSpread * s.random.gaussian()) / voice.length, 0.01, 0.5);
+    const double distance = std::clamp((place + distanceSpread * deviation(0)) / voice.length, 0.01, 0.5);
     const double position = 1.0 - distance;
     // The tsume meets a ringing string where it plucks and holds the stretch
     // between there and the ryukaku still before it slips off; the rest of
@@ -4913,9 +4982,9 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // (here the top's), by about 4 degrees (Table VI, median 95% interval 5
     // degrees over five plucks), around the angle the normal share sets: the
     // share is the angle's sine squared.
-    const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * s.random.gaussian());
+    const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * deviation(1));
     const double angle = std::asin(std::sqrt(std::clamp(controls.normalShare, 0.0, 1.0)))
-                       + 4.0 * pi / 180.0 * s.random.gaussian();
+                       + 4.0 * pi / 180.0 * deviation(2);
     const double normalShare = std::clamp(std::sin(angle) * std::sin(angle), 0.01, 0.9);
 
     // Contact width and release time of the technique: a fingertip, a
@@ -4961,19 +5030,18 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // does: one harpist's release velocity by about 25%, the displacement by
     // 14% (Fig. 8), so the release time takes the rest, about 20%, and each
     // pluck's brightness with it.
-    // The tsume's other surfaces (estimated): its back rounder, slipping off
-    // over twice the time, and its corner sharper.
-    if (tsume && (style & backStroke) != 0)
-    {
-        contact = backContact;
-        release *= 2.0;
-    }
-    else if (tsume && (style & cornerStroke) != 0)
-    {
+    // A back stroke (sukui-zume) meets the string with the tsume's edge as a
+    // stroke does, only moving the other way. Until 0.20.0 it took a rounder
+    // back, an estimated 4 mm slipping off over twice the time: a tremolo's
+    // back strokes' attacks then sat 25% under its front strokes' in
+    // centroid, where the nine recorded tremolos measured
+    // (Docs/validation/repeated-notes-2026-11-07.md) alternate by a median
+    // 3%, in either direction, no more than chance gives. The corner
+    // (estimated) is sharper.
+    if (tsume && (style & cornerStroke) != 0 && (style & backStroke) == 0)
         contact = cornerContact;
-    }
     release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
-             * std::exp(0.2 * s.random.gaussian());
+             * std::exp(0.2 * deviation(3));
     s.lastPluck = { position, force, normalShare, release };
 
     // A finger resting on the ji while the note sounds (mutedStroke) is a
