@@ -44,7 +44,7 @@ void Performer::prepare(double sampleRate, int oversampling)
         AcukotoEngine& engine = *engines_[static_cast<std::size_t>(index)];
         engine.prepare(sampleRate * factor_);
         if (engine.stringCount() == 0)
-            engine.setInstrument(*presets[static_cast<std::size_t>(index)]);
+            engine.setInstrument(*presets[static_cast<std::size_t>(index)], index > 0 ? engines_[0].get() : nullptr);
         engine.setControls(controls_);
         engine.reset();
     }

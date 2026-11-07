@@ -11,6 +11,10 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+### 0.24.1 — 2026-11-07 — The second tuning borrows the body
+
+- **Setup is a fifth shorter.** The two factory tunings share one body, and each designed its wall modes, ninety strip eigenproblems, for itself. The second now takes them from the first (`setInstrument`'s `bodyFrom`), so preparing the instrument takes about 2.6 s instead of 3.3 s on the development machine. The sound is bit for bit the same.
+
 ### 0.24.0 — 2026-11-07 — Tuned to the players' mean, and a moved ji to its key
 
 - **Each string is tuned to the players' mean.** Each string took Ando's six-player mean plus a scatter drawn once from its spread, which measures how players differ, not how well one tunes. Some draws were large: on Koto Hirajoshi G5 sat 7.8 cents sharp instead of 2.2, B♭3 9.3 flat instead of 5.1 and B♭4 8.3 flat instead of 4.6; on Koto Hankumoijoshi C5 7.1 flat instead of 3.1, E♭5 1.9 flat instead of 9.7 and A5 8.7 sharp instead of 5.3. Every string now sits within 0.5 cents of the mean ([measurements](Docs/validation/key-sweep-2026-11-07.md#tuning)).

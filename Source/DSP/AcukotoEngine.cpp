@@ -6,6 +6,7 @@
 #include <complex>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace acukoto
@@ -2477,6 +2478,14 @@ struct BodyWork
     // chosen from, and one order's strip matrices.
     StripSection strip {};
     WallModes walls {};
+    // The body and limit `strip` and `walls` were designed for, so that a
+    // second instrument on the same body (the two factory tunings, each in
+    // its own engine, see setInstrument's `bodyFrom`) keeps them: the
+    // walls' ninety strip eigenproblems are two fifths of a setup and
+    // depend on nothing a tuning changes.
+    BodySpec wallsBody {};
+    double wallsLimit { 0.0 };
+    bool wallsDesigned { false };
     WallCandidates candidates {};
     std::array<double, stripDofs * stripDofs> stripStiffness {}, stripMass {};
     // Each beam mode at the grid's stations along the body; each wall order
@@ -2607,6 +2616,12 @@ double beamAt(const BeamModes& modes, int k, double x, double length) noexcept
 // Designs the walls' modes below `limit` into work.walls (wallAllHz above).
 void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
 {
+    // Every field is a double, so the bytes compare the specs exactly.
+    static_assert(sizeof(BodySpec) == 34 * sizeof(double) && std::is_trivially_copyable<BodySpec>::value,
+                  "BodySpec is compared as bytes");
+    if (work.wallsDesigned && work.wallsLimit == limit && std::memcmp(&work.wallsBody, &body, sizeof(BodySpec)) == 0)
+        return;
+    work.wallsDesigned = false;
     StripSection& s = work.strip;
     s = stripSection(body);
     const double length = body.cavityEnd - body.cavityStart;
@@ -2834,6 +2849,9 @@ void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
             keep(best, std::sqrt(shares / candidates.topShare[static_cast<std::size_t>(best)]));
         first = last;
     }
+    work.wallsBody = body;
+    work.wallsLimit = limit;
+    work.wallsDesigned = true;
 }
 
 // How the parts lose energy, as each coupled mode's kinetic energy is shared
@@ -3714,7 +3732,7 @@ void AcukotoEngine::prepare(double sampleRate)
         setInstrument(state_->instrument);
 }
 
-void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
+void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const AcukotoEngine* bodyFrom)
 {
     State& s = *state_;
     s.instrument = instrument;
@@ -3725,6 +3743,16 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
 
     // ---- The body ---------------------------------------------------------
     const BodySpec& body = instrument.body;
+    if (bodyFrom != nullptr && bodyFrom != this && bodyFrom->state_->work.wallsDesigned)
+    {
+        // wallModes keeps them when the body and limit match.
+        const BodyWork& from = bodyFrom->state_->work;
+        s.work.strip = from.strip;
+        s.work.walls = from.walls;
+        s.work.wallsBody = from.wallsBody;
+        s.work.wallsLimit = from.wallsLimit;
+        s.work.wallsDesigned = true;
+    }
     s.modeCount = designBody(instrument, stringCount_, fs, s.work, s.modes);
     for (int index = 0; index < s.modeCount; ++index)
     {

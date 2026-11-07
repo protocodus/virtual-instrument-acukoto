@@ -219,8 +219,11 @@ public:
     ~AcukotoEngine();
 
     // Setup: designs the strings, the body and the room. Not real-time.
+    // `bodyFrom` is another engine whose body is already designed: where
+    // its body and rate are this instrument's, its wall modes are taken
+    // over instead of designed again, two fifths of a setup, bit for bit.
     void prepare(double sampleRate);
-    void setInstrument(const InstrumentSpec& instrument);
+    void setInstrument(const InstrumentSpec& instrument, const AcukotoEngine* bodyFrom = nullptr);
     void reset() noexcept;
 
     // The string tuned to midiNote plays (with oshide, also a string one or
