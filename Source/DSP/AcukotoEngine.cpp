@@ -86,6 +86,116 @@ constexpr double leastJerk(double t) noexcept
 {
     return t <= 0.0 ? 0.0 : (t >= 1.0 ? 1.0 : t * t * t * (10.0 + t * (-15.0 + 6.0 * t)));
 }
+
+// The techniques the free keys A0 to C-sharp 2 play (AcukotoEngine::noteOn).
+// The koto guides that name them: Pro Musica Nipponia, "Koto"
+// (https://www.promusica.or.jp/english/koto.html), Naoko Kikuchi, "Koto"
+// (Atlas Ensemble's instrument guide), and the demonstrations Pro Musica
+// Nipponia recorded for Minoru Miki's "Composing for Japanese Instruments"
+// (University of Rochester, 2008, Examples 3.14-3.31), measured here as the
+// constants below say. Those recordings are fetched for measurement, never
+// committed.
+enum TechniqueKey
+{
+    sukuiKey,         // A0: sukui-zume, the thumb's back stroke
+    tremoloKey,       // A#0: tremolo with the tsume's corner
+    pizzicatoKey,     // B0: a bare finger's pad
+    nearKey,          // C1: by the ryukaku
+    offKey,           // C#1: away from the ryukaku
+    leftKey,          // D1: the rest of the string, left of the ji
+    harmonicKey,      // D#1: the octave harmonic
+    muteKey,          // E1: a finger on the ji
+    staccatoKey,      // F1: the left hand stops the note at key-up
+    oshiAwaseKey,     // F#1: the string below pressed to the note, both played
+    tsukiIroKey,      // G1: a quick push and back on the last string played
+    yuriKey,          // G#1: the press swaying while the key is held
+    oshiHanashiKey,   // A1: the press let go
+    glissandoUpKey,   // A#1: the tsume's front across every string, far to near
+    glissandoDownKey, // B1: the tsume's backs across them, near to far
+    chirashiKey,      // C2: chirashi-zume, a scrape with the tsume's edge
+    suriKey,          // C#2: suri-zume, both ways along two strings
+    techniqueKeyCount
+};
+
+// How a stroke meets the string, as bits: the latched techniques of a note,
+// or a gesture's own.
+enum StrokeStyle
+{
+    backStroke = 1,     // the tsume's back, moving the other way
+    cornerStroke = 2,   // the tsume's corner
+    fingerStroke = 4,   // a bare finger
+    nearStroke = 8,
+    offStroke = 16,
+    leftStroke = 32,
+    harmonicStroke = 64,
+    mutedStroke = 128,
+    tremoloStroke = 256,
+    staccatoStroke = 512,
+    oshiAwaseStroke = 1024,
+    strokeGroup = backStroke | tremoloStroke | fingerStroke,
+    positionGroup = nearStroke | offStroke | leftStroke
+};
+
+// Where the tsume plucks off its ordinary place (Pro Musica Nipponia lists
+// "near the ryukaku", hard, and "off the ryukaku", soft): estimated, either
+// side of the 3-5 cm a koto guide gives (AcukotoEngine::pluck).
+constexpr double nearDistance = 0.015;
+constexpr double offDistance = 0.15;
+// Left of the ji the string's rest is plucked an estimated 8 cm from it.
+constexpr double leftDistance = 0.08;
+// The tsume's back is rounder than its playing edge and its corner sharper:
+// estimated widths, beside the edge's 2 mm (pluck).
+constexpr double backContact = 0.004;
+constexpr double cornerContact = 0.001;
+// The strokes of a repeated note in Example 3.23 come 50 to 66 ms apart, a
+// median of 58 (nine strokes on one pitch from 49.1 s); the strings of the
+// glissandi in Example 3.30 a median 55 and 62 ms apart (26.8 s and 37.2 s,
+// strokes under 25 ms apart taken as one). Both at 58 ms.
+constexpr double tremoloInterval = 0.058;
+constexpr double glissandoInterval = 0.058;
+// Tsuki-iro in Example 3.16, measured on the third partial of G4: the pitch
+// rises 120 and 145 cents above the note in about 35 ms and is back about
+// 50 ms later, 0.32 and 0.74 s after the pluck.
+constexpr double tsukiIroRise = 1.32;
+constexpr double tsukiIroUp = 0.035;
+constexpr double tsukiIroDown = 0.05;
+// Yuri in Example 3.14, the same G4: the press sways up to 70-78 cents above
+// the note and back to 15-20, peaks 0.55 s apart, never below the note.
+constexpr double yuriPeak = 0.75;
+constexpr double yuriTrough = 0.15;
+constexpr double yuriHalf = 0.275;
+// Oshi-hanashi in Example 3.13: B4 pressed from A4 falls to it in 0.9 to
+// 1.0 s, beginning 0.2 and 0.4 s after the pluck.
+constexpr double oshiHanashiTime = 0.95;
+// A finger resting on the ji (Example 3.18, "Muting"): a dashpot of the
+// fingertip's damping, of the order of 2 N s/m (Hajian and Howe, J. Biomech.
+// Eng. 119 (1997) 109), an estimated 5 mm from the ji, where its loss on
+// partial n, R sin^2(n pi e / L) / (mu L) per second, takes the highs and
+// leaves the fundamental.
+constexpr double fingerDamping = 2.0;
+constexpr double muteOffset = 0.005;
+// The scrapes, measured in Examples 3.26 and 3.27. Chirashi-zume is a burst
+// of about 30 ms whose noise stands from 2.4 to 4.8 kHz, peaking near 3.8,
+// after which the string rings at its note: the edge leaves it as a pluck
+// does. Suri-zume is about 0.7 s of noise from 0.9 to 2.5 kHz, both ways,
+// with no pluck. How far the edge travels is estimated: 6 cm from the
+// ryukaku, 10 cm each way.
+constexpr double chirashiTime = 0.03;
+constexpr double chirashiTravel = 0.06;
+constexpr double chirashiCentre = 3500.0;
+constexpr double chirashiQ = 1.4;
+constexpr double suriTime = 0.35;  // each way
+constexpr double suriTravel = 0.10;
+constexpr double suriCentre = 1500.0;
+constexpr double suriQ = 0.94;
+// The friction noise's rms force at the stroke's height, a share of a pluck's
+// held force at the same velocity, fitted to the examples' levels: chirashi-
+// zume's burst stands 2 dB over the note ringing after it (its 2.4-4.8 kHz
+// band against the note's), and suri-zume's noise, on the tsume's smooth
+// back, about 6 dB under that note's, taking the two examples as recorded at
+// one gain.
+constexpr double chirashiForce = 0.16;
+constexpr double suriForce = 0.029;
 // A key a semitone or a whole tone above a string presses it to the key's
 // own pitch in equal temperament, from wherever the player tuned the string
 // (StringVoice::cents): the owner's choice (Docs/decisions.md, 2026-11-01).
@@ -106,7 +216,7 @@ constexpr double keyPress(int step, double cents) noexcept
 constexpr int delayCapacity = 16384;
 // The keys of a piano, A0 to C8: from the lowest string up every one sounds at
 // its own pitch (AcukotoEngine::noteOn, State::extension); the twelve under it
-// are a hand striking the body (AcukotoStrikes.h), those further down are free.
+// are a hand striking the body (AcukotoStrikes.h), those further down play techniques.
 constexpr int lowestKey = 21;
 constexpr int highestKey = 108;
 constexpr int strikeKeyCount = static_cast<int>(strikeKeys.size());
@@ -976,6 +1086,11 @@ struct Loop
     LossSectionDesign constantDesign {};
     LossSectionDesign bendingDesign {};
     double gain { 1.0 };
+    // A finger resting near the bridge (mutedStroke): a one-pole loss, and
+    // its delay at the fundamental, which the line gives up.
+    double muteCoefficient { 0.0 };
+    double muteState { 0.0 };
+    double muteDelay { 0.0 };
     double damping { 1.0 };
     double dampingTarget { 1.0 };
     double dampingStep { 0.0 };
@@ -996,6 +1111,7 @@ struct Loop
         pairState = {};
         constantLoss.reset();
         bendingLoss.reset();
+        muteState = 0.0;
     }
 
     void reset() noexcept
@@ -1004,6 +1120,7 @@ struct Loop
         // Back to where prepare() leaves the line, so a reset plays as a
         // fresh instance does, sample for sample.
         write = 0;
+        muteCoefficient = muteDelay = 0.0;
         damping = dampingTarget = 1.0;
         dampingStep = 0.0;
         setLineDelay(restLineDelay);
@@ -1062,6 +1179,8 @@ struct Loop
         }
         y = constantLoss.process(y);
         y = bendingLoss.process(y);
+        if (muteCoefficient != 0.0)
+            y = muteState = y + muteCoefficient * (muteState - y);
         if (dampingStep != 0.0)
         {
             damping += dampingStep;
@@ -1104,12 +1223,12 @@ struct Loop
     double lineDelayAt(double ratio) const noexcept
     {
         if (ratio == 1.0)
-            return restLineDelay;
+            return restLineDelay - muteDelay;
         const auto k = static_cast<std::size_t>(
             std::upper_bound(bendRatios.begin() + 1, bendRatios.end() - 1, ratio) - bendRatios.begin() - 1);
         const double t = (ratio - bendRatios[k]) / (bendRatios[k + 1] - bendRatios[k]);
         const double lag = lagCycles[k] + t * (lagCycles[k + 1] - lagCycles[k]);
-        return (1.0 - lag) * loopDelay / ratio;
+        return (1.0 - lag) * loopDelay / ratio - muteDelay;
     }
 
     // Takes a new pitch while the wave keeps travelling.
@@ -3391,6 +3510,10 @@ struct AcukotoEngine::State
         // Samples the thumb's tsume still rests on it after a stroke on the
         // next string up (noteOn): it damps the string as a resting hand does.
         int thumbRest { 0 };
+        // Its last pluck's latched techniques: a finger resting on the ji,
+        // and the left hand stopping it at key-up.
+        bool muted { false };
+        bool staccato { false };
         bool dampingDirty { true };
         int midiNote { -1 };      // its own note, lever down
         int ownerNote { -1 };     // the note that last plucked it
@@ -3415,7 +3538,7 @@ struct AcukotoEngine::State
     // strings, an artificial range so that every key of a piano sounds
     // (owner requirement, 2026-10-30). extensionString is the string, or -1
     // where a string's own note is the key or the key lies below every
-    // string (the twelve under it strike the body, the rest are free).
+    // string (the twelve under it strike the body, the rest play techniques).
     std::array<PitchDesign, 128> extension {};
     std::array<int, 128> extensionString {};
     int lowestStringNote { 0 };
@@ -3475,12 +3598,14 @@ struct AcukotoEngine::State
     int controlCountdown { 0 };
     BarVector lastGeneralizedVelocity {};
     std::array<double, delayCapacity> pluckWave {};
+    std::array<double, delayCapacity> harmonicWave {};
 
     // What the right hand does a little later: the second string of one
     // stroke across two (kakite), or the thumb landing on the next string
     // down. Counted in samples at the engine's rate, run at the top of a
     // sample, so every block size plays alike.
-    enum class Later { Note, ThumbLands };
+    // Also a tremolo's next stroke, and a glissando's next string.
+    enum class Later { Note, ThumbLands, Tremolo, Sweep };
     struct Scheduled
     {
         Later kind { Later::Note };
@@ -3492,6 +3617,7 @@ struct AcukotoEngine::State
         int extensionKey { -1 };
         int moment { 0 };
         bool keyUp { false };
+        int style { 0 };
     };
     std::array<Scheduled, maxScheduled> scheduled {};
     int scheduledCount { 0 };
@@ -3501,6 +3627,39 @@ struct AcukotoEngine::State
     std::int64_t momentClock { -1 };
     int moment { 0 };
     std::array<int, maxStrings> momentDelay {};  // -1: not played this moment
+
+    // The techniques the free keys latch (StrokeStyle bits), and the left
+    // hand's gestures on the last string played: a tsuki-iro's push under
+    // way, yuri while its key is held. Counted in control periods.
+    int latched { 0 };
+    struct Sway
+    {
+        bool active { false };
+        int string { -1 };
+        double base { 0.0 };  // semitones, the note's own press
+        bool up { false };
+        int periods { 0 };    // until the next movement
+    };
+    Sway tsukiIro {};
+    Sway yuri {};
+    // The tsume's edge scraping along a string (chirashi-zume, suri-zume):
+    // friction noise, its force band-passed to the band the recordings show,
+    // at a point moving along the string.
+    struct Scrape
+    {
+        bool active { false };
+        int string { 0 };
+        int samples { 0 };
+        int length { 1 };
+        double from { 0.0 };  // m from the ryukaku
+        double to { 0.0 };
+        bool twoWay { false };
+        double force { 0.0 };  // N rms at the envelope's peak
+        double b0 { 0.0 }, b2 { 0.0 }, a1 { 0.0 }, a2 { 0.0 };
+        double x1 { 0.0 }, x2 { 0.0 }, y1 { 0.0 }, y2 { 0.0 };
+        float pluckAtEnd { 0.0f };  // a velocity, or 0
+    };
+    std::array<Scrape, 2> scrapes {};
 
     // PlayingControls as the signal path uses them. The hands' damping as
     // decay rates (1/s, they add); the output gains glide to their targets
@@ -3911,9 +4070,14 @@ void AcukotoEngine::reset() noexcept
         voice.ownerNote = -1;
         voice.keys = 0;
         voice.thumbRest = 0;
+        voice.muted = voice.staccato = false;
         voice.dampingDirty = true;
     }
     s.scheduledCount = 0;
+    s.latched = 0;
+    s.tsukiIro = {};
+    s.yuri = {};
+    s.scrapes = {};
     s.clock = 0;
     s.momentClock = -1;
     s.moment = 0;
@@ -4004,7 +4168,7 @@ void AcukotoEngine::updateDamping(int string) noexcept
     voice.dampingDirty = false;
     double rate = s.muteRate;
     if (!voice.keyDown && !voice.sustained)
-        rate += voice.plucked ? s.releaseRate : s.sympathyRate;
+        rate += voice.plucked ? (voice.staccato ? handRate(0.0) : s.releaseRate) : s.sympathyRate;
     if (voice.thumbRest > 0)
         rate += handRate(0.0);
     voice.normal.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
@@ -4084,6 +4248,12 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
 {
     if (!(velocity > 0.0f))
         return;
+    if (midiNote >= lowestKey && midiNote < lowestKey + techniqueKeyCount
+        && midiNote < state_->lowestStringNote - strikeKeyCount)
+    {
+        techniqueKey(midiNote - lowestKey, velocity);
+        return;
+    }
     int index = stringForNote(midiNote);
     // Legato: a note played while the key of a sounding string is still
     // down, which that string reaches by its press alone, is the left hand
@@ -4134,7 +4304,7 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     }
     // A key below every string: no koto plays it. The twelve under the lowest
     // string are a hand striking the body, as players do (Pornprasit 2010,
-    // section 2.9); those further down are free and sound nothing.
+    // section 2.9); those further down play techniques (techniqueKey).
     if (index < 0 && midiNote < state_->lowestStringNote)
     {
         const int key = midiNote - (state_->lowestStringNote - strikeKeyCount);
@@ -4152,10 +4322,233 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     }
     if (index < 0)
         return;
-    startNote(index, midiNote, velocity, pressed, extensionKey);
+    const int style = state_->latched;
+    // Oshi-awase: the string below is pressed up to this one's note and both
+    // sound it, one stroke across the two (Pro Musica Nipponia, technique
+    // 21). A press reaches a whole tone, a tone and a half on a slack string
+    // (Kikuchi), so a string below up to two semitones away takes it.
+    if ((style & oshiAwaseStroke) != 0 && pressed == 0 && extensionKey < 0 && index > 0)
+    {
+        const int step = midiNote - state_->strings[static_cast<std::size_t>(index - 1)].midiNote;
+        if (step >= 1 && step <= 2)
+            startNote(index - 1, midiNote, velocity, step, -1, style);
+    }
+    startNote(index, midiNote, velocity, pressed, extensionKey, style);
 }
 
-void AcukotoEngine::playNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept
+// A free key below the body's: it latches a technique for the notes that
+// follow (pressed again, it lets go; one of each group at a time), or plays a
+// gesture on the last string played or across the strings.
+void AcukotoEngine::techniqueKey(int key, float velocity) noexcept
+{
+    State& s = *state_;
+    const auto latch = [&s] (int bit, int group)
+    {
+        s.latched = (s.latched & bit) != 0 ? s.latched & ~bit : (s.latched & ~group) | bit;
+    };
+    const auto periods = [this] (double seconds)
+    {
+        return std::max(1, static_cast<int>(std::lround(seconds * sampleRate_ / controlPeriod)));
+    };
+    const int string = s.handString;
+    const double base = string >= 0
+        ? 12.0 * std::log2(s.strings[static_cast<std::size_t>(string)].pressTarget) : 0.0;
+    const auto schedule = [&s] (const State::Scheduled& event)
+    {
+        if (s.scheduledCount < maxScheduled)
+            s.scheduled[static_cast<std::size_t>(s.scheduledCount++)] = event;
+    };
+    switch (key)
+    {
+        case sukuiKey: latch(backStroke, strokeGroup); break;
+        case tremoloKey: latch(tremoloStroke, strokeGroup); break;
+        case pizzicatoKey: latch(fingerStroke, strokeGroup); break;
+        case nearKey: latch(nearStroke, positionGroup); break;
+        case offKey: latch(offStroke, positionGroup); break;
+        case leftKey: latch(leftStroke, positionGroup); break;
+        case harmonicKey: latch(harmonicStroke, 0); break;
+        case muteKey: latch(mutedStroke, 0); break;
+        case staccatoKey: latch(staccatoStroke, 0); break;
+        case oshiAwaseKey: latch(oshiAwaseStroke, 0); break;
+        case tsukiIroKey:
+            if (string >= 0)
+            {
+                s.tsukiIro = { true, string, base, true, periods(tsukiIroUp) };
+                press(string, base + tsukiIroRise, tsukiIroUp);
+            }
+            break;
+        case yuriKey:
+            if (string >= 0)
+            {
+                s.yuri = { true, string, base, true, periods(yuriHalf) };
+                press(string, base + yuriPeak, yuriHalf);
+            }
+            break;
+        case oshiHanashiKey:
+            if (string >= 0)
+            {
+                s.tsukiIro.active = s.yuri.active = false;
+                press(string, 0.0, oshiHanashiTime);
+            }
+            break;
+        case glissandoUpKey:
+        case glissandoDownKey:
+        {
+            // Far to near with the tsume's front, near to far with its backs
+            // (Kikuchi: "sweeping down across the strings with the backs of
+            // the picks"), one string every glissandoInterval.
+            const bool down = key == glissandoDownKey;
+            const int style = (down ? backStroke : 0) | (s.latched & (positionGroup | mutedStroke));
+            const int interval = static_cast<int>(std::lround(glissandoInterval * sampleRate_));
+            for (int k = 0; k < stringCount_; ++k)
+            {
+                const int target = down ? stringCount_ - 1 - k : k;
+                if (k == 0)
+                    strokeString(target, velocity, style);
+                else
+                    schedule({ State::Later::Sweep, k * interval, target, 0, velocity, 0, -1, s.moment, false, style });
+            }
+            break;
+        }
+        case chirashiKey:
+        case suriKey:
+            startScrape(key == suriKey, velocity);
+            break;
+        default: break;
+    }
+}
+
+// Chirashi-zume and suri-zume on the strings held, at most two, or on the
+// last string played (suri-zume: and the one below it).
+void AcukotoEngine::startScrape(bool suri, float velocity) noexcept
+{
+    State& s = *state_;
+    std::array<int, 2> chosen { -1, -1 };
+    int found = 0;
+    for (int string = stringCount_ - 1; string >= 0 && found < 2; --string)
+        if (s.strings[static_cast<std::size_t>(string)].keyDown)
+            chosen[static_cast<std::size_t>(found++)] = string;
+    if (found == 0 && s.handString >= 0)
+    {
+        chosen[0] = s.handString;
+        found = 1;
+        if (suri && s.handString > 0)
+            chosen[static_cast<std::size_t>(found++)] = s.handString - 1;
+    }
+    if (found == 0)
+        return;
+    if (s.idle)
+    {
+        s.idle = false;
+        s.controlCountdown = 0;
+    }
+    s.quietSamples = 0;
+    const double v = std::clamp(static_cast<double>(velocity), 0.0, 1.0);
+    for (int k = 0; k < found; ++k)
+    {
+        const int string = chosen[static_cast<std::size_t>(k)];
+        const State::StringVoice& voice = s.strings[static_cast<std::size_t>(string)];
+        State::Scrape& scrape = s.scrapes[static_cast<std::size_t>(k)];
+        scrape = {};
+        scrape.active = true;
+        scrape.string = string;
+        scrape.twoWay = suri;
+        scrape.length = std::max(1, static_cast<int>(std::lround((suri ? 2.0 * suriTime : chirashiTime) * sampleRate_)));
+        scrape.from = 0.01;
+        scrape.to = std::min(scrape.from + (suri ? suriTravel : chirashiTravel), 0.8 * voice.length);
+        const double touch = s.instrument.strings[static_cast<std::size_t>(string)].touch;
+        // A band-pass of unit peak gain (RBJ), its output scaled to unit
+        // variance for white noise of unit variance: the noise bandwidth of
+        // a second-order band-pass is (pi / 2) f0 / Q.
+        const double centre = std::min(suri ? suriCentre : chirashiCentre, 0.4 * sampleRate_);
+        const double q = suri ? suriQ : chirashiQ;
+        const double w0 = 2.0 * pi * centre / sampleRate_;
+        const double alpha = std::sin(w0) / (2.0 * q);
+        const double norm = std::sqrt(sampleRate_ * q / (pi * centre));
+        scrape.b0 = alpha / (1.0 + alpha) * norm;
+        scrape.b2 = -scrape.b0;
+        scrape.a1 = -2.0 * std::cos(w0) / (1.0 + alpha);
+        scrape.a2 = (1.0 - alpha) / (1.0 + alpha);
+        scrape.force = (suri ? suriForce : chirashiForce) * s.instrument.pluckForce * touch * std::pow(v, 1.4);
+        scrape.pluckAtEnd = suri ? 0.0f : velocity;
+    }
+}
+
+// The scrapes' friction force this sample, each a velocity F / (2 Z) leaving
+// its point both ways: straight to the ji, (L - x) / c away, and turned over
+// by the ryukaku, (L + x) / c away (x from the ryukaku).
+void AcukotoEngine::runScrapes() noexcept
+{
+    State& s = *state_;
+    for (State::Scrape& scrape : s.scrapes)
+    {
+        if (!scrape.active)
+            continue;
+        State::StringVoice& voice = s.strings[static_cast<std::size_t>(scrape.string)];
+        const double t = static_cast<double>(scrape.samples) / scrape.length;
+        const double travel = scrape.twoWay ? 1.0 - std::abs(1.0 - 2.0 * t) : t;
+        const double stroke = scrape.twoWay ? std::fmod(2.0 * t, 1.0) : t;
+        const double x = scrape.from + (scrape.to - scrape.from) * travel;
+        const double noise = s.random.gaussian();
+        const double y = scrape.b0 * (noise - scrape.x2) - scrape.a1 * scrape.y1 - scrape.a2 * scrape.y2;
+        scrape.x2 = scrape.x1;
+        scrape.x1 = noise;
+        scrape.y2 = scrape.y1;
+        scrape.y1 = y;
+        const double force = scrape.force * std::sin(pi * stroke) * y;
+        const double share = std::clamp(controls_.normalShare, 0.0, 1.0);
+        for (int plane = 0; plane < 2; ++plane)
+        {
+            Loop& loop = plane == 0 ? voice.normal : voice.parallel;
+            const double wave = force / (2.0 * voice.impedance) * std::sqrt(plane == 0 ? share : 1.0 - share);
+            const double period = loop.whole + loop.fraction + loop.muteDelay + (loop.loopDelay - loop.restLineDelay);
+            const double length = voice.length;
+            for (const double sign : { 1.0, -1.0 })
+            {
+                const double delay = 0.5 * period * (length + (sign > 0.0 ? -x : x)) / length;
+                const int whole = static_cast<int>(delay);
+                const double fraction = delay - whole;
+                loop.pending[static_cast<std::size_t>((loop.write + whole) & (delayCapacity - 1))]
+                    += static_cast<float>(sign * wave * (1.0 - fraction));
+                loop.pending[static_cast<std::size_t>((loop.write + whole + 1) & (delayCapacity - 1))]
+                    += static_cast<float>(sign * wave * fraction);
+            }
+        }
+        s.quietSamples = 0;
+        if (++scrape.samples >= scrape.length)
+        {
+            scrape.active = false;
+            if (scrape.pluckAtEnd > 0.0f)
+                strokeString(scrape.string, scrape.pluckAtEnd, cornerStroke);
+        }
+    }
+}
+
+// A stroke that is no key's note (a glissando's): the string rings on as the
+// hand moves past, and a key holding it keeps it.
+void AcukotoEngine::strokeString(int string, float velocity, int style) noexcept
+{
+    State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
+    const bool held = voice.keyDown;
+    const int owner = voice.ownerNote, keys = voice.keys;
+    if (voice.extensionKey >= 0 && !held)
+        applyPitch(string, false);
+    pluck(string, voice.ownerNote >= 0 && held ? voice.ownerNote : voice.midiNote, velocity, style);
+    if (held)
+    {
+        voice.ownerNote = owner;
+        voice.keys = keys;
+    }
+    else
+    {
+        voice.keyDown = false;
+        voice.keys = 0;
+        voice.sustained = state_->sustain;
+        updateDamping(string);
+    }
+}
+
+void AcukotoEngine::playNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept
 {
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(index)];
     // The ji is moved, or back in its place, before the pluck.
@@ -4163,7 +4556,7 @@ void AcukotoEngine::playNote(int index, int midiNote, float velocity, int presse
         applyPitch(index, false, extensionKey);
     // The left hand presses before the right plucks: the press has settled.
     press(index, keyPress(pressed, voice.cents), 0.0);
-    pluck(index, midiNote, velocity);
+    pluck(index, midiNote, velocity, style);
 }
 
 // How the right hand plays a note with the tsume (Pro Musica Nipponia, "Koto",
@@ -4179,7 +4572,7 @@ void AcukotoEngine::playNote(int index, int midiNote, float velocity, int presse
 // (Naoko Kikuchi, "Koto", Atlas Ensemble's instrument guide), and it lifts as
 // it moves to its next stroke. A string whose key is held, or that the pedal
 // holds, the player leaves ringing, so the thumb rests elsewhere.
-void AcukotoEngine::startNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept
+void AcukotoEngine::startNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept
 {
     State& s = *state_;
     if (s.momentClock != s.clock)
@@ -4211,7 +4604,13 @@ void AcukotoEngine::startNote(int index, int midiNote, float velocity, int press
         if (s.scheduledCount < maxScheduled)
             s.scheduled[static_cast<std::size_t>(s.scheduledCount++)] = event;
     };
-    const bool tsume = controls_.technique == Technique::Plectrum;
+    // Pizzicato's finger and the thumb's back stroke, which lifts the string
+    // (Pro Musica Nipponia, technique 3), leave the thumb's rest out, and so
+    // does a stroke on the rest of the string.
+    const bool tsume = controls_.technique == Technique::Plectrum
+                    && (style & (fingerStroke | backStroke | leftStroke)) == 0;
+    if ((style & tremoloStroke) != 0)
+        style |= cornerStroke;
     const auto crossing = [&] (float v)
     {
         return std::max(1, static_cast<int>(std::lround(s.instrument.body.stringSpacing / strokeSpeed(v) * sampleRate_)));
@@ -4243,12 +4642,50 @@ void AcukotoEngine::startNote(int index, int midiNote, float velocity, int press
     }
     s.momentDelay[static_cast<std::size_t>(index)] = delay;
     if (delay == 0)
-        playNote(index, midiNote, velocity, pressed, extensionKey);
+        playNote(index, midiNote, velocity, pressed, extensionKey, style);
     else
-        schedule({ State::Later::Note, delay, index, midiNote, velocity, pressed, extensionKey, s.moment, false });
+        schedule({ State::Later::Note, delay, index, midiNote, velocity, pressed, extensionKey, s.moment, false, style });
     if (thumb)
         schedule({ State::Later::ThumbLands, delay + crossing(velocity), index, midiNote, velocity, 0, -1, s.moment,
-                   false });
+                   false, 0 });
+    // A tremolo: the tsume's corner strokes the string back and forth while
+    // the key is held, every tremoloInterval.
+    if ((style & tremoloStroke) != 0)
+        schedule({ State::Later::Tremolo, delay + static_cast<int>(std::lround(tremoloInterval * sampleRate_)), index,
+                   midiNote, velocity, 0, -1, s.moment, false, (style & ~tremoloStroke) | cornerStroke | backStroke });
+}
+
+// The left hand's gestures, a control period at a time: tsuki-iro's push
+// returns once it has arrived, and yuri sways between its peak and trough
+// until its key is let go.
+void AcukotoEngine::runSways() noexcept
+{
+    State& s = *state_;
+    const auto periods = [this] (double seconds)
+    {
+        return std::max(1, static_cast<int>(std::lround(seconds * sampleRate_ / controlPeriod)));
+    };
+    State::Sway& tsuki = s.tsukiIro;
+    if (tsuki.active && --tsuki.periods <= 0)
+    {
+        if (tsuki.up)
+        {
+            tsuki.up = false;
+            tsuki.periods = periods(tsukiIroDown);
+            press(tsuki.string, tsuki.base, tsukiIroDown);
+        }
+        else
+        {
+            tsuki.active = false;
+        }
+    }
+    State::Sway& yuri = s.yuri;
+    if (yuri.active && --yuri.periods <= 0)
+    {
+        yuri.up = !yuri.up;
+        yuri.periods = periods(yuriHalf);
+        press(yuri.string, yuri.base + (yuri.up ? yuriPeak : yuriTrough), yuriHalf);
+    }
 }
 
 void AcukotoEngine::runScheduled() noexcept
@@ -4266,11 +4703,33 @@ void AcukotoEngine::runScheduled() noexcept
         due = s.scheduled[static_cast<std::size_t>(--s.scheduledCount)];
         if (event.kind == State::Later::Note)
         {
-            playNote(event.string, event.midiNote, event.velocity, event.pressed, event.extensionKey);
+            playNote(event.string, event.midiNote, event.velocity, event.pressed, event.extensionKey, event.style);
             if (event.keyUp)
                 noteOff(event.midiNote);
+            continue;
         }
-        else if (event.string > 0)
+        if (event.kind == State::Later::Sweep)
+        {
+            strokeString(event.string, event.velocity, event.style);
+            continue;
+        }
+        State::StringVoice& voice = s.strings[static_cast<std::size_t>(event.string)];
+        if (event.kind == State::Later::Tremolo)
+        {
+            if (!voice.keyDown || voice.ownerNote != event.midiNote)
+                continue;
+            const int keys = voice.keys;
+            pluck(event.string, event.midiNote, event.velocity, event.style);
+            voice.keys = keys;
+            State::Scheduled next = event;
+            // One more: this pass counts it down once already.
+            next.samples = static_cast<int>(std::lround(tremoloInterval * sampleRate_)) + 1;
+            next.style ^= backStroke;
+            if (s.scheduledCount < maxScheduled)
+                s.scheduled[static_cast<std::size_t>(s.scheduledCount++)] = next;
+            continue;
+        }
+        if (event.string > 0)
         {
             State::StringVoice& below = s.strings[static_cast<std::size_t>(event.string - 1)];
             if (!below.keyDown && !below.sustained && !s.sustain)
@@ -4313,7 +4772,7 @@ void AcukotoEngine::pluckString(int string, float velocity) noexcept
         return;
     if (state_->strings[static_cast<std::size_t>(string)].extensionKey >= 0)
         applyPitch(string, false);
-    pluck(string, state_->strings[static_cast<std::size_t>(string)].midiNote, velocity);
+    pluck(string, state_->strings[static_cast<std::size_t>(string)].midiNote, velocity, 0);
 }
 
 void AcukotoEngine::press(int string, double semitones, double seconds) noexcept
@@ -4333,7 +4792,7 @@ void AcukotoEngine::press(int string, double semitones, double seconds) noexcept
         voice.pressRatio = voice.pressTarget;
 }
 
-void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
+void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) noexcept
 {
     State& s = *state_;
     if (s.idle)
@@ -4368,8 +4827,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     BarVector preload {};
     const BarVector port = voice.normalPort();
     const bool sounding = voice.keyDown || voice.sustained || voice.energy > silentEnergy;
-    const bool tsume = controls.technique == Technique::Plectrum;
-    if (sounding && !tsume)
+    // Pizzicato plucks with a bare finger whatever the instrument's technique.
+    const Technique technique = (style & fingerStroke) != 0 ? Technique::Finger : controls.technique;
+    const bool tsume = technique == Technique::Plectrum;
+    const bool speaking = (style & leftStroke) == 0;
+    if (sounding && !tsume && speaking)
     {
         const double normalForce = 2.0 * voice.impedance * voice.normal.last;
         for (std::size_t c = 0; c < barCoordinates; ++c)
@@ -4398,8 +4860,9 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // 2.5 mm on A5 but 28 mm on D3, where the whole pluck is 5 cm from the
     // ryukaku).
     constexpr double distanceSpread = 0.008;
-    const double distance = std::clamp((controls.pluckDistance + distanceSpread * s.random.gaussian()) / voice.length,
-                                       0.01, 0.5);
+    const double place = (style & nearStroke) != 0 ? nearDistance
+                       : (style & offStroke) != 0 ? offDistance : controls.pluckDistance;
+    const double distance = std::clamp((place + distanceSpread * s.random.gaussian()) / voice.length, 0.01, 0.5);
     const double position = 1.0 - distance;
     // The tsume meets a ringing string where it plucks and holds the stretch
     // between there and the ryukaku still before it slips off; the rest of
@@ -4408,12 +4871,13 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // arrives at the ji from P (1 - d) / 2 to P (1 + d) / 2 samples from now,
     // P the round trip and d the pluck's share of the string: in the pending
     // first trip, or in the line once the loop's filters' lag is allowed for.
-    if (sounding && tsume)
+    if (sounding && tsume && speaking)
     {
         double before = 0.0, after = 0.0;
         for (Loop* loop : { &voice.normal, &voice.parallel })
         {
-            const double period = loop->whole + loop->fraction + (loop->loopDelay - loop->restLineDelay);
+            const double period = loop->whole + loop->fraction + loop->muteDelay
+                                + (loop->loopDelay - loop->restLineDelay);
             const double lag = period - loop->whole;
             const double from = 0.5 * period * (1.0 - distance), to = 0.5 * period * (1.0 + distance);
             for (int k = 0; k < static_cast<int>(std::ceil(period)); ++k)
@@ -4469,7 +4933,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // authored, of the order of Acustra's (a 0.2 mm edge over a metre or two
     // per second).
     double contact = 0.0, release = 0.053e-3;
-    switch (controls.technique)
+    switch (technique)
     {
         // A bare finger on a koto string is the pad, not a harpist's
         // fingertip edge: the string slips 0.2 mm over it (0.27 ms, the pad's
@@ -4497,9 +4961,46 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     // does: one harpist's release velocity by about 25%, the displacement by
     // 14% (Fig. 8), so the release time takes the rest, about 20%, and each
     // pluck's brightness with it.
+    // The tsume's other surfaces (estimated): its back rounder, slipping off
+    // over twice the time, and its corner sharper.
+    if (tsume && (style & backStroke) != 0)
+    {
+        contact = backContact;
+        release *= 2.0;
+    }
+    else if (tsume && (style & cornerStroke) != 0)
+    {
+        contact = cornerContact;
+    }
     release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
              * std::exp(0.2 * s.random.gaussian());
     s.lastPluck = { position, force, normalShare, release };
+
+    // A finger resting on the ji while the note sounds (mutedStroke) is a
+    // dashpot R a small distance e from the end: on partial n, at
+    // omega = n pi c / L, it takes R (omega e / c)^2 / (mu L) per second,
+    // K omega_d^2 per round trip with omega_d in radians per sample and
+    // K = 2 R e^2 fs^2 / (c^3 mu). A one-pole low-pass of coefficient a loses
+    // a / (2 (1 - a)^2) omega_d^2 at low frequencies, so a is that root; the
+    // line gives up the one-pole's delay at the fundamental, so the pitch
+    // stays.
+    voice.muted = (style & mutedStroke) != 0;
+    voice.staccato = (style & staccatoStroke) != 0;
+    {
+        const double c = 2.0 * voice.length * voice.frequency;
+        const double k = 2.0 * fingerDamping * muteOffset * muteOffset * sampleRate_ * sampleRate_
+                       / (c * c * c * voice.linearMass);
+        const double a = voice.muted ? ((4.0 * k + 1.0) - std::sqrt(8.0 * k + 1.0)) / (4.0 * k) : 0.0;
+        const double w = 2.0 * pi * voice.frequency / sampleRate_;
+        const double delay = voice.muted ? std::atan2(a * std::sin(w), 1.0 - a * std::cos(w)) / w : 0.0;
+        for (Loop* loop : { &voice.normal, &voice.parallel })
+        {
+            if (!voice.muted)
+                loop->muteState = 0.0;
+            loop->muteCoefficient = a;
+            loop->muteDelay = delay;
+        }
+    }
 
     // A key struck again while it is still down (two overlapping notes of
     // one pitch, as a sequencer can send) counts twice, so its first key-up
@@ -4522,7 +5023,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     releasedEnergy /= voice.roundTrip;
     const double length = voice.length;
     const double frequency = voice.frequency;
-    for (int plane = 0; plane < 2; ++plane)
+    for (int plane = 0; plane < 2 && (style & leftStroke) == 0; ++plane)
     {
         const double pluckPoint = position * length;
         const double amplitude = force * pluckPoint * (length - pluckPoint) / (voice.tension * length)
@@ -4550,15 +5051,22 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
     }
     voice.roundTrip = releasedRoundTrip;
 
+    // Left of the ji the stroke plucks the rest of the string, from the ji
+    // to the unkaku, and the speaking length rings on.
+    const bool rest = (style & leftStroke) != 0;
     for (int plane = 0; plane < 2; ++plane)
     {
-        Loop& loop = plane == 0 ? voice.normal : voice.parallel;
+        Loop& loop = rest ? (plane == 0 ? voice.leftNormal : voice.leftParallel)
+                          : (plane == 0 ? voice.normal : voice.parallel);
         const double waveSpeed = 2.0 * length * frequency;
-        const double pluckPoint = position * length;
-        // The displacement the held force sets, A = F x (L - x) / (T L).
-        const double amplitude = force * pluckPoint * (length - pluckPoint) / (voice.tension * length)
-                               * std::sqrt(plane == 0 ? normalShare : 1.0 - normalShare);
-        const double kink = amplitude * (1.0 / pluckPoint + 1.0 / (length - pluckPoint));
+        const double segment = rest ? voice.leftLength : length;
+        const double pluckPoint = rest ? std::min(leftDistance, 0.5 * segment) : position * length;
+        // The displacement the held force sets, A = F x (L - x) / (T L), the
+        // other way for the tsume's back.
+        const double amplitude = force * pluckPoint * (segment - pluckPoint) / (voice.tension * segment)
+                               * std::sqrt(plane == 0 ? normalShare : 1.0 - normalShare)
+                               * ((style & backStroke) != 0 ? -1.0 : 1.0);
+        const double kink = amplitude * (1.0 / pluckPoint + 1.0 / (segment - pluckPoint));
         // The released shape, a triangle rounded by a Gaussian of the
         // contact's width.
         const auto shape = [&] (double x)
@@ -4578,20 +5086,20 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         // scratch wave; clipping only its count would change the wave shape.
         const double period = std::min(loop.loopDelay / releasedRatio, static_cast<double>(delayCapacity - 8));
         const int count = static_cast<int>(std::ceil(period));
-        const double cellLength = 2.0 * length / period;
+        const double cellLength = 2.0 * segment / period;
         std::array<double, delayCapacity>& wave = s.pluckWave;
         double mean = 0.0;
         for (int k = 0; k < count; ++k)
         {
             const double start = cellLength * k;
-            const double end = std::min(2.0 * length, cellLength * (k + 1));
+            const double end = std::min(2.0 * segment, cellLength * (k + 1));
             double integral = 0.0;
-            if (end <= length)
+            if (end <= segment)
                 integral = shape(end) - shape(start);
-            else if (start >= length)
-                integral = shape(2.0 * length - start) - shape(2.0 * length - end);
+            else if (start >= segment)
+                integral = shape(2.0 * segment - start) - shape(2.0 * segment - end);
             else
-                integral = (shape(length) - shape(start)) + (shape(length) - shape(2.0 * length - end));
+                integral = (shape(segment) - shape(start)) + (shape(segment) - shape(2.0 * segment - end));
             wave[static_cast<std::size_t>(k)] = 0.5 * waveSpeed * integral / cellLength;
         }
         // The release: the held force unloads exponentially as the string
@@ -4616,11 +5124,30 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         }
         mean /= count;
         for (int k = 0; k < count; ++k)
+            wave[static_cast<std::size_t>(k)] -= mean;
+        // The octave harmonic: the left hand touches the middle of the
+        // speaking length as the right plucks, and lifts. Every odd partial
+        // has its antinode there, so what leaves is the wave's part with half
+        // its period, (w(t) + w(t + P/2)) / 2.
+        if ((style & harmonicStroke) != 0 && !rest)
         {
-            const double value = wave[static_cast<std::size_t>(k)] - mean;
+            std::array<double, delayCapacity>& half = s.harmonicWave;
+            for (int k = 0; k < count; ++k)
+            {
+                const double at = std::fmod(k + 0.5 * period, static_cast<double>(count));
+                const int i = static_cast<int>(at);
+                const double t = at - i;
+                half[static_cast<std::size_t>(k)] = 0.5 * (wave[static_cast<std::size_t>(k)]
+                    + (1.0 - t) * wave[static_cast<std::size_t>(i)] + t * wave[static_cast<std::size_t>((i + 1) % count)]);
+            }
+            std::copy(half.begin(), half.begin() + count, wave.begin());
+        }
+        for (int k = 0; k < count; ++k)
+        {
+            const double value = wave[static_cast<std::size_t>(k)];
             const auto slot = static_cast<std::size_t>((loop.write + k) & (delayCapacity - 1));
             loop.pending[slot] += static_cast<float>(value);
-            if (k < voice.roundTrip)
+            if (!rest && k < voice.roundTrip)
             {
                 float& square = voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip + k)
                                                                        & (delayCapacity - 1))];
@@ -4631,7 +5158,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
         // starts deflected under it, so only what the release changes
         // reaches it, and the top springs back as the wave's mean force
         // falls to zero.
-        const double heldForce = 2.0 * voice.impedance * (wave[0] - mean);
+        const double heldForce = 2.0 * voice.impedance * wave[0];
         if (plane == 0)
         {
             for (std::size_t c = 0; c < barCoordinates; ++c)
@@ -4663,6 +5190,15 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity) noexcept
 void AcukotoEngine::noteOff(int midiNote) noexcept
 {
     State& s = *state_;
+    if (midiNote == lowestKey + yuriKey && midiNote < s.lowestStringNote - strikeKeyCount)
+    {
+        if (s.yuri.active)
+        {
+            s.yuri.active = false;
+            press(s.yuri.string, s.yuri.base, yuriHalf);
+        }
+        return;
+    }
     for (int k = 0; k < s.scheduledCount; ++k)
     {
         State::Scheduled& event = s.scheduled[static_cast<std::size_t>(k)];
@@ -4761,10 +5297,13 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         ++s.clock;
         if (s.scheduledCount > 0)
             runScheduled();
+        if (s.scrapes[0].active || s.scrapes[1].active)
+            runScrapes();
         if (s.controlCountdown-- <= 0)
         {
             s.controlCountdown = controlPeriod - 1;
             s.bend += (s.bendTarget - s.bend) * s.bendSmoothing;
+            runSways();
             for (int index = 0; index < count; ++index)
             {
                 State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
@@ -4972,7 +5511,8 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // Unlimited: the Performer's output stage keeps it under full scale.
         left[sample] = static_cast<float>(volume * micLeft);
         right[sample] = static_cast<float>(volume * micRight);
-        if (s.quietSamples >= static_cast<int>(0.5 * sampleRate_) && s.scheduledCount == 0)
+        if (s.quietSamples >= static_cast<int>(0.5 * sampleRate_) && s.scheduledCount == 0
+            && !s.scrapes[0].active && !s.scrapes[1].active)
         {
             sleep();
             s.clock += numSamples - sample - 1;

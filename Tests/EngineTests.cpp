@@ -10,7 +10,7 @@
 // string nobody plays, and the twelve keys under the lowest string are each a
 // hand striking the body: it sounds, harder with velocity, dies away, plucks
 // no string and does not depend on the block sizes, while the keys further down
-// are free and silent. The thumb rests on the string below its stroke and
+// play techniques, each as measured or derived. The thumb rests on the string below its stroke and
 // damps it unless its key is held, and a stroke across two neighbouring
 // strings reaches the nearer one after it crosses to it.
 
@@ -229,7 +229,8 @@ void checkHeldGestureAttack()
 }
 
 // The twelve keys under the lowest string are a hand on the body
-// (AcukotoEngine::strike); those further down are free and silent.
+// (AcukotoEngine::strike); those further down play techniques, and alone,
+// with no string played, only the two glissandi sound.
 void checkStrikes(acukoto::Performer& performer)
 {
     constexpr double rate = 48000.0;
@@ -239,7 +240,8 @@ void checkStrikes(acukoto::Performer& performer)
     for (int key = 21; key < firstStruck; ++key)
     {
         const auto free = render(performer, { { 0.0, key, 0.9f } }, 0.5, { 256 });
-        check(std::all_of(free.begin(), free.end(), [] (float x) { return x == 0.0f; }), "a free key sounds", key);
+        const bool silent = std::all_of(free.begin(), free.end(), [] (float x) { return x == 0.0f; });
+        check(silent != (key == 34 || key == 35), "a technique key sounds out of turn", key);
     }
     for (int key = firstStruck; key < lowestString; ++key)
     {
@@ -494,6 +496,78 @@ int main()
                                         { 5, 3, 77 });
         check(stroke == strokeSplit, "a stroke across two strings depends on the block sizes", 0.0);
         check(!engine.stringActivity(5).held, "a key let go before its stroke reaches it stays held", 0.0);
+    }
+
+    // The techniques on the free keys A0 to C-sharp 2 (AcukotoEngine.cpp,
+    // TechniqueKey), each against what it is measured or derived to do.
+    {
+        const auto& engine = performer->engine();
+        // The key latched, then the notes 10 ms on.
+        const auto latched = [] (int key, std::vector<Note> notes)
+        {
+            for (Note& n : notes)
+                n.seconds += 0.01;
+            notes.insert(notes.begin(), { 0.0, key, 0.5f });
+            return notes;
+        };
+        const std::vector<Note> g4 { { 0.0, 67, 0.7f } };
+        const auto plain = render(*performer, g4, 0.6, { 256 });
+        // A key latched twice is let go again.
+        check(render(*performer, { { 0.0, 21, 0.5f }, { 0.0, 21, 0.5f }, { 0.0, 67, 0.7f } }, 0.6, { 256 }) == plain,
+              "a technique latched twice stays latched", 0.0);
+        // Harmonics: the octave alone, the fundamental's antinode touched
+        // (28 to 40 dB down when measured).
+        const auto harmonic = render(*performer, latched(27, g4), 0.6, { 256 });
+        const double h1 = peakDb(harmonic, rate, 0.1, 0.5, 392.0, 0.01), h2 = peakDb(harmonic, rate, 0.1, 0.5, 784.0, 0.01);
+        std::printf("harmonic: fundamental %.1f dB under the octave\n", h2 - h1);
+        check(h1 < h2 - 20.0, "a harmonic keeps its fundamental", h1 - h2);
+        // A finger on the ji takes the highs and leaves the fundamental: the
+        // muted notes of Example 3.18 are 15-20 dB darker 0.1-0.3 s on.
+        const auto muted = render(*performer, latched(28, g4), 0.6, { 256 });
+        const double plainTilt = peakDb(plain, rate, 0.1, 0.3, 1960.0, 0.01) - peakDb(plain, rate, 0.1, 0.3, 392.0, 0.01);
+        const double mutedTilt = peakDb(muted, rate, 0.1, 0.3, 1960.0, 0.01) - peakDb(muted, rate, 0.1, 0.3, 392.0, 0.01);
+        const double fundamental = peakDb(muted, rate, 0.1, 0.3, 392.0, 0.003) - peakDb(plain, rate, 0.1, 0.3, 392.0, 0.003);
+        std::printf("mute: fifth partial %.1f dB against unmuted, fundamental %.1f dB\n",
+                    mutedTilt - plainTilt, fundamental);
+        check(mutedTilt < plainTilt - 10.0, "a finger on the ji leaves the highs", mutedTilt - plainTilt);
+        check(fundamental > -6.0, "a finger on the ji takes the fundamental", fundamental);
+        // Oshi-awase: B-flat 3's note on its own string and on A3 pressed up
+        // to it, both plucked.
+        render(*performer, latched(30, { { 0.0, 58, 0.7f } }), 0.1, { 256 });
+        check(engine.stringActivity(2).plucked && engine.stringActivity(2).raised && engine.stringActivity(3).plucked,
+              "oshi-awase plays one string", 0.0);
+        // Oshi-hanashi: B4, B-flat 4 pressed a semitone, let go to B-flat 4.
+        const auto hanashi = render(*performer, { { 0.0, 71, 0.8f }, { 0.2, 33, 0.6f } }, 1.6, { 256 });
+        const double open = peakDb(hanashi, rate, 1.25, 1.6, 465.0, 0.005), pushed = peakDb(hanashi, rate, 1.25, 1.6, 493.9, 0.005);
+        check(open > pushed + 20.0 && !engine.stringActivity(8).raised, "oshi-hanashi keeps the press", open - pushed);
+        // Yuri sways the press while its key is held, then lets it back.
+        render(*performer, { { 0.0, 67, 0.7f }, { 0.1, 32, 0.6f } }, 0.4, { 256 });
+        check(engine.stringActivity(6).raised, "yuri does not press", 0.0);
+        // A glissando plucks every string and holds none.
+        render(*performer, { { 0.0, 34, 0.6f } }, 0.8, { 256 });
+        bool every = true;
+        for (int string = 0; string < engine.stringCount(); ++string)
+            every = every && engine.stringActivity(string).plucked && !engine.stringActivity(string).held;
+        check(every, "a glissando misses a string or holds one", 0.0);
+        // Staccato: the left hand stops the note at key-up, 20 dB in 0.2 s.
+        const std::vector<Note> shortNote { { 0.0, 67, 0.7f }, { 0.1, 67, 0.0f } };
+        render(*performer, shortNote, 0.3, { 256 });
+        const double ringing = engine.stringEnergy(6);
+        render(*performer, latched(29, shortNote), 0.3, { 256 });
+        check(10.0 * std::log10(engine.stringEnergy(6) / ringing) < -20.0, "staccato rings on",
+              10.0 * std::log10(engine.stringEnergy(6) / ringing));
+        // Every technique, in whichever blocks: tremolo held then let go, the
+        // tsume's back, pizzicato, the three places, a muted harmonic, tsuki-
+        // iro, both glissandi and both scrapes.
+        const std::vector<Note> all { { 0.0, 22, 0.5f }, { 0.01, 67, 0.7f }, { 0.3, 67, 0.0f }, { 0.31, 21, 0.5f },
+                                      { 0.32, 69, 0.7f }, { 0.4, 23, 0.5f }, { 0.41, 70, 0.7f }, { 0.5, 24, 0.5f },
+                                      { 0.51, 74, 0.7f }, { 0.6, 25, 0.5f }, { 0.61, 75, 0.7f }, { 0.7, 26, 0.5f },
+                                      { 0.71, 79, 0.7f }, { 0.8, 26, 0.5f }, { 0.8, 27, 0.5f }, { 0.8, 28, 0.5f },
+                                      { 0.81, 62, 0.7f }, { 0.9, 31, 0.6f }, { 1.0, 34, 0.6f }, { 1.4, 35, 0.6f },
+                                      { 1.9, 36, 0.7f }, { 2.0, 37, 0.7f } };
+        const auto whole = render(*performer, all, 3.0, { 256 });
+        check(finite(whole) && rmsDb(whole, rate, 2.0, 3.0) > -60.0, "the techniques do not sound", 0.0);
+        check(render(*performer, all, 3.0, { 7, 64, 129, 1 }) == whole, "the techniques depend on the block sizes", 0.0);
     }
 
     // Every host rate, with the oversampling a front end offers.

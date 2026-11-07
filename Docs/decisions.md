@@ -8,6 +8,29 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — The right hand's strokes, and techniques on the free keys
+
+**Decided:** three changes to every phrase's playing, and what the keys A0 to
+C♯2 do. The owner asked for twenty realism improvements grounded in research.
+
+- The thumb's rest on the string below its stroke (Kikuchi), the stroke across
+  two neighbouring strings (kakite) and the presses' minimum-jerk path were each
+  rendered as an A/B against 0.18.1: A the shipping engine, B the change alone
+  (ablation builds), level-matched on whole-file RMS (thumb A -0.37 dB, kakite B
+  -0.12 dB, press B -0.02 dB). A fourth change, the twisted silk's axial
+  modulus in the tension glide, moved pitch by under 0.1 cent and was kept as a
+  correction, not heard. The sets were sent to the owner, not committed.
+- **Chosen:** B in all three, under the owner's standing rule that the candidate
+  wins unless the owner says otherwise. Not yet confirmed by ear.
+- The seventeen techniques on A0 to C♯2 had no candidates to choose between: each
+  is the guides' technique with the timing, shape or level measured on Pro
+  Musica Nipponia's demonstrations ([measurements](validation/technique-recordings-2026-11-07.md))
+  or an estimate where those do not reach. The layout of the keys is the
+  engine's, not heard as a set.
+
+**Licensed:** the keys A0 to C♯2 as techniques. Uchi-zume, keshi-zume and a
+strike's crush were left out rather than given a contact the model cannot run.
+
 ## 2026-11-03 — The keys below the lowest string are a hand on the body
 
 **Decided:** what the keys from A0 to C♯3 do. Until 0.16.0 each played the

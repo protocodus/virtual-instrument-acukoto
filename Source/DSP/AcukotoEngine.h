@@ -218,8 +218,11 @@ public:
     // that none of those reaches plays the nearest string below it with its
     // ji moved to the key, past the strings an artificial range no koto has.
     // The twelve keys under the lowest string are each a hand striking the body
-    // at one place (AcukotoStrikes.h), its velocity the hand's speed; the keys
-    // further down are free and silent, and keys outside A0-C8 are ignored.
+    // at one place (AcukotoStrikes.h), its velocity the hand's speed. The keys
+    // further down, A0 to C-sharp 2, play techniques (AcukotoEngine.cpp,
+    // TechniqueKey): some latch a way of plucking for the notes that follow,
+    // until pressed again; the others are gestures, on the last string played
+    // or across the strings. Keys outside A0-C8 are ignored.
     // With oshide and legato, a note played legato that a held, sounding
     // string reaches by its press alone, while no other key is down, moves the
     // press without a pluck (ato-oshi, or letting the press go).
@@ -308,9 +311,14 @@ public:
 private:
     struct State;
     void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
-    void pluck(int index, int midiNote, float velocity) noexcept;
-    void startNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept;
-    void playNote(int index, int midiNote, float velocity, int pressed, int extensionKey) noexcept;
+    void pluck(int index, int midiNote, float velocity, int style) noexcept;
+    void startNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
+    void playNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
+    void techniqueKey(int key, float velocity) noexcept;
+    void strokeString(int string, float velocity, int style) noexcept;
+    void startScrape(bool suri, float velocity) noexcept;
+    void runScrapes() noexcept;
+    void runSways() noexcept;
     void runScheduled() noexcept;
     void strike(int key, float velocity) noexcept;
     void updateDamping(int string) noexcept;

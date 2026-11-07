@@ -2,8 +2,8 @@
 // body (AcukotoEngine::strike). No koto has those strings, and players hit the
 // body instead (Pornprasit 2010, section 2.9). Each key is one hit: a hand, a
 // surface of the body and a place along it, and the key's velocity is the
-// speed the hand arrives at. The keys further below are free: they sound
-// nothing, kept for techniques to come.
+// speed the hand arrives at. The keys further below play techniques
+// (AcukotoEngine.cpp, TechniqueKey).
 //
 // Every figure is an estimate, not a measurement. The three hands are three
 // defensible ones that the owner chose by ear (Docs/decisions.md, 2026-11-03).

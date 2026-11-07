@@ -157,8 +157,9 @@ int main()
     // pitch: a key no string or press reaches moves the nearest string's ji to
     // it (AcukotoEngine.cpp, State::extension), tuned as that string is. The
     // twelve under the lowest string are a hand striking the body, which has
-    // no pitch to tune (checkStrikes in Tests/EngineTests.cpp). The keys below
-    // those and past C8 stay silent.
+    // no pitch to tune (checkStrikes in Tests/EngineTests.cpp). Past C8 the
+    // keys stay silent, and so do those below the strikes, but for the
+    // glissandi.
     for (int preset = 0; preset < acukoto::Performer::instrumentCount; ++preset)
         for (const bool oshide : { true, false })
         {
@@ -180,9 +181,13 @@ int main()
                 for (const float x : left)
                     sum += static_cast<double>(x) * x;
                 const bool sounds = std::sqrt(sum / 4800.0) > 1.0e-4;
+                // The keys below the strikes play techniques
+                // (AcukotoEngine::noteOn): after a reset only the two
+                // glissandi, A-sharp 1 and B1, have strings to sound.
+                const bool glissando = note == 34 || note == 35;
                 if (note < std::max(21, firstStruck) || note > 108)
                 {
-                    sounding += sounds ? 1 : 0;
+                    sounding += sounds != (glissando && note >= 21) ? 1 : 0;
                     continue;
                 }
                 silent += sounds ? 0 : 1;
@@ -221,7 +226,7 @@ int main()
                         "their strings' tuning\n", spec.name, oshide ? "on" : "off", firstStruck, silent, sounding,
                         worstCents);
             check(silent == 0, "a key from the strikes to C8 is silent", silent);
-            check(sounding == 0, "a free key or one past C8 sounds", sounding);
+            check(sounding == 0, "a technique key or one past C8 sounds out of turn", sounding);
             check(worstCents < 0.01, "a moved ji is not tuned as its string", worstCents);
         }
     // They sound where they are tuned. The highest keys die away within a
