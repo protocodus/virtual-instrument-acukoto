@@ -34,8 +34,9 @@ the renderer's blocks and controls, through the Performer, its room and the
 output stage; C kept B's touches. Level-matched to A on whole-file RMS: B
 trimmed -2.04 and -2.03 dB, C -3.96 and -3.77 dB. Not committed.
 
-**Chosen:** B, adopted under the owner's standing rule that the candidate
-wins unless the owner says otherwise; the owner had not yet listened.
+**Chosen:** B, adopted first under the owner's standing rule that the
+candidate wins unless the owner says otherwise, then confirmed by the owner
+the same day ("go with candidate"). Chosen by ear.
 
 **Licensed:** `woodQ` at 60 at every frequency in
 `Source/DSP/AcukotoEngine.cpp`, and the strings' and hits' re-levelled
@@ -478,8 +479,9 @@ trim). Measured 1.5-2.3 s after each solo pluck, B's D4 sits 6.2 dB over A's,
 G3 1.3 dB over, D3 and B-flat 3 1.3 and 1.0 dB under, and A3 level. It was not
 committed.
 
-**Chosen:** B, adopted under the owner's standing rule that the candidate
-wins unless the owner says otherwise; the owner had not yet listened.
+**Chosen:** B, adopted first under the owner's standing rule that the
+candidate wins unless the owner says otherwise, then confirmed by the owner
+the same day ("go with candidate"). Chosen by ear.
 
 **Licensed:** `woodQ` at 60 below 1 kHz in `Source/DSP/AcukotoEngine.cpp`.
 A measured koto's mode damping would reopen it.
@@ -507,8 +509,9 @@ portfolio output stage. Both were set to -31 dBFS whole-file RMS before the
 stage, which kept them below its limiter; after it A read -31.10 dBFS and B
 -31.11, so no further trim was applied. It was not committed.
 
-**Chosen:** B, adopted under the owner's standing rule that the candidate
-wins unless the owner says otherwise; the owner had not yet listened.
+**Chosen:** B, adopted first under the owner's standing rule that the
+candidate wins unless the owner says otherwise, then confirmed by the owner
+the same day ("go with candidate"). Chosen by ear.
 
 **Licensed:** the shared length (`designPlanes` in
 `Source/DSP/AcukotoEngine.cpp`) and the tighter sounded-pitch limit in
