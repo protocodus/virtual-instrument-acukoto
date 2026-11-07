@@ -4352,6 +4352,22 @@ void AcukotoEngine::noteOn(int midiNote, float velocity) noexcept
     // string and cut it.
     if (index < 0 && controls_.oshide)
     {
+        // The key struck again while a string still sounds its note by its
+        // press (the key held, or the pedal) is plucked again there, as a
+        // player repeats a pressed note. Until 0.25.1 the held string counted
+        // as taken, so repeated E4s alternated E-flat 4 and D4 and left two
+        // strings sounding one note a few cents apart.
+        for (int step = 1; step <= 2 && index < 0; ++step)
+        {
+            const int string = stringForNote(midiNote - step);
+            if (string >= 0 && state_->strings[static_cast<std::size_t>(string)].ownerNote == midiNote
+                && (state_->strings[static_cast<std::size_t>(string)].keyDown
+                    || state_->strings[static_cast<std::size_t>(string)].sustained))
+            {
+                index = string;
+                pressed = step;
+            }
+        }
         for (int step = 1; step <= 2 && index < 0; ++step)
         {
             const int string = stringForNote(midiNote - step);

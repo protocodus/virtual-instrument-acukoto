@@ -440,6 +440,20 @@ int main()
     check(!performer->engine().stringActivity(5).raised && performer->engine().stringActivity(5).held,
           "a chord's E4 takes a held E-flat 4", 0.0);
 
+    // A pressed note struck again while its key is down, or the pedal holds
+    // it, is plucked again on the string that sounds it: E4 twice stays on
+    // E-flat 4 pressed a semitone, and D4 stays open (until 0.25.1 the second
+    // E4 took D4 pressed a whole tone and both strings sounded it).
+    render(*performer, { { 0.0, 64, 0.7f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(performer->engine().stringActivity(5).raised && performer->engine().stringActivity(5).plucked,
+          "a repeated pressed note leaves its string", 0.0);
+    check(!performer->engine().stringActivity(4).raised && !performer->engine().stringActivity(4).plucked,
+          "a repeated pressed note takes a second string", 0.0);
+    performer->setSustain(true);
+    render(*performer, { { 0.0, 64, 0.7f }, { 0.2, 64, 0.0f }, { 0.5, 64, 0.7f } }, 0.7, { 256 });
+    check(!performer->engine().stringActivity(4).plucked, "a repeated pedalled pressed note takes a second string", 0.0);
+    performer->setSustain(false);
+
     // A key struck again before its key-up (two overlapping notes of one
     // pitch) is let go at its last key-up: with the hand stopping a let-go
     // string (Release 0), the first key-up leaves it ringing.
