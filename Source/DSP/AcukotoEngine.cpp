@@ -379,11 +379,11 @@ LossSectionDesign bendingLossSection(double factor, double inharmonicity,
     return section;
 }
 
-LossSectionDesign constantLossSection(double delta, double airRoot, double inharmonicity,
+LossSectionDesign constantLossSection(double delta, double airRoot, double viscous, double inharmonicity,
                                       double fundamental, double sampleRate) noexcept
 {
     LossSectionDesign section;
-    if (!(delta > 0.0 || airRoot > 0.0) || !(inharmonicity >= 0.0) || !(fundamental > 0.0)
+    if (!(delta > 0.0 || airRoot > 0.0 || viscous > 0.0) || !(inharmonicity >= 0.0) || !(fundamental > 0.0)
         || !(sampleRate > 0.0))
         return section;
     constexpr double decibelsPerNeper = 8.685889638065035;
@@ -404,7 +404,8 @@ LossSectionDesign constantLossSection(double delta, double airRoot, double inhar
     const auto rateAt = [&] (double partial)
     {
         const double frequency = fundamental * stretchedPartial(partial, inharmonicity);
-        return pi * frequency * delta + airRoot * (std::sqrt(frequency) - std::sqrt(fundamental));
+        return pi * frequency * delta + airRoot * (std::sqrt(frequency) - std::sqrt(fundamental))
+             + viscous * 4.0 * pi * pi * (frequency * frequency - fundamental * fundamental);
     };
     const auto partialAt = [&] (double rate)
     {
@@ -3847,8 +3848,12 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 + 2.0 * pi * spec.diameter * std::sqrt(pi * airViscosity * airDensity * frequency);
             const double airDecay = material.measuredAirDamping ? airRoot * std::sqrt(frequency)
                                                                 : airResistance / (2.0 * voice.linearMass);
-            const double gain = std::exp(-airDecay / frequency) * yokeRoundTripGain;
-            const LossSectionDesign constantDesign = constantLossSection(constantLoss, airRoot, inharmonicity, frequency, fs);
+            // The viscous loss at the fundamental goes with the air's in the
+            // loop's gain; the section takes its rise above it.
+            const double viscousDecay = material.viscousLoss * 4.0 * pi * pi * frequency * frequency;
+            const double gain = std::exp(-(airDecay + viscousDecay) / frequency) * yokeRoundTripGain;
+            const LossSectionDesign constantDesign
+                = constantLossSection(constantLoss, airRoot, material.viscousLoss, inharmonicity, frequency, fs);
             const LossSectionDesign bendingDesign = bendingLossSection(bendingLoss, inharmonicity, frequency, fs);
             // Dispersion (designDispersion), the line then solved so the
             // fundamental is exact once the junction exists and the ji's
@@ -3868,7 +3873,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
                 loop.dispersionCents = design.worstCents;
                 loop.loopDelay = fs / frequency;
             }
-            return airDecay;
+            return airDecay + viscousDecay;
         };
         const auto designPitch = [&] (State::PitchDesign& pitch, double length, bool refine)
         {

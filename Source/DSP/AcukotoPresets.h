@@ -53,6 +53,22 @@ constexpr StringMaterial silkFor() noexcept
 {
     StringMaterial material { "silk", 1330.0, 4.15e9, 0.0, 1.0 / 20000.0, 0.008e9, true };
     material.axialModulus = 7.0e9 * 0.8830222215594891;  // cos^2(20 degrees)
+    // The highs of a silk string die faster than its bending and air losses
+    // allow. In four professional recordings (Rokudan, Godanginuta, Kudan
+    // and the solo programme at 30:30) the 2-4 and 4-8 kHz bands of 300
+    // isolated notes fall a median 68 and 118 dB/s over 20-200 ms after the
+    // onset, and the 8-14 kHz band falls 24-35 dB in 150-200 ms, to the
+    // recordings' floor; until 0.21.0 the model's fell 49, 68 and 19. No
+    // silk measurement names the loss, so it takes Chaigne and Askenfelt's
+    // empirical form for a string's losses above the bending law, a rate
+    // b3 omega^2 (JASA 95 (1994) 1112), fitted to those bands: 4e-9 s gives
+    // 53-82 and 108-114 dB/s and 39 dB in 150-200 ms. It takes partials 1-5
+    // a median 3-6% faster over a recorded note's length (80 ms-0.9 s) and
+    // partials 6-8 15-17% faster than 0.20.0 did
+    // (Docs/validation/attack-highs-2026-11-07.md). A loss angle constant
+    // over the band (constantLoss) fitted to the same bands took partials
+    // 1-8 1.3-1.8 times as fast as recorded.
+    material.viscousLoss = 4.0e-9;
     return material;
 }
 inline constexpr StringMaterial silk = silkFor();

@@ -59,6 +59,11 @@ struct StringMaterial
     // pitch glide) takes; zero for youngModulus. A twisted bundle stretches
     // as its filaments do but bends as though they slide, so the two differ.
     double axialModulus { 0.0 };
+    // A decay rate rising as the square of the frequency, b3 omega^2 in
+    // Chaigne and Askenfelt's string damping (JASA 95 (1994) 1112, Eq. 17),
+    // in seconds: losses that grow faster with frequency than a constant
+    // loss angle (constantLossSection).
+    double viscousLoss { 0.0 };
 };
 
 struct StringSpec

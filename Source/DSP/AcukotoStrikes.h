@@ -61,18 +61,18 @@ struct StrikeKey
 // The lowest string's note less twelve first: D2 to C#3 under a koto whose
 // lowest string is D3.
 inline constexpr std::array<StrikeKey, 12> strikeKeys {{
-    { 0, StrikeSurface::Top, 0.28, 0.917 },
-    { 0, StrikeSurface::Top, 0.62, 0.737 },
-    { 0, StrikeSurface::NearSide, 0.45, 1.492 },
-    { 0, StrikeSurface::Back, 0.35, 0.601 },
-    { 1, StrikeSurface::Top, 0.22, 1.010 },
-    { 1, StrikeSurface::Top, 0.55, 0.798 },
-    { 1, StrikeSurface::NearSide, 0.33, 0.628 },
-    { 1, StrikeSurface::Back, 0.58, 0.403 },
-    { 2, StrikeSurface::Top, 0.40, 0.677 },
-    { 2, StrikeSurface::Top, 0.76, 0.700 },
-    { 2, StrikeSurface::NearSide, 0.72, 0.711 },
-    { 2, StrikeSurface::Back, 0.22, 0.257 },
+    { 0, StrikeSurface::Top, 0.28, 0.899 },
+    { 0, StrikeSurface::Top, 0.62, 0.725 },
+    { 0, StrikeSurface::NearSide, 0.45, 1.446 },
+    { 0, StrikeSurface::Back, 0.35, 0.593 },
+    { 1, StrikeSurface::Top, 0.22, 0.990 },
+    { 1, StrikeSurface::Top, 0.55, 0.780 },
+    { 1, StrikeSurface::NearSide, 0.33, 0.623 },
+    { 1, StrikeSurface::Back, 0.58, 0.400 },
+    { 2, StrikeSurface::Top, 0.40, 0.663 },
+    { 2, StrikeSurface::Top, 0.76, 0.685 },
+    { 2, StrikeSurface::NearSide, 0.72, 0.694 },
+    { 2, StrikeSurface::Back, 0.22, 0.251 },
 }};
 
 } // namespace acukoto
