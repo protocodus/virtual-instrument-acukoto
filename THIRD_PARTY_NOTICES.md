@@ -46,10 +46,10 @@ and romantic guitars from private and public collections – bridge mobility*
 (2021), <https://doi.org/10.5281/zenodo.4604577>, licensed
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-The body's mode damping above 2 kHz and the air modes' (`woodQ` and `airQ`
-in `Source/DSP/AcukotoEngine.cpp`) are anchored on the spread of mode Qs in
-Acustra's fit to the archive's guitar g21, as summary statistics: 5-36 above
-2 kHz and 16-21 for the air modes. No table or response from the archive is included.
+The air modes' damping (`airQ` in `Source/DSP/AcukotoEngine.cpp`) is
+anchored on the spread of mode Qs in Acustra's fit to the archive's guitar
+g21, as a summary statistic: 16-21. Until 0.22.0 the walls' damping above 2
+kHz was too (5-36). No table or response from the archive is included.
 
 ## Freesound recordings: derived values only
 
@@ -99,3 +99,5 @@ no audio is embedded in the engine or redistributed with it. The repository
 licence is not a downstream sampling/redistribution licence. See
 [the technique study](Docs/research/koto-techniques-2026-11-01.md) for provenance,
 checksums, the observed hiki-iro gestures and the limits of the measurements.
+The traditional tunings example is also measured for how a pluck's bands
+build ([attack build-up](Docs/validation/attack-build-up-2026-11-07.md)).

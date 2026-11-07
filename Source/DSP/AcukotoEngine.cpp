@@ -1770,33 +1770,23 @@ struct Room
     }
 };
 
-// The walls' mode damping. Below 1 kHz, paulownia's own Q across the grain,
-// 60, the lower of the two Coaldrake measured (JASA 148 (2020) 3153, Table
-// I; 140 along it): the wood's loss alone, as no koto measurement separates
-// what its joints and its radiation add. Above 2 kHz, where the modes
-// overlap, the median of Acustra's measured guitar bridge (g21,
-// MeasuredBridgeData.h), whose Qs there span 5-36; the top strings' upper
-// partials, which the silk's loss is fitted to, decay there. Until 0.3.0 the
-// walls also took that bridge's lower quartile below 1 kHz, 23, as Aculyre's
-// lyre does (chosen by ear for the lyre, Aculyre's Docs/decisions.md,
-// 2026-10-28). D4, on the shell's breathing at 293 Hz, then died 2.3 times
-// as fast as recorded, and dies 1.7 times as fast with 60
-// (Docs/decisions.md, 2026-10-29).
-double woodQ(double frequency) noexcept
-{
-    constexpr double anchorsHz[] { 300.0, 1000.0, 2000.0, 10000.0 };
-    constexpr double anchorsQ[] { 60.0, 60.0, 10.0, 9.0 };
-    if (frequency <= anchorsHz[0])
-        return anchorsQ[0];
-    for (int index = 1; index < 4; ++index)
-        if (frequency <= anchorsHz[index])
-        {
-            const double t = std::log(frequency / anchorsHz[index - 1])
-                           / std::log(anchorsHz[index] / anchorsHz[index - 1]);
-            return anchorsQ[index - 1] * std::pow(anchorsQ[index] / anchorsQ[index - 1], t);
-        }
-    return anchorsQ[3];
-}
+// The walls' mode damping: paulownia's own Q across the grain, 60, the lower
+// of the two Coaldrake measured (JASA 148 (2020) 3153, Table I; 140 along
+// it), at every frequency: the wood's loss alone, as no koto measurement
+// separates what its joints and its radiation add. Until 0.3.0 the walls
+// took Acustra's measured guitar bridge's lower quartile below 1 kHz, 23, as
+// Aculyre's lyre does (chosen by ear for the lyre, Aculyre's
+// Docs/decisions.md, 2026-10-28); D4, on the shell's breathing at 293 Hz,
+// then died 2.3 times as fast as recorded, and dies 1.7 times as fast with
+// 60 (Docs/decisions.md, 2026-10-29). Until 0.22.0 they took that bridge's
+// median above 2 kHz, 10, where its Qs span 5-36. The body then answered a
+// pluck at 1.5-6 kHz at once, where in four professional recordings it
+// builds over 2-5 ms: at 1.5-3 kHz their first 1.5 ms stand 3.6-4.6 dB
+// under the next 4-12 ms, and the model's stood 0.9 dB over. With 60 they
+// stand 3.5 dB under, and the 3-6 kHz band moves the same way; partials 1-8
+// decay within the spread of their fit to the recordings
+// (Docs/validation/attack-build-up-2026-11-07.md).
+constexpr double woodQ = 60.0;
 // The air resonance: g21's air-mode group measures Q 16-21.
 constexpr double airQ = 20.0;
 
@@ -3300,7 +3290,7 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
         Mode& mode = modes[static_cast<std::size_t>(count++)];
         mode = {};
         mode.frequency = frequency;
-        mode.q = 1.0 / (rest / restQ + box / boxQ + wall / woodQ(frequency) + air / airQ + bridge / bridgeQ);
+        mode.q = 1.0 / (rest / restQ + box / boxQ + wall / woodQ + air / airQ + bridge / bridgeQ);
         mode.airShare = air;
         mode.bodyShare = rest + box;
         mode.wallShare = wall;

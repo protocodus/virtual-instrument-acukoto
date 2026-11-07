@@ -8,6 +8,39 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — The walls are damped as paulownia is above 2 kHz too
+
+**Decided:** how fast the walls' modes above 2 kHz lose energy. In four
+professional recordings a pluck's 1.5-6 kHz builds over 2-5 ms; the model's
+answered at once, its walls there taking the median Q of Acustra's measured
+guitar bridge, 10. Two pinnings from Coaldrake's measured paulownia (JASA 148
+(2020) 3153, Table I) each put the 1.5-3 kHz build within the recordings'
+range ([measurements](validation/attack-build-up-2026-11-07.md)):
+
+- **A**, the shipping 0.21.0: Q 10 above 2 kHz, 60 below 1 kHz.
+- **B**: Q 60, paulownia across the grain, at every frequency, as below 1
+  kHz already. The 1.5-3 kHz band's first 1.5 ms sit 3.5 dB under the next
+  4-12 ms, against the recordings' 3.6-4.6. The instrument radiates 2 dB more
+  (5-6 dB at 2-8 kHz), with the first 250 ms' centroid nearer the recordings
+  in three registers of four. The click falls from 3.8 to 2.5 dB, against the
+  recordings' 4.1-8.8.
+- **C**: Q 140, paulownia along the grain. The 1.5-3 kHz band sits 5.2 dB
+  under; the click falls to 2.2 dB.
+
+**Test:** Koto Hirajoshi with tsume, the thirteen strings once each 0.9 s
+apart at velocity 0.7 and four of them again at 0.95, then the README demo
+phrase (`Docs/audio/midi/01-koto-hirajoshi.mid`). Identical MIDI, 48 kHz,
+the renderer's blocks and controls, through the Performer, its room and the
+output stage; C kept B's touches. Level-matched to A on whole-file RMS: B
+trimmed -2.04 and -2.03 dB, C -3.96 and -3.77 dB. Not committed.
+
+**Chosen:** B, adopted under the owner's standing rule that the candidate
+wins unless the owner says otherwise; the owner had not yet listened.
+
+**Licensed:** `woodQ` at 60 at every frequency in
+`Source/DSP/AcukotoEngine.cpp`, and the strings' and hits' re-levelled
+touches. A measured koto's mode damping would reopen it.
+
 ## 2026-11-07 — Note timing stays the MIDI's
 
 The owner heard 0.20.0's repeated notes as still a little mechanical on a
