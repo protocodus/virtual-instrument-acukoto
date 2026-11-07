@@ -8,6 +8,17 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — Note timing stays the MIDI's
+
+The owner heard 0.20.0's repeated notes as still a little mechanical on a
+grid-exact, one-velocity demo phrase. The same engine playing that phrase
+with a player's timing (3% of each interval, Wing and Kristofferson's split)
+and accents was offered as the evidence that the remainder is the input.
+Asked whether the engine should scatter every note's time itself, at about
+10 ms of added latency, the owner chose no: notes sound when the MIDI says,
+and human timing belongs to the part. The engine's own timed strokes
+(tremolo, glissandi) keep their hand's scatter.
+
 ## 2026-11-07 — The right hand's strokes, and techniques on the free keys
 
 **Decided:** three changes to every phrase's playing, and what the keys A0 to
