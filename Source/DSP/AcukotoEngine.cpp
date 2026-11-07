@@ -3501,8 +3501,8 @@ struct AcukotoEngine::State
         double pressFrom { 1.0 };
         int pressElapsed { 0 };
         int pressPeriods { 0 };
-        // Its tuning against equal temperament, the player's and their
-        // scatter (prepare), which a key's press makes up (keyPress).
+        // Its tuning against equal temperament, the players' mean
+        // (setInstrument), which a key's press makes up (keyPress).
         double cents { 0.0 };
         // The pressing hand's force fluctuation, in standard deviations.
         double pressWaver { 0.0 };
@@ -3742,23 +3742,6 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
 
     // ---- The strings ----------------------------------------------------
     const StringMaterial& material = instrument.material;
-    // The player's tuning (StringSpec::cents), and this player's own scatter
-    // about it, the same every time this instrument is set up. The scatter
-    // moves the tension, as a ji moved by a millimetre or two would move the
-    // pitch: a few cents is under 1.5% of it.
-    std::array<double, maxStrings> detune {};
-    {
-        std::uint64_t hash = 0xcbf29ce484222325ull;  // FNV-1a of the name
-        for (const char* c = instrument.name; c && *c; ++c)
-            hash = (hash ^ static_cast<unsigned char>(*c)) * 0x100000001b3ull;
-        Random tuning;
-        tuning.seed(hash);
-        for (int index = 0; index < stringCount_; ++index)
-        {
-            const StringSpec& spec = instrument.strings[static_cast<std::size_t>(index)];
-            detune[static_cast<std::size_t>(index)] = spec.cents + spec.centsSpread * tuning.gaussian();
-        }
-    }
     // The keys above the lowest string that no string's own note plays, each
     // given to the nearest string below it (State::extension).
     s.extensionString.fill(-1);
@@ -3785,13 +3768,17 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         voice = {};
         const StringSpec& spec = instrument.strings[static_cast<std::size_t>(index)];
         voice.midiNote = spec.midiNote;
-        voice.cents = detune[static_cast<std::size_t>(index)];
+        // The player's tuning (StringSpec::cents), Ando's six-player mean.
+        // Their spread (StringSpec::centsSpread) is between players, which
+        // player tuned the koto, not how well: one well-tuned koto takes the
+        // mean (2026-11-07; a scatter was drawn about it before 0.24.0).
+        voice.cents = spec.cents;
         const bool wound = spec.coreDiameter > 0.0;
         const double bendingDiameter = wound ? spec.coreDiameter : spec.diameter;
         const double area = 0.25 * pi * bendingDiameter * bendingDiameter;
         voice.linearMass = wound ? spec.woundMass : material.density * area;
         const double waveSpeed = 2.0 * spec.length * 440.0
-            * std::pow(2.0, (spec.midiNote - 69) / 12.0 + detune[static_cast<std::size_t>(index)] / 1200.0);
+            * std::pow(2.0, (spec.midiNote - 69) / 12.0 + spec.cents / 1200.0);
         voice.tension = voice.linearMass * waveSpeed * waveSpeed;
         voice.impedance = std::sqrt(voice.tension * voice.linearMass);
         const double secondMoment = pi * std::pow(bendingDiameter, 4.0) / 64.0;
@@ -3882,11 +3869,14 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument)
         designPlanes(voice.leftLength, voice.left, true);
         // Its moved ji's keys take the first-order dispersion fit alone: the
         // sections' refinement over a bass key's hundred partials would take
-        // most of the setup's time.
+        // most of the setup's time. Each sits at its key's equal-tempered
+        // pitch, not at the string's offset from its own note: a player who
+        // moves a ji to make a new note tunes it to that note by ear, as a
+        // press lands on its key's pitch (keyPress).
         for (int key = lowestKey; key <= highestKey; ++key)
             if (s.extensionString[static_cast<std::size_t>(key)] == index)
                 designPitch(s.extension[static_cast<std::size_t>(key)],
-                            spec.length * std::pow(2.0, (spec.midiNote - key) / 12.0), false);
+                            waveSpeed / (2.0 * 440.0 * std::pow(2.0, (key - 69) / 12.0)), false);
     }
 
     // ---- The junction ---------------------------------------------------
@@ -5613,6 +5603,16 @@ AcukotoEngine::StringReport AcukotoEngine::stringReport(int string) const noexce
     report.dispersionPairs = voice.normal.dispersionPairs;
     report.dispersionCents = voice.normal.dispersionCents;
     return report;
+}
+
+double AcukotoEngine::movedJiFrequency(int midiNote) const noexcept
+{
+    if (midiNote < 0 || midiNote > 127)
+        return 0.0;
+    if (state_->extensionString[static_cast<std::size_t>(midiNote)] < 0)
+        return 0.0;
+    // The normal plane's, as stringReport's open pitch is.
+    return state_->extension[static_cast<std::size_t>(midiNote)].planes[0].frequency;
 }
 
 AcukotoEngine::PluckReport AcukotoEngine::lastPluck() const noexcept { return state_->lastPluck; }

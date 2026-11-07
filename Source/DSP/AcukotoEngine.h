@@ -80,8 +80,9 @@ struct StringSpec
     double woundMass { 0.0 };
     double coreDiameter { 0.0 };
     // How the player tunes it by ear: cents from the equal-tempered note,
-    // and one player's scatter about that (a standard deviation). Each
-    // instrument draws its own scatter once, from its name.
+    // and the spread of that among players (a standard deviation). The
+    // engine tunes to the mean; the spread documents the measurement and
+    // moves nothing, as it says which player tuned, not how well.
     double cents { 0.0 };
     double centsSpread { 0.0 };
 };
@@ -289,6 +290,9 @@ public:
                                 // first-order sections alone fit) against the stiff-string law
     };
     [[nodiscard]] StringReport stringReport(int string) const noexcept;
+    // The designed pitch (Hz) of a key a moved ji sounds (no string or press
+    // reaches it), or 0 for any other key.
+    [[nodiscard]] double movedJiFrequency(int midiNote) const noexcept;
 
     // The last pluck as drawn around the playing controls.
     struct PluckReport

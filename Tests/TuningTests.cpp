@@ -6,10 +6,10 @@
 // Hann-windowed spectrum over 1-2 s, the pitch a tuner settles on, searched
 // in 1-cent steps within 40 cents of the target and refined by a parabola
 // through the log magnitudes. A koto is tuned by ear, string by string: each
-// string's cents from equal temperament are the six players' mean, and its
-// own scatter is drawn about that from their spread (AcukotoPresets.h, Ando
-// 1989), so the designed pitch must lie within three of those standard
-// deviations of the mean, and half a cent of it where there is none. A
+// string's cents from equal temperament are the six players' mean
+// (AcukotoPresets.h, Ando 1989), and the designed pitch must lie within half
+// a cent of it: their spread is between players, and one well-tuned koto
+// takes the mean (0.24.0; a scatter was drawn about it before). A
 // string's two planes of vibration share their length, only the ji's pull
 // on each separating their pitches, and the window reads whichever is
 // louder in it, so the string must sound within soundedCents of its designed
@@ -127,7 +127,7 @@ int main()
             const double sounded = centsOff(renderNote(*performer, note), designed);
             std::printf("%s string %2d note %d: tuned %+.2f cents, sounds %+.2f from that\n", spec.name, string + 1,
                         note, tuned, sounded);
-            check(std::abs(tuned - tuning.cents) <= 3.0 * tuning.centsSpread + 0.5, "string tuned off the players' tuning",
+            check(std::abs(tuned - tuning.cents) <= 0.5, "string tuned off the players' tuning",
                   tuned - tuning.cents);
             check(std::abs(sounded) <= soundedCents, "string sounds off its tuning", sounded);
             if (report.dispersionPairs > 0)
@@ -155,7 +155,8 @@ int main()
     // Every key from the lowest string's note less twelve to C8 sounds, with
     // oshide and without. From the lowest string up it sounds at its own
     // pitch: a key no string or press reaches moves the nearest string's ji to
-    // it (AcukotoEngine.cpp, State::extension), tuned as that string is. The
+    // it (AcukotoEngine.cpp, State::extension), tuned to the key's equal-
+    // tempered pitch, as a player retunes a moved ji by ear (0.24.0). The
     // twelve under the lowest string are a hand striking the body, which has
     // no pitch to tune (checkStrikes in Tests/EngineTests.cpp). Past C8 the
     // keys stay silent, and so do those below the strikes, but for the
@@ -193,7 +194,7 @@ int main()
                 silent += sounds ? 0 : 1;
                 if (note < spec.strings[0].midiNote)
                     continue;
-                // The moved ji's design against the string's own tuning.
+                // The moved ji's design against its key's equal-tempered pitch.
                 int own = -1, below = 0;
                 for (int string = 0; string < spec.stringCount; ++string)
                 {
@@ -213,21 +214,19 @@ int main()
                 }
                 // A pluck that pressed a string would have been reached; the
                 // nearest string below sounds the key instead.
-                const int string = below;
-                const acukoto::StringSpec& tuning = spec.strings[static_cast<std::size_t>(string)];
-                const double expected = performer->engine().stringReport(string).frequency;
-                const double ownPitch = 440.0 * std::pow(2.0, (tuning.midiNote - 69) / 12.0);
+                const double designed = performer->engine().movedJiFrequency(note);
                 const double keyPitch = 440.0 * std::pow(2.0, (note - 69) / 12.0);
-                const double cents = 1200.0 * std::log2(expected / keyPitch);
-                const double stringCents = 1200.0 * std::log2(expected / ownPitch) - 100.0 * (note - tuning.midiNote);
-                worstCents = std::max(worstCents, std::abs(cents - stringCents));
+                if (designed <= 0.0)
+                    check(false, "a moved ji's key has no design", note);
+                else
+                    worstCents = std::max(worstCents, std::abs(1200.0 * std::log2(designed / keyPitch)));
             }
             std::printf("%s, oshide %s: keys %d-108 %d silent, outside them %d sound; moved ji within %.3f cents of "
-                        "their strings' tuning\n", spec.name, oshide ? "on" : "off", firstStruck, silent, sounding,
+                        "equal temperament\n", spec.name, oshide ? "on" : "off", firstStruck, silent, sounding,
                         worstCents);
             check(silent == 0, "a key from the strikes to C8 is silent", silent);
             check(sounding == 0, "a technique key or one past C8 sounds out of turn", sounding);
-            check(worstCents < 0.01, "a moved ji is not tuned as its string", worstCents);
+            check(worstCents < 0.01, "a moved ji is not tuned to its key", worstCents);
         }
     // They sound where they are tuned. The highest keys die away within a
     // second, under what the rest of the instrument rings with, so they are
