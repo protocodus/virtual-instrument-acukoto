@@ -8,6 +8,22 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — The fundamental loses what the model says
+
+The string loss sections, Acustra's, are fitted from the second partial up
+and reached the fundamental by extrapolation, so each note's fundamental
+decayed at whatever the fit gave there: three to four times the constant
+loss from E♭5 up, ten times on the keys from A7 up at 44.1 and 48 kHz, which
+decayed twice as fast as at 96 kHz. The loop's gain now makes the
+fundamental's loss exactly the air, viscous, constant and bending rates the
+model gives it, as Acustra's own loop gain does for its strings: a
+measurement decision, the model's own number
+([measurements](validation/key-sweep-2026-11-07.md#sample-rate)). An A/B of
+the keys from C6 to C8 was rendered for the owner (A 0.24.1, B 0.25.0,
+level-matched on whole-file RMS, B trimmed -0.24 dB, not committed); B ships
+under the owner's standing rule that the candidate wins unless the owner says
+otherwise.
+
 ## 2026-11-07 — Each string at the players' mean, a moved ji at its key
 
 By the owner's request for every key to be well tuned, each string now takes
