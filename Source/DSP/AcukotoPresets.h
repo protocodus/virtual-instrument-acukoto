@@ -136,7 +136,7 @@ constexpr std::array<StringSpec, maxStrings> hirajoshi {{
 // own (4's and 6's over 3's and 5's, 2.9 cents) and to a fourth's (2's, 0.8).
 constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
     koto(50, 0.0, 0.0, 1.359), koto(55, -1.7, 0.8, 1.023), koto(57, 0.9, 1.8, 0.999), koto(58, -5.1, 2.7, 1.067),
-    koto(62, 1.0, 2.0, 1.179), koto(63, -11.3, 4.2, 0.937), koto(67, -1.1, 2.0, 0.995), koto(68, -10.2, 3.5, 0.932),
+    koto(62, 1.0, 2.0, 1.179), koto(63, -11.3, 4.2, 0.937), koto(67, -1.1, 2.0, 0.995), koto(68, -10.2, 3.5, 0.867),
     koto(72, -3.1, 2.2, 0.751), koto(74, 2.0, 2.0, 0.861), koto(75, -9.7, 4.3, 0.742), koto(79, 2.2, 2.6, 1.160),
     koto(81, 5.3, 2.1, 1.185)
 }};
