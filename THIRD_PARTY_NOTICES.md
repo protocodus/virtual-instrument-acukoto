@@ -75,9 +75,10 @@ distributed with Acukoto.
   [CC BY-NC 3.0 US](https://creativecommons.org/licenses/by-nc/3.0/us/).
 
 Both licences are non-commercial. What Acukoto carries from them is a few
-fitted numbers, each recorded with its method beside the code; whether such
-values need the recordings' licence for a commercial build is for the owner
-to decide before any release.
+fitted numbers, each recorded with its method beside the code, and no audio.
+The owner decided on 2026-11-07 that measuring recordings to calibrate the
+model is fine for a commercial build: the recordings are used only for
+calibration and are never copied or distributed (`Docs/decisions.md`).
 
 A performance of Sakura that the owner shared for comparison was measured
 the same way, by its stereo, spectrum and tuning. The microphone pair was set

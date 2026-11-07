@@ -8,6 +8,15 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-07 — Recordings may calibrate a commercial build
+
+**Decided:** whether a commercial build may carry values fitted to recordings
+licensed for non-commercial use (the JpnMusic and Etsuko Chida albums,
+`THIRD_PARTY_NOTICES.md`). **The owner's decision:** yes. Using a recording
+to calibrate the model is fine; the recordings stay outside the repositories
+and are never copied into or shipped with the instrument. Not a by-ear
+choice and not a measurement: a licensing decision by the owner.
+
 ## 2026-11-07 — The walls are damped as paulownia is above 2 kHz too
 
 **Decided:** how fast the walls' modes above 2 kHz lose energy. In four
