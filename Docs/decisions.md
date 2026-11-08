@@ -35,9 +35,10 @@ model gives it, as Acustra's own loop gain does for its strings: a
 measurement decision, the model's own number
 ([measurements](validation/key-sweep-2026-11-07.md#sample-rate)). An A/B of
 the keys from C6 to C8 was rendered for the owner (A 0.24.1, B 0.25.0,
-level-matched on whole-file RMS, B trimmed -0.24 dB, not committed); B ships
+level-matched on whole-file RMS, B trimmed -0.24 dB, not committed); B shipped
 under the owner's standing rule that the candidate wins unless the owner says
-otherwise.
+otherwise, and the owner confirmed it by ear on 2026-11-08 ("go with
+candidate").
 
 ## 2026-11-07 — Each string at the players' mean, a moved ji at its key
 
@@ -45,8 +46,9 @@ By the owner's request for every key to be well tuned, each string now takes
 Ando's six-player mean, without the scatter drawn about it from their spread,
 and a moved ji's key its equal-tempered pitch, not its string's offset: a
 measurement decision following the 2026-11-01 press decision (below). An A/B
-was rendered for the owner (A the 0.23.0 engine, B this) and B ships under the
-standing rule that the candidate wins; the renders are kept outside the
+was rendered for the owner (A the 0.23.0 engine, B this); B shipped under the
+standing rule that the candidate wins and the owner confirmed it by ear on
+2026-11-08 ("go with candidate"). The renders are kept outside the
 repository ([measurements](validation/key-sweep-2026-11-07.md#tuning)).
 
 ## 2026-11-07 — The keys take the strings' share
