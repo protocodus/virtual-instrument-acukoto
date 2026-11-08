@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.25.3 LANGUAGES CXX)
+project(Acukoto VERSION 0.25.4 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -84,6 +84,10 @@ if(ACUKOTO_BUILD_TOOLS)
     add_executable(AcukotoLevels Tools/MeasureLevels.cpp)
     target_link_libraries(AcukotoLevels PRIVATE AcukotoDSP)
 
+    # Paired callback CPU/wall timing and raw sample comparison; native only.
+    add_executable(AcukotoCpuProbe Tools/MeasureCpu.cpp)
+    target_link_libraries(AcukotoCpuProbe PRIVATE AcukotoDSP)
+
     # Setup-only acoustic power observer. Compiles its own engine with the
     # observation hook; the normal DSP target has no diagnostic overhead.
     add_executable(AcukotoAcousticPower Tools/AuditAcousticPower.cpp Source/DSP/AcukotoEngine.cpp)
@@ -102,6 +106,13 @@ if(BUILD_TESTING)
     target_link_libraries(AcukotoTuningTests PRIVATE AcukotoDSP)
     add_test(NAME Acukoto.Tuning COMMAND AcukotoTuningTests)
     set_tests_properties(Acukoto.Tuning PROPERTIES TIMEOUT 600)
+
+    # Internal contact contract includes the engine implementation itself;
+    # production DSP has no test hooks or diagnostic overhead.
+    add_executable(AcukotoHandContactTests Tests/HandContactTests.cpp)
+    target_include_directories(AcukotoHandContactTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.HandContact COMMAND AcukotoHandContactTests)
+    set_tests_properties(Acukoto.HandContact PROPERTIES TIMEOUT 60)
 
     add_executable(AcukotoEngineTests Tests/EngineTests.cpp)
     target_link_libraries(AcukotoEngineTests PRIVATE AcukotoDSP)
@@ -179,6 +190,12 @@ if(BUILD_TESTING)
 
     # Every test carries exactly one tier label so CI selects tiers with
     # `ctest -L`; tests not labelled above are unit contracts.
+    # This focused contract includes the private implementation and must not
+    # link AcukotoDSP again. It qualifies SIMD against the retained scalar loop.
+    add_executable(AcukotoLoopPairTests Tests/LoopPairTests.cpp)
+    target_include_directories(AcukotoLoopPairTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.LoopPair COMMAND AcukotoLoopPairTests)
+
     get_property(ACUKOTO_TESTS DIRECTORY PROPERTY TESTS)
     foreach(test IN LISTS ACUKOTO_TESTS)
         get_test_property(${test} LABELS test_labels)
