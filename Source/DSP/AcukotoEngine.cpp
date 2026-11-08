@@ -3757,7 +3757,8 @@ struct AcukotoEngine::State
         // PlayingControls::handPress as a pitch ratio, where the hand has
         // reached on this string: 1 on every string but the hand's.
         double handRatio { 1.0 };
-        double handPoint { 0.88 };
+        static constexpr double restingHandPoint = 0.88;
+        double handPoint { restingHandPoint };
         double energy { 0.0 };
         bool keyDown { false };
         bool sustained { false };
@@ -4368,6 +4369,7 @@ void AcukotoEngine::reset() noexcept
         voice.pressPeriods = voice.pressElapsed = 0;
         voice.pressWaver = 0.0;
         voice.handRatio = 1.0;
+        voice.handPoint = State::StringVoice::restingHandPoint;
         voice.raised = false;
         voice.normal.reset();
         voice.parallel.reset();
