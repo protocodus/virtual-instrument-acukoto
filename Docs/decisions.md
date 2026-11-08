@@ -8,6 +8,21 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-08 — owner accepts the physical-model review candidates
+
+The owner instructed: “use all candidates” after receiving the private
+20-pair A/B review for Acustra, Aculele, Aculyre and Acukoto. This accepts
+the B mechanisms in that review, including the combined physical/circuit,
+output-calibration and stability fixes. It is the owner's selection, not an
+inferred listening score or a claim of complete physical-model accuracy.
+
+For this instrument the accepted combined DSP snapshot is `bb17121fdbd68ea734d08287e833bf91eba95fa0`.
+Existing isolated A/B files and their separate keys remain frozen. Earlier
+integration clips do not roll the engine back to their intermediate pins.
+The rejected axial-FIR prototypes and analytical ADAA alternative were never
+part of the listening candidates. Full axial-source anti-aliasing is a new
+investigation; its numerical accuracy and runtime still require validation.
+
 ## 2026-11-07 — The fundamental loses what the model says
 
 The string loss sections, Acustra's, are fitted from the second partial up
