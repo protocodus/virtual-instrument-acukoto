@@ -1,4 +1,5 @@
 #include "AcukotoEngine.h"
+#include "CpuFeatures.h"
 #include "AcukotoStrikes.h"
 #if defined(ACUKOTO_RADIATION_DIAGNOSTICS)
 #include "AcukotoRadiationDiagnostics.h"
@@ -1539,6 +1540,150 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
     for (; c < barCoordinates; ++c)
         pullOnBar<1>(bank, c, pull);
 }
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+
+// Eight original float accumulation lanes, four-double oscillator vectors,
+// unchanged coordinate/reduction order, and no fused multiply-add. The
+// bank is not AVX aligned. Use attributed typedefs: Clang drops the smaller
+// alignment on a using-alias, incorrectly making an aligned load necessary.
+__attribute__((target("avx2,no-fma"))) double weightedSumAvx(const double* weight,const double* y,int count) noexcept
+{
+    typedef double V __attribute__((vector_size(32),aligned(8),may_alias));
+    static_assert(alignof(V)==8,"modal arrays require unaligned SIMD loads");
+    V a{},b{};
+    for(int group=0;group<count;group+=ModeBank::lanes)
+    {
+        a+=*reinterpret_cast<const V*>(weight+group)**reinterpret_cast<const V*>(y+group);
+        b+=*reinterpret_cast<const V*>(weight+group+4)**reinterpret_cast<const V*>(y+group+4);
+    }
+    double total=0.0;
+    for(int i=0;i<4;++i)total+=a[i];
+    for(int i=0;i<4;++i)total+=b[i];
+    return total;
+}
+constexpr int driveBlockAvx = 4 * ModeBank::lanes;
+template <int width>
+__attribute__((target("avx2,no-fma"))) void driveModesAvx(const ModeBank& bank, const float* share, int first, float* drive) noexcept
+{
+    typedef float V __attribute__((vector_size(32),aligned(4),may_alias));
+    static_assert(alignof(V)==4,"modal arrays require unaligned SIMD loads");
+    V sum[width/8] {};
+    for(std::size_t c=0;c<barCoordinates;++c)
+    {
+        const V* p=reinterpret_cast<const V*>(bank.participation[c].data()+first);
+        const V f {share[c],share[c],share[c],share[c],share[c],share[c],share[c],share[c]};
+        for(int v=0;v<width/8;++v)sum[v]+=p[v]*f;
+    }
+    for(int v=0;v<width/8;++v)
+        __builtin_memcpy(drive+first+8*v,&sum[v],sizeof(V));
+}
+
+// The modes' pull on `coordinates` bar coordinates from `first`: each
+// coordinate's participations times the states, in lanes, then the lanes.
+constexpr std::size_t pullBlockAvx = 6;
+template <std::size_t coordinates>
+__attribute__((target("avx2,no-fma"))) void pullOnBarAvx(const ModeBank& bank, std::size_t first, BarVector& pull) noexcept
+{
+    typedef float V __attribute__((vector_size(32),aligned(4),may_alias));
+    static_assert(alignof(V)==4,"modal arrays require unaligned SIMD loads");
+    V lane[coordinates] {};
+    for(int group=0;group<bank.count;group+=ModeBank::lanes)
+    {
+        const V state=*reinterpret_cast<const V*>(bank.pullState.data()+group);
+        for(std::size_t c=0;c<coordinates;++c)
+            lane[c]+=*reinterpret_cast<const V*>(bank.participation[first+c].data()+group)*state;
+    }
+    for(std::size_t c=0;c<coordinates;++c)
+    {
+        pull[first+c]=0.0;
+        for(int i=0;i<ModeBank::lanes;++i)pull[first+c]+=lane[c][i];
+    }
+}
+
+// Runs the bank's modes one sample on under the force on the bar (and a
+// hand's, if one strikes). Returns what they radiate to each microphone (in
+// phase and in quadrature) and their pull on the bar's next velocity.
+__attribute__((target("avx2,no-fma"))) void runModesAvx(ModeBank& bank, const BarVector& force, StrikeDrive& strike, double& left, double& right,
+              double& leftQuadrature, double& rightQuadrature, BarVector& pull) noexcept
+{
+    const int count = bank.count;
+    // Each mode's generalized force. A block of modes takes every
+    // coordinate in turn, so its sums stay in registers instead of going
+    // through memory once per coordinate; each still adds the coordinates
+    // in order, so the result is the same to the bit.
+    float share[barCoordinates];
+    for (std::size_t c = 0; c < barCoordinates; ++c)
+        share[c] = static_cast<float>(force[c]);
+    float drive[ModeBank::capacity];
+    int first = 0;
+    for (; first + driveBlockAvx <= count; first += driveBlockAvx)
+        driveModesAvx<driveBlockAvx>(bank, share, first, drive);
+    for (; first < count; first += ModeBank::lanes)
+        driveModesAvx<ModeBank::lanes>(bank, share, first, drive);
+    if (strike.shape)
+    {
+        const auto share = static_cast<float>(strike.force);
+        for (int k = 0; k < count; ++k)
+            drive[k] += strike.shape[k] * share;
+    }
+    // Plain pointers: the compiler vectorizes these loops only when it can
+    // see which arrays the stores leave alone.
+    const double* b0 = bank.b0.data();
+    const double* a1 = bank.a1.data();
+    const double* a2 = bank.a2.data();
+    double* s1 = bank.s1.data();
+    double* s2 = bank.s2.data();
+    float* pullState = bank.pullState.data();
+    double y[ModeBank::capacity];
+    typedef double D __attribute__((vector_size(32),aligned(8),may_alias));
+    typedef float F __attribute__((vector_size(16),aligned(4),may_alias));
+    static_assert(alignof(D)==8&&alignof(F)==4,"modal arrays require unaligned SIMD loads");
+    for(int k=0;k<count;k+=4)
+    {
+        const D x=*reinterpret_cast<const D*>(b0+k)
+            *__builtin_convertvector(*reinterpret_cast<const F*>(drive+k),D);
+        const D velocity=x+*reinterpret_cast<const D*>(s1+k);
+        const D next=*reinterpret_cast<const D*>(s2+k)-*reinterpret_cast<const D*>(a1+k)*velocity;
+        *reinterpret_cast<D*>(s2+k)=-x-*reinterpret_cast<const D*>(a2+k)*velocity;
+        *reinterpret_cast<D*>(s1+k)=next;
+        *reinterpret_cast<D*>(y+k)=velocity;
+        *reinterpret_cast<F*>(pullState+k)=__builtin_convertvector(next,F);
+    }
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    // Independently observe the modes' actual velocity and generalized input
+    // work, not the velocity the junction intended them to have. This catches
+    // a force added after the junction solve, and float summation roundoff.
+    bank.currentVelocity = {};
+    bank.inputPower = 0.0;
+    for (int k = 0; k < count; ++k)
+    {
+        bank.inputPower += static_cast<double>(drive[k]) * y[k];
+        for (std::size_t c = 0; c < barCoordinates; ++c)
+            bank.currentVelocity[c] += static_cast<double>(bank.participation[c][k]) * y[k];
+    }
+#endif
+    if (strike.shape)
+    {
+        strike.velocity = 0.0;
+        for (int k = 0; k < count; ++k)
+            strike.velocity += static_cast<double>(strike.shape[k]) * y[k];
+    }
+    left = weightedSumAvx(bank.left.data(), y, count);
+    right = weightedSumAvx(bank.right.data(), y, count);
+    leftQuadrature = weightedSumAvx(bank.leftQuadrature.data(), y, count);
+    rightQuadrature = weightedSumAvx(bank.rightQuadrature.data(), y, count);
+    // The pull on the bar, a few coordinates at a time over every group, so
+    // their lane sums stay in registers instead of all 26 spilling and each
+    // load of the states serves them all.
+    std::size_t c = 0;
+    for (; c + pullBlockAvx <= barCoordinates; c += pullBlockAvx)
+        pullOnBarAvx<pullBlockAvx>(bank, c, pull);
+    for (; c < barCoordinates; ++c)
+        pullOnBarAvx<1>(bank, c, pull);
+}
+
+#endif
 
 struct BarMatrix
 {
@@ -3627,6 +3772,7 @@ struct AcukotoEngine::State
     std::array<Mode, maxModes> modes {};
     int modeCount { 0 };
     ModeBank bank {};
+    decltype(&runModes) renderModes {runModes};
     // The modes' state at the bridge, sum(pull s1): process() sums it as it
     // updates them, noteOn's preload makes it stale.
     BarVector modalPast {};
@@ -3771,6 +3917,9 @@ void AcukotoEngine::prepare(double sampleRate)
     sampleRate_ = std::isfinite(sampleRate) && sampleRate >= 22050.0 && sampleRate <= 192000.0
         ? sampleRate : 48000.0;
     state_->room.prepare(sampleRate_);
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+    state_->renderModes=instrumentCpu::hasAvx2()?runModesAvx:runModes;
+#endif
     state_->outputSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sampleRate_));
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
     state_->waverPole = std::exp(-2.0 * pi * pressWaverHz * controlPeriod / sampleRate_);
@@ -5647,7 +5796,7 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             plateForce[i] = drive[i] - zg[i] * velocity[i];
 
         double radiatedLeft, radiatedRight, quadratureLeft, quadratureRight;
-        runModes(bank, plateForce, hand, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
+        s.renderModes(bank, plateForce, hand, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
         if (hand.shape)
             hit.surfaceVelocity = hand.velocity;
 
