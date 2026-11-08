@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.25.1 LANGUAGES CXX)
+project(Acukoto VERSION 0.25.2 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -83,6 +83,12 @@ if(ACUKOTO_BUILD_TOOLS)
     # How evenly each preset's strings sound (StringSpec::touch).
     add_executable(AcukotoLevels Tools/MeasureLevels.cpp)
     target_link_libraries(AcukotoLevels PRIVATE AcukotoDSP)
+
+    # Setup-only acoustic power observer. Compiles its own engine with the
+    # observation hook; the normal DSP target has no diagnostic overhead.
+    add_executable(AcukotoAcousticPower Tools/AuditAcousticPower.cpp Source/DSP/AcukotoEngine.cpp)
+    target_include_directories(AcukotoAcousticPower PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    target_compile_definitions(AcukotoAcousticPower PRIVATE ACUKOTO_RADIATION_DIAGNOSTICS)
 endif()
 
 if(BUILD_TESTING)
@@ -101,6 +107,22 @@ if(BUILD_TESTING)
     target_link_libraries(AcukotoEngineTests PRIVATE AcukotoDSP)
     add_test(NAME Acukoto.Engine COMMAND AcukotoEngineTests)
     set_tests_properties(Acukoto.Engine PROPERTIES TIMEOUT 600)
+
+    # Offline-only port/work instrumentation: no per-sample diagnostic sums
+    # or observer fields in the production DSP library or Rack build.
+    add_executable(AcukotoStrikeEnergyTests Tests/StrikeEnergyTests.cpp Source/DSP/AcukotoEngine.cpp)
+    target_include_directories(AcukotoStrikeEnergyTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    target_compile_definitions(AcukotoStrikeEnergyTests PRIVATE ACUKOTO_ENERGY_DIAGNOSTICS)
+    add_test(NAME Acukoto.StrikeEnergy COMMAND AcukotoStrikeEnergyTests)
+    set_tests_properties(Acukoto.StrikeEnergy PROPERTIES TIMEOUT 600)
+
+    add_executable(AcukotoAcousticPowerBudgetTests Tests/AcousticPowerBudgetTests.cpp)
+    target_include_directories(AcukotoAcousticPowerBudgetTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.AcousticPowerBudget COMMAND AcukotoAcousticPowerBudgetTests)
+    if(ACUKOTO_BUILD_TOOLS)
+        add_test(NAME Acukoto.AcousticPowerReport COMMAND AcukotoAcousticPower --min-hz 298 --max-hz 300 --polar 16)
+        set_tests_properties(Acukoto.AcousticPowerReport PROPERTIES TIMEOUT 120)
+    endif()
 
     # U4 input fuzzing (Tests/DspFuzz.cpp). The replay build runs on every
     # platform: committed reproducers in Tests/Fixtures/fuzz, then seeded

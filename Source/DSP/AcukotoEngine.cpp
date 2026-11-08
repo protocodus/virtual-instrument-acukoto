@@ -1,5 +1,8 @@
 #include "AcukotoEngine.h"
 #include "AcukotoStrikes.h"
+#if defined(ACUKOTO_RADIATION_DIAGNOSTICS)
+#include "AcukotoRadiationDiagnostics.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -1326,6 +1329,10 @@ struct ModeBank
     std::array<std::array<float, capacity>, strikeKeys.size()> strike {};
     std::array<float, capacity> pullState {};
     std::array<double, capacity> b0 {}, a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {};
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    BarVector currentVelocity {};
+    double inputPower { 0.0 };
+#endif
 };
 
 // Each mode radiates j w W times its velocity, with W found at its own
@@ -1500,6 +1507,19 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
         s1[k] = next;
         pullState[k] = static_cast<float>(next);
     }
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    // Independently observe the modes' actual velocity and generalized input
+    // work, not the velocity the junction intended them to have. This catches
+    // a force added after the junction solve, and float summation roundoff.
+    bank.currentVelocity = {};
+    bank.inputPower = 0.0;
+    for (int k = 0; k < count; ++k)
+    {
+        bank.inputPower += static_cast<double>(drive[k]) * y[k];
+        for (std::size_t c = 0; c < barCoordinates; ++c)
+            bank.currentVelocity[c] += static_cast<double>(bank.participation[c][k]) * y[k];
+    }
+#endif
     if (strike.shape)
     {
         strike.velocity = 0.0;
@@ -3195,8 +3215,14 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
                                                std::cos(pairElevation) * std::cos(turn),
                                                -std::sin(pairElevation) };
     }
+#if defined(ACUKOTO_RADIATION_DIAGNOSTICS)
+    std::array<diagnostics::RadiationPatch, gridPoints> diagnosticPatches {};
+#endif
     const auto hear = [&] (int p, double x, double y, double z)
     {
+#if defined(ACUKOTO_RADIATION_DIAGNOSTICS)
+        diagnosticPatches[static_cast<std::size_t>(p)] = { x, y, z, -2.0 * clearance(x) - z, 0.0, 0.0 };
+#endif
         for (int path = 0; path < 4; ++path)
         {
             const int mic = path % 2;
@@ -3430,6 +3456,19 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
             mode.strike[key] = static_cast<float>(sum / cells);
         }
         const double wavenumber = 2.0 * pi * frequency / soundSpeed;
+#if defined(ACUKOTO_RADIATION_DIAGNOSTICS)
+        // Observe the same surface and image geometry used below, without
+        // microphone directivity or gain. No changes to mode Q or radiation.
+        for (std::size_t p = 0; p < diagnosticPatches.size(); ++p)
+        {
+            diagnosticPatches[p].area = work.area[p];
+            diagnosticPatches[p].displacement = u[p];
+        }
+        diagnostics::observeRadiationMode(
+            { instrument.name, count - 1, fs, frequency, mode.q,
+              { rest / restQ, box / boxQ, wall / woodQ, air / airQ, bridge / bridgeQ } },
+            diagnosticPatches.data(), diagnosticPatches.size());
+#endif
         double radiation[2][2] {};
         for (int mic = 0; mic < 2; ++mic)
         {
@@ -3601,7 +3640,14 @@ struct AcukotoEngine::State
     BarMatrix immediateMobilityTransposed {};
     BarVector stringImpedance {};
     BarMatrix solveTransposed {};
+    // Direct motion of each ji under one newton at a strike patch. Its
+    // present-sample force participates in the same implicit junction as
+    // the strings; adding it only to the modes leaves two bridge velocities.
+    std::array<BarVector, strikeKeys.size()> strikeMobility {};
     BodyWork work {};
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    JunctionEnergyReport junctionEnergy {};
+#endif
 
     double radiationScale { 0.0 };
     PhaseNetwork phase {};
@@ -3937,6 +3983,14 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                 y0m.m[i][j] += mode.b0 * mode.participation[i] * mode.participation[j];
     }
     s.immediateMobilityTransposed = y0m.transposed();
+    s.strikeMobility = {};
+    for (std::size_t key = 0; key < strikeKeys.size(); ++key)
+        for (int k = 0; k < s.modeCount; ++k)
+        {
+            const Mode& mode = s.modes[static_cast<std::size_t>(k)];
+            for (std::size_t c = 0; c < barCoordinates; ++c)
+                s.strikeMobility[key][c] += mode.participation[c] * mode.b0 * mode.strike[key];
+        }
     ModeBank& bank = s.bank;
     bank = {};
     for (int index = 0; index < s.modeCount; ++index)
@@ -4163,6 +4217,9 @@ void AcukotoEngine::reset() noexcept
     s.bend = s.bendTarget;
     s.handString = -1;
     s.output = s.outputTarget;
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    s.junctionEnergy = {};
+#endif
 }
 
 const InstrumentSpec& AcukotoEngine::instrument() const noexcept { return state_->instrument; }
@@ -5549,15 +5606,6 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                     s.modalPast[c] += bank.participation[c][static_cast<std::size_t>(k)] * bank.s1[static_cast<std::size_t>(k)];
             s.modalPastStale = false;
         }
-        const BarVector& past = s.modalPast;
-        BarVector rhs = y0.transposeApply(drive);
-        for (std::size_t i = 0; i < barCoordinates; ++i)
-            rhs[i] += past[i];
-        const BarVector velocity = solve.transposeApply(rhs);
-        BarVector plateForce;
-        for (std::size_t i = 0; i < barCoordinates; ++i)
-            plateForce[i] = drive[i] - zg[i] * velocity[i];
-
         // A hand in contact with the body: it closes on the surface at its own
         // speed less the surface's, the Hertzian spring pushes back, and what
         // it pushes with goes into the modes at its place.
@@ -5582,10 +5630,66 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
                 hand.force = -push;
             }
         }
+        // v = Y0 (drive - Zg v) + past + Y0_hand F_hand. The modes and
+        // every string end must share this same present-sample velocity.
+        // Until 0.25.2 the hand was added only after this solve, so the
+        // modes moved by Y0_hand F_hand more than the reflected waves did.
+        const BarVector& past = s.modalPast;
+        BarVector rhs = y0.transposeApply(drive);
+        for (std::size_t i = 0; i < barCoordinates; ++i)
+            rhs[i] += past[i];
+        if (hand.shape)
+            for (std::size_t i = 0; i < barCoordinates; ++i)
+                rhs[i] += s.strikeMobility[static_cast<std::size_t>(hit.key)][i] * hand.force;
+        const BarVector velocity = solve.transposeApply(rhs);
+        BarVector plateForce;
+        for (std::size_t i = 0; i < barCoordinates; ++i)
+            plateForce[i] = drive[i] - zg[i] * velocity[i];
+
         double radiatedLeft, radiatedRight, quadratureLeft, quadratureRight;
         runModes(bank, plateForce, hand, radiatedLeft, radiatedRight, quadratureLeft, quadratureRight, s.modalPast);
         if (hand.shape)
             hit.surfaceVelocity = hand.velocity;
+
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+        auto& report = s.junctionEnergy;
+        ++report.samples;
+        report.contactSamples += hand.shape != nullptr ? 1u : 0u;
+        double stringPower = 0.0, bodyStringPower = 0.0;
+        for (int index = 0; index < count; ++index)
+        {
+            const State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+            const auto i = static_cast<std::size_t>(index);
+            const double heave = velocity[static_cast<std::size_t>(voice.ji)];
+            const double rock = velocity[voice.tipCoordinate()];
+            // Velocity waves carry Z v^2 watts. Compare their arriving minus
+            // departing power with the work at the actual modal endpoints.
+            const auto flux = [&] (double incoming, double boundary)
+            {
+                const double outgoing = incoming - boundary;
+                return voice.impedance * (incoming * incoming - outgoing * outgoing);
+            };
+            stringPower += flux(normalIn[i], heave) + flux(leftNormalIn[i], heave)
+                         + flux(parallelIn[i], rock) + flux(leftParallelIn[i], rock);
+        }
+        for (std::size_t c = 0; c < barCoordinates; ++c)
+        {
+            bodyStringPower += plateForce[c] * bank.currentVelocity[c];
+            report.maximumVelocityError = std::max(report.maximumVelocityError,
+                                                   std::abs(velocity[c] - bank.currentVelocity[c]));
+            report.maximumVelocity = std::max(report.maximumVelocity, std::abs(bank.currentVelocity[c]));
+        }
+        const double handPower = hand.shape ? hand.force * hand.velocity : 0.0;
+        const double dt = 1.0 / sampleRate_;
+        report.stringWork += dt * stringPower;
+        report.bodyStringWork += dt * bodyStringPower;
+        report.handWork += dt * handPower;
+        report.modalInputWork += dt * bank.inputPower;
+        report.absoluteStringWork += dt * std::abs(stringPower);
+        report.absoluteSourceWork += dt * (std::abs(bodyStringPower) + std::abs(handPower));
+        report.absoluteJunctionResidual += dt * std::abs(stringPower - bodyStringPower);
+        report.absoluteModalResidual += dt * std::abs(bank.inputPower - bodyStringPower - handPower);
+#endif
 
         for (int index = 0; index < count; ++index)
         {
@@ -5732,5 +5836,12 @@ double AcukotoEngine::bridgeMobilityMagnitude(double frequency, int string) cons
     }
     return std::abs(mobility);
 }
+
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+AcukotoEngine::JunctionEnergyReport AcukotoEngine::junctionEnergyReport() const noexcept
+{
+    return state_->junctionEnergy;
+}
+#endif
 
 } // namespace acukoto

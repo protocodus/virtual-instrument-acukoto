@@ -324,6 +324,28 @@ public:
     // other strings held still.
     [[nodiscard]] double bridgeMobilityMagnitude(double frequency, int string) const noexcept;
 
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    // Offline instrumentation only: work integrated at the mechanical ports,
+    // before radiation, microphones, room or output gain. A joule balance at
+    // this junction does not establish an acoustic radiation power budget.
+    struct JunctionEnergyReport
+    {
+        std::uint64_t samples { 0 };
+        std::uint64_t contactSamples { 0 };
+        double stringWork { 0.0 };
+        double bodyStringWork { 0.0 };
+        double handWork { 0.0 };
+        double modalInputWork { 0.0 };
+        double absoluteStringWork { 0.0 };
+        double absoluteSourceWork { 0.0 };
+        double absoluteJunctionResidual { 0.0 };
+        double absoluteModalResidual { 0.0 };
+        double maximumVelocityError { 0.0 };
+        double maximumVelocity { 0.0 };
+    };
+    [[nodiscard]] JunctionEnergyReport junctionEnergyReport() const noexcept;
+#endif
+
 private:
     struct State;
     void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
