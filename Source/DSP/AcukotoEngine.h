@@ -254,6 +254,8 @@ public:
     [[nodiscard]] const PlayingControls& controls() const noexcept { return controls_; }
     // Ablation for listening: the hard pluck's pitch glide.
     void setTensionModulation(bool enabled) noexcept { tensionModulation_ = enabled; }
+    void setRealismEnhancements(bool enabled) noexcept;
+    [[nodiscard]] bool realismEnhancements() const noexcept { return realismEnhancements_; }
 
     void process(float* left, float* right, int numSamples) noexcept;
 
@@ -368,6 +370,7 @@ private:
     double sampleRate_ { 48000.0 };
     int stringCount_ { 0 };
     bool tensionModulation_ { true };
+    bool realismEnhancements_ { true };
 };
 
 } // namespace acukoto

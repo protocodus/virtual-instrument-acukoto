@@ -1083,15 +1083,12 @@ struct LoopDesign
 // The yoke's inversion is folded into what the bridge writes.
 struct Loop
 {
-    std::array<float, delayCapacity> line {};
-    // A pluck's first round trip, still to arrive at the bridge, by sample.
-    // It enters at the loop's output rather than the line because the loop's
-    // filters hold part of a period (the dispersion stages up to a fifth of
-    // it on a bass string): a wave squeezed into the line alone would leave
-    // a gap and pluck at the wrong point.
-    std::array<float, delayCapacity> pending {};
     int write { 0 };
     int whole { 64 };
+    int pendingAhead { 0 };
+    int handOut { 0 }, handBack { 0 };
+    double handOutAlpha { 0.0 }, handBackAlpha { 0.0 };
+    double handShare { 0.0 };
     double fraction { 2.0 };
     double thiranA1 { 0.0 }, thiranA2 { 0.0 };
     double tx1 { 0.0 }, tx2 { 0.0 }, ty1 { 0.0 }, ty2 { 0.0 };
@@ -1122,6 +1119,13 @@ struct Loop
     double restLineDelay { 68.0 };
     double loopDelay { 70.0 };
     std::array<double, bendPoints> lagCycles {};
+    std::array<float, delayCapacity> line {};
+    // A pluck's first round trip, still to arrive at the bridge, by sample.
+    // It enters at the loop's output rather than the line because the loop's
+    // filters hold part of a period (the dispersion stages up to a fifth of
+    // it on a bass string): a wave squeezed into the line alone would leave
+    // a gap and pluck at the wrong point.
+    std::array<float, delayCapacity> pending {};
 
     // Stops the wave and everything still on its way, keeping the pitch and
     // the hand's damping.
@@ -1129,6 +1133,7 @@ struct Loop
     {
         line.fill(0.0f);
         pending.fill(0.0f);
+        pendingAhead = 0;
         tx1 = tx2 = ty1 = ty2 = last = 0.0;
         dispersionState.fill(0.0);
         pairState = {};
@@ -1143,6 +1148,9 @@ struct Loop
         // Back to where prepare() leaves the line, so a reset plays as a
         // fresh instance does, sample for sample.
         write = 0;
+        handOut = handBack = 0;
+        handOutAlpha = handBackAlpha = 0.0;
+        handShare = 0.0;
         muteCoefficient = muteDelay = 0.0;
         damping = dampingTarget = 1.0;
         dampingStep = 0.0;
@@ -1214,9 +1222,15 @@ struct Loop
                 dampingStep = 0.0;
             }
         }
-        float& arriving = pending[static_cast<std::size_t>(write)];
+        float arriving = 0.0f;
+        if (pendingAhead > 0)
+        {
+            --pendingAhead;
+            float& slot = pending[static_cast<std::size_t>(write)];
+            arriving = slot;
+            slot = 0.0f;
+        }
         y = y * gain * damping + arriving;
-        arriving = 0.0f;
         last = y;
         return y;
     }
@@ -1225,6 +1239,38 @@ struct Loop
     {
         line[static_cast<std::size_t>(write)] = static_cast<float>(value);
         write = (write + 1) & (delayCapacity - 1);
+    }
+
+    void touch() noexcept
+    {
+        float& out0 = line[static_cast<std::size_t>((write - 1 - handOut) & (delayCapacity - 1))];
+        float& out1 = line[static_cast<std::size_t>((write - 2 - handOut) & (delayCapacity - 1))];
+        float& back0 = line[static_cast<std::size_t>((write - 1 - handBack) & (delayCapacity - 1))];
+        float& back1 = line[static_cast<std::size_t>((write - 2 - handBack) & (delayCapacity - 1))];
+        const float ao = static_cast<float>(handOutAlpha);
+        const float ab = static_cast<float>(handBackAlpha);
+        const float out = (1.0f - ao) * out0 + ao * out1;
+        const float back = (1.0f - ab) * back0 + ab * back1;
+        const float taken = static_cast<float>(handShare) * (back - out);
+        out0 += (1.0f - ao) * taken;
+        out1 += ao * taken;
+        back0 -= (1.0f - ab) * taken;
+        back1 -= ab * taken;
+    }
+
+    void setHand(double point, double rate, double frequency) noexcept
+    {
+        const double baseShare = rate > 0.0 ? std::min(0.25, rate / (2.0 * frequency)) : 0.0;
+        const int last = std::max(2, whole - 2);
+        const double outDelay = std::clamp(0.5 * point * loopDelay, 1.0, static_cast<double>(last));
+        const double backDelay = std::clamp((1.0 - 0.5 * point) * loopDelay, 1.0, static_cast<double>(last));
+        handOut = static_cast<int>(std::floor(outDelay));
+        handBack = static_cast<int>(std::floor(backDelay));
+        handOutAlpha = outDelay - handOut;
+        handBackAlpha = backDelay - handBack;
+        const double norm = 0.5 * ((1.0 - handOutAlpha) * (1.0 - handOutAlpha) + handOutAlpha * handOutAlpha
+                                 + (1.0 - handBackAlpha) * (1.0 - handBackAlpha) + handBackAlpha * handBackAlpha);
+        handShare = norm > 0.0 ? baseShare / norm : 0.0;
     }
 
     // The loss per round trip a resting hand adds, reached over one round trip.
@@ -3711,6 +3757,7 @@ struct AcukotoEngine::State
         // PlayingControls::handPress as a pitch ratio, where the hand has
         // reached on this string: 1 on every string but the hand's.
         double handRatio { 1.0 };
+        double handPoint { 0.88 };
         double energy { 0.0 };
         bool keyDown { false };
         bool sustained { false };
@@ -4437,12 +4484,25 @@ void AcukotoEngine::updateDamping(int string) noexcept
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
     voice.dampingDirty = false;
     double rate = s.muteRate;
+    double hand = 0.0;
     if (!voice.keyDown && !voice.sustained)
-        rate += voice.plucked ? (voice.staccato ? handRate(0.0) : s.releaseRate) : s.sympathyRate;
+    {
+        if (voice.plucked && realismEnhancements_)
+            hand += voice.staccato ? handRate(0.0) : s.releaseRate;
+        else
+            rate += voice.plucked ? (voice.staccato ? handRate(0.0) : s.releaseRate) : s.sympathyRate;
+    }
     if (voice.thumbRest > 0)
-        rate += handRate(0.0);
+    {
+        if (realismEnhancements_)
+            hand += handRate(0.0);
+        else
+            rate += handRate(0.0);
+    }
     voice.normal.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
     voice.parallel.setDamping(rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0);
+    voice.normal.setHand(voice.handPoint, hand, voice.frequency);
+    voice.parallel.setHand(voice.handPoint, hand, voice.frequency);
     // Beyond the ji only the palm reaches the string, the left hand while it
     // presses there, as a hand resting on it (handRate(0)), and on a string
     // nobody plays the hand Sympathy rests, as on its speaking length: a
@@ -4457,6 +4517,16 @@ void AcukotoEngine::updateDamping(int string) noexcept
         left += s.sympathyRate;
     for (Loop* loop : { &voice.leftNormal, &voice.leftParallel })
         loop->setDamping(left > 0.0 ? std::exp(-left * loop->loopDelay / sampleRate_) : 1.0);
+}
+
+void AcukotoEngine::setRealismEnhancements(bool enabled) noexcept
+{
+    if (realismEnhancements_ == enabled)
+        return;
+    realismEnhancements_ = enabled;
+    if (state_)
+        for (int index = 0; index < stringCount_; ++index)
+            state_->strings[static_cast<std::size_t>(index)].dampingDirty = true;
 }
 
 void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
@@ -4800,6 +4870,7 @@ void AcukotoEngine::runScrapes() noexcept
                     += static_cast<float>(sign * wave * (1.0 - fraction));
                 loop.pending[static_cast<std::size_t>((loop.write + whole + 1) & (delayCapacity - 1))]
                     += static_cast<float>(sign * wave * fraction);
+                loop.pendingAhead = std::max(loop.pendingAhead, whole + 2);
             }
         }
         s.quietSamples = 0;
@@ -5304,6 +5375,14 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         contact = cornerContact;
     release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
              * std::exp(0.2 * deviation(3));
+    if (realismEnhancements_)
+    {
+        const double pRef = std::clamp(1.0 - controls.pluckDistance / measuredOn, 0.5, 0.98);
+        const double refCompliance = std::max(1.0e-4, pRef * (1.0 - pRef));
+        const double pluckCompliance = std::max(1.0e-4, position * (1.0 - position));
+        release *= std::clamp(std::pow(pluckCompliance / refCompliance, 0.22), 0.72, 1.35);
+    }
+    voice.handPoint = position;
     s.lastPluck = { position, force, normalShare, release };
 
     // A finger resting on the ji while the note sounds (mutedStroke) is a
@@ -5484,6 +5563,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
                 square += static_cast<float>(value * value);
             }
         }
+        loop.pendingAhead = std::max(loop.pendingAhead, count);
         // The held force stood on the bridge before the release: the body
         // starts deflected under it, so only what the release changes
         // reaches it, and the top springs back as the wave's mean force
@@ -5637,6 +5717,7 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             for (int index = 0; index < count; ++index)
             {
                 State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+                voice.energy = voice.squaresSum / voice.roundTrip;
                 // A released string that has died away is idle again: the
                 // playing hand has left it.
                 if (voice.plucked && !voice.keyDown && !voice.sustained && voice.energy < silentEnergy)
@@ -5743,7 +5824,6 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             voice.squaresSum = std::max(0.0, voice.squaresSum + static_cast<double>(square) - leaving);
             slot = square;
             voice.squaresIndex = (voice.squaresIndex + 1) & (delayCapacity - 1);
-            voice.energy = voice.squaresSum / voice.roundTrip;
         }
 
         ModeBank& bank = s.bank;
@@ -5849,6 +5929,11 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             voice.parallel.writeSample(parallelIn[static_cast<std::size_t>(index)] - rock);
             voice.leftNormal.writeSample(leftNormalIn[static_cast<std::size_t>(index)] - heave);
             voice.leftParallel.writeSample(leftParallelIn[static_cast<std::size_t>(index)] - rock);
+            if (voice.normal.handShare != 0.0 && voice.energy > idleEnergy)
+            {
+                voice.normal.touch();
+                voice.parallel.touch();
+            }
         }
         s.lastGeneralizedVelocity = velocity;
 
@@ -5897,6 +5982,11 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
             std::fill(right + sample + 1, right + numSamples, 0.0f);
             return;
         }
+    }
+    for (int index = 0; index < count; ++index)
+    {
+        State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+        voice.energy = voice.squaresSum / voice.roundTrip;
     }
 }
 
