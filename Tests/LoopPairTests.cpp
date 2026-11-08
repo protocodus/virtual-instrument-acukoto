@@ -5,7 +5,7 @@
 // order, including pending-pluck consumption and damping ramp endpoints.
 // Include the implementation only in this test to reach the private Loop;
 // no test hooks or diagnostic work enter the shipping engine.
-#include "../Source/DSP/AcukotoEngine.cpp"
+#include "EngineTestImplementation.h"
 
 #include <cstdio>
 #include <memory>

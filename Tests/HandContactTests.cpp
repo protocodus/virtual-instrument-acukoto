@@ -2,7 +2,7 @@
 // travelling period changes. Inspect the internal waveguide directly: this
 // tests a nodal witness and passivity without body/room modes masking either.
 // No production diagnostics or branches are added by this test translation unit.
-#include "../Source/DSP/AcukotoEngine.cpp"
+#include "EngineTestImplementation.h"
 #include <cstdio>
 #include <cstdlib>
 
