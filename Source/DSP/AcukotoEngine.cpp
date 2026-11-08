@@ -1249,7 +1249,7 @@ struct Loop
     // reset aligns their cursors and process writes both once per sample.
     // Their bridge phases, delay taps, filter histories and pending plucks
     // remain independent, so the two Thiran sections use their own values.
-    __attribute__((noinline)) static void readPair(Loop& a, Loop& b, double& outA, double& outB) noexcept
+    ACUKOTO_FORCE_INLINE static void readPair(Loop& a, Loop& b, double& outA, double& outB) noexcept
     {
         const int write = a.write;
         const Double2 x {
