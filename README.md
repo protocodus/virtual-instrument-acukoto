@@ -11,6 +11,8 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+- **0.25.3** (local candidate): lower native CPU through an exact AVX2 modal bank and paired stereo output FIRs. All tested oversampling settings preserve the sample sequence and calibrated levels. [Measurements and limits](Docs/benchmarks/cpu-oversampling-2026-11-08.md).
+
 ### 0.25.2 — 2026-11-08 — Body strikes share the strings' bridge motion
 
 - A hand striking the body now enters the same present-sample junction solve as the strings. Previously its force moved the body after the strings' reflected waves had already been determined, leaving different velocities on the two sides of their connection. An offline work observer checks the actual modal motion against the waves and the hand's applied work; it adds no processing to the normal engine. The existing contact law, body and acoustic response are unchanged ([validation](Docs/validation/strike-junction-2026-11-08.md)).
