@@ -17,9 +17,8 @@
 // The left hand's press behind a ji (oshide) raises a string's tension and
 // so its pitch: press() sets it per string, in semitones, over a glide.
 //
-// This is a proof of concept, not a product: setup calls allocate nothing
-// but are not real-time safe; process(), the note calls and setControls()
-// are.
+// Setup calls (prepare, setInstrument) allocate nothing but are not
+// real-time safe; process(), the note calls, press() and setControls() are.
 
 #pragma once
 

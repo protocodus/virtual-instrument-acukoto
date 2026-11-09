@@ -44,10 +44,11 @@ constexpr double pairElevation = 40.0 * pi / 180.0;
 constexpr double pairSpacing = 0.17;
 constexpr double pairAngle = 55.0 * pi / 180.0;
 
-// Loss at the yoke end (tuning pin and crossbar), per round trip. Authored:
-// no lyre measurement separates it, and it only matters where the air and
-// the material leave a string almost lossless.
-constexpr double yokeRoundTripGain = 0.9995;
+// Loss at a stretch's fixed end (the ryukaku, or the unkaku for the rest
+// stretch), per round trip. Authored: no measurement separates it, and it
+// only matters where the air and the material leave a string almost
+// lossless.
+constexpr double fixedEndRoundTripGain = 0.9995;
 
 // No hand holds a force still. Young adults' steady finger contractions at
 // moderate force fluctuate by a coefficient of variation of about 1-2%
@@ -1161,9 +1162,10 @@ struct LoopDesign
     }
 };
 
-// One polarisation of one string: the round trip from the bridge to the yoke
-// and back, holding the velocity wave that will next arrive at the bridge.
-// The yoke's inversion is folded into what the bridge writes.
+// One polarisation of one stretch of a string: the round trip from the
+// bridge (the ji) to the stretch's fixed end (the ryukaku or the unkaku) and
+// back, holding the velocity wave that will next arrive at the bridge. The
+// fixed end's inversion is folded into what the bridge writes.
 struct Loop
 {
     int write { 0 };
@@ -4776,7 +4778,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             // DC: kept under 1 so the loop stays passive, a bound that
             // stands 3 parts in 10000 above the largest gain any supported
             // key takes (C8 at 44.1 kHz, 0.99969).
-            const double gain = std::min(std::exp(-fundamentalDecay / frequency) * yokeRoundTripGain / sectionsAtFundamental,
+            const double gain = std::min(std::exp(-fundamentalDecay / frequency) * fixedEndRoundTripGain / sectionsAtFundamental,
                                          0.9999);
             // Dispersion (designDispersion), the line then solved so the
             // fundamental is exact once the junction exists and the ji's
@@ -4806,7 +4808,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             pitch.glidePerEnergy = stretchModulus * area / (2.0 * voice.tension * waveSpeed * waveSpeed);
             const double frequency = waveSpeed / (2.0 * length);
             const double intrinsicDecay = designPlanes(length, pitch.planes, refine)
-                                        - std::log(yokeRoundTripGain) * frequency;
+                                        - std::log(fixedEndRoundTripGain) * frequency;
             pitch.intrinsicT60 = 3.0 * std::log(10.0) / intrinsicDecay;
             pitch.roundTrip = std::clamp(static_cast<int>(std::lround(fs / frequency)), 1, delayCapacity - 1);
         };
@@ -6206,7 +6208,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         const auto shape = [&] (double x) { return kink * displacement(x); };
         // The wave reaching the bridge over the next round trip, one period
         // of the loop: first the half that travels straight there,
-        // (c/2) y0'(c t), then the half that went to the yoke,
+        // (c/2) y0'(c t), then the half that went to the fixed end,
         // (c/2) y0'(2L - c t). Each sample holds its cell's mean slope, which
         // band-limits the release; the last cell ends at the round trip.
         // Fixed capacity covers every supported key, rate and downward
