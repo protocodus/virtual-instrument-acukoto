@@ -3491,12 +3491,18 @@ void wallModes(const BodySpec& body, double limit, BodyWork& work) noexcept
 
 // How the parts lose energy, as each coupled mode's kinetic energy is shared
 // among them (designBody). The box on its rests: estimated, a heavy damped
-// support. The box bending and twisting: Coaldrake measured paulownia's Q
-// along the grain at 140 and across it at 60 (JASA 148 (2020) 3153,
-// Table I); estimated at 60 for the glued box with its back board, its
-// joints and its rests. The ji on its feet: estimated, on the soft top.
+// support. The box bending and twisting along its length: paulownia's own
+// Q along the grain, 140 (Coaldrake, JASA 148 (2020) 3153, Table I; 60
+// across it), with nothing added for joints, as the walls take the wood's
+// own across the grain (woodQ). Until 0.25.6 it was an estimate of 60 for
+// the glued box with its back board, joints and rests; G3's fundamental,
+// on the 195 Hz twist, then fell 40 dB/s from 0.14 to 0.74 s, 2.9 times as
+// fast as 35 recorded G3s, and falls 24 dB/s, 2.0 times, with 140. The
+// physics and the recordings left the two even, so 140 was chosen by ear
+// (Docs/decisions.md, 2026-11-09). The ji on its feet: estimated, on the
+// soft top.
 constexpr double restQ = 8.0;
-constexpr double boxQ = 60.0;
+constexpr double boxQ = 140.0;
 constexpr double bridgeQ = 30.0;
 
 // Designs the body's coupled modes into `modes`, lowest first, and returns
