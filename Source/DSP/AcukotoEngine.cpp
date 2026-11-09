@@ -4432,6 +4432,7 @@ struct AcukotoEngine::State
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
     decltype(&runModes) renderModes {runModes};
     decltype(&transposeApplyPlain) applyTransposed {transposeApplyPlain};
+    bool fusedProcess { false };
 #endif
     // The modes' state at the bridge, sum(pull s1): process() sums it as it
     // updates them, noteOn's preload makes it stale.
@@ -4578,6 +4579,7 @@ void AcukotoEngine::prepare(double sampleRate)
     state_->renderModes=instrumentCpu::hasAvx2Fma()?runModesFma:instrumentCpu::hasAvx2()?runModesAvx:runModes;
     state_->applyTransposed=instrumentCpu::hasAvx2Fma()?transposeApplyFma
                            :instrumentCpu::hasAvx2()?transposeApplyAvx:transposeApplyPlain;
+    state_->fusedProcess=instrumentCpu::hasAvx2Fma();
 #endif
     state_->outputSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sampleRate_));
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
@@ -6325,6 +6327,30 @@ void AcukotoEngine::sleep() noexcept
 bool AcukotoEngine::idle() const noexcept { return state_->idle; }
 
 void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
+{
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+    if (state_->fusedProcess)
+    {
+        processFused(left, right, numSamples);
+        return;
+    }
+#endif
+    processSamples(left, right, numSamples);
+}
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+// The same samples compiled for AVX2 and FMA3: the strings' filters, the
+// junction and the room run as fused multiply-adds in three-operand
+// instructions. The compiler fuses them where it may, so the output meets the
+// portable build's to rounding, not to the bit, as the fused modal kernels do
+// (Docs/benchmarks/cpu-fma-2026-11-09.md).
+__attribute__((target("avx2,fma"))) void AcukotoEngine::processFused(float* left, float* right, int numSamples) noexcept
+{
+    processSamples(left, right, numSamples);
+}
+#endif
+
+ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* right, int numSamples) noexcept
 {
     State& s = *state_;
     if (s.idle)

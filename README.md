@@ -11,7 +11,7 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
-- **0.25.7** (local candidate): on CPUs with AVX2 and FMA3 the body's modes and the junction use fused multiply-adds: playing takes 10-18% less CPU per block on the development machine, and the output moves by rounding only, 135 dB or more under the signal. [Measurements](Docs/benchmarks/cpu-fma-2026-11-09.md).
+- **0.25.7** (local candidate): on CPUs with AVX2 and FMA3 the body's modes, the junction and the strings' filters use fused multiply-adds: playing takes 12-24% less CPU per block on the development machine, and the output moves by rounding only, 135 dB or more under the signal. [Measurements](Docs/benchmarks/cpu-fma-2026-11-09.md).
 
 - **0.25.6** (local candidate): a pluck that strays harder now also slips off the tsume faster, so it sounds brighter: repeated notes' brightness follows their strength, and their release times scatter by 25% as one harpist's measured plucks do, where before they scattered by 20% whatever the strength. The box bends and twists with paulownia's own loss along the grain, chosen by ear: G3's fundamental, on the box's twist, fades at 24 dB/s where it faded at 40, and the strikes and keys are re-levelled to it. The body's modal step takes 11% less CPU on its own, with the same output to the bit. [Validation](Docs/validation/pluck-scatter-and-coupling-2026-11-09.md).
 

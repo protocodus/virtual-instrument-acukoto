@@ -345,6 +345,11 @@ private:
     void strike(int key, float velocity) noexcept;
     void updateDamping(int string) noexcept;
     void sleep() noexcept;
+    // process()'s body, defined and used only in AcukotoEngine.cpp.
+    inline void processSamples(float* left, float* right, int numSamples) noexcept;
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+    void processFused(float* left, float* right, int numSamples) noexcept;
+#endif
 
     std::unique_ptr<State> state_;
     PlayingControls controls_ {};
