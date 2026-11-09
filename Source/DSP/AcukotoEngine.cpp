@@ -5784,7 +5784,8 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // (here the top's), by about 4 degrees (Table VI, median 95% interval 5
     // degrees over five plucks), around the angle the normal share sets: the
     // share is the angle's sine squared.
-    const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * deviation(1));
+    const double forceDeviation = deviation(1);
+    const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * forceDeviation);
     const double angle = std::asin(std::sqrt(std::clamp(controls.normalShare, 0.0, 1.0)))
                        + 4.0 * pi / 180.0 * deviation(2);
     const double normalShare = std::clamp(std::sin(angle) * std::sin(angle), 0.01, 0.9);
@@ -5824,8 +5825,13 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // Chosen by ear over a gentler authored law (Docs/decisions.md,
     // 2026-10-28). The slip's speed also scatters more than the displacement
     // does: one harpist's release velocity by about 25%, the displacement by
-    // 14% (Fig. 8), so the release time takes the rest, about 20%, and each
-    // pluck's brightness with it.
+    // 14% (Fig. 8). By the same D^1.2, a pluck that strays harder slips off
+    // faster, so 1.2 times the force's 14% of that 25% follows the force's
+    // own draw and the release time takes the rest on its own,
+    // sqrt(25^2 - 16.8^2) = 18.5%. Until 0.25.6 it drew the 20% left over
+    // from the displacement's 14% alone and nothing from the force, so a
+    // pluck that strayed harder was no brighter for it and the releases
+    // scattered by 20% where the harpist's do by 25%.
     // A back stroke (sukui-zume) meets the string with the tsume's edge as a
     // stroke does, only moving the other way. Until 0.20.0 it took a rounder
     // back, an estimated 4 mm slipping off over twice the time: a tremolo's
@@ -5837,7 +5843,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     if (tsume && (style & cornerStroke) != 0 && (style & backStroke) == 0)
         contact = cornerContact;
     release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
-             * std::exp(0.2 * deviation(3));
+             * std::exp(-1.2 * 0.14 * forceDeviation + 0.185 * deviation(3));
     {
         const double pRef = std::clamp(1.0 - controls.pluckDistance / measuredOn, 0.5, 0.98);
         const double refCompliance = std::max(1.0e-4, pRef * (1.0 - pRef));
