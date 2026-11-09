@@ -1284,6 +1284,15 @@ struct Loop
     // remain independent, so the two Thiran sections use their own values.
     ACUKOTO_FORCE_INLINE static void readPair(Loop& a, Loop& b, double& outA, double& outB) noexcept
     {
+        // The very short first-order realization is rare. Keep it on the
+        // retained scalar path, including mixed orders, so the normal paired
+        // filters keep their straight-line vector schedule.
+        if (a.firstOrder || b.firstOrder)
+        {
+            outA = a.read();
+            outB = b.read();
+            return;
+        }
         const int write = a.write;
         const Double2 x {
             static_cast<double>(a.line[static_cast<std::size_t>((write - a.whole) & (delayCapacity - 1))]),
@@ -1295,19 +1304,7 @@ struct Loop
         const Double2 tx2 { a.tx2, b.tx2 };
         const Double2 ty1 { a.ty1, b.ty1 };
         const Double2 ty2 { a.ty2, b.ty2 };
-        Double2 y;
-        if (!a.firstOrder && !b.firstOrder)
-            y = a2 * x + a1 * tx1 + tx2 - a1 * ty1 - a2 * ty2;
-        else if (a.firstOrder && b.firstOrder)
-            y = a1 * x + tx1 - a1 * ty1;
-        else
-        {
-            for (int lane = 0; lane < 2; ++lane)
-                y[lane] = (lane == 0 ? a.firstOrder : b.firstOrder)
-                    ? a1[lane] * x[lane] + tx1[lane] - a1[lane] * ty1[lane]
-                    : a2[lane] * x[lane] + a1[lane] * tx1[lane] + tx2[lane]
-                        - a1[lane] * ty1[lane] - a2[lane] * ty2[lane];
-        }
+        Double2 y = a2 * x + a1 * tx1 + tx2 - a1 * ty1 - a2 * ty2;
         a.tx2 = tx1[0];
         b.tx2 = tx1[1];
         a.tx1 = x[0];
