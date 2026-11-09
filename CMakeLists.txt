@@ -209,6 +209,10 @@ if(BUILD_TESTING)
     target_include_directories(AcukotoLoopPairTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
     add_test(NAME Acukoto.LoopPair COMMAND AcukotoLoopPairTests)
 
+    add_executable(AcukotoModalRadiationTests Tests/ModalRadiationTests.cpp)
+    target_include_directories(AcukotoModalRadiationTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.ModalRadiation COMMAND AcukotoModalRadiationTests)
+
     get_property(ACUKOTO_TESTS DIRECTORY PROPERTY TESTS)
     foreach(test IN LISTS ACUKOTO_TESTS)
         get_test_property(${test} LABELS test_labels)

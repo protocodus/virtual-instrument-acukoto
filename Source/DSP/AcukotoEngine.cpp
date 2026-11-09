@@ -1906,20 +1906,50 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
 // unchanged coordinate/reduction order, and no fused multiply-add. The
 // bank is not AVX aligned. Use attributed typedefs: Clang drops the smaller
 // alignment on a using-alias, incorrectly making an aligned load necessary.
-__attribute__((target("avx2,no-fma"))) double weightedSumAvx(const double* weight,const double* y,int count) noexcept
+// The four microphone/quadrature weights share the same modal velocity.
+// Read it once per group instead of traversing the bank four times. Every
+// output retains its original eight accumulation lanes and 0..7 reduction;
+// only independent work is interleaved, with no fused multiply-add.
+__attribute__((target("avx2,no-fma"))) void radiationSumsAvx(const ModeBank& bank,
+    double& left, double& right, double& leftQuadrature, double& rightQuadrature) noexcept
 {
-    typedef double V __attribute__((vector_size(32),aligned(8),may_alias));
-    static_assert(alignof(V)==8,"modal arrays require unaligned SIMD loads");
-    V a{},b{};
-    for(int group=0;group<count;group+=ModeBank::lanes)
+    typedef double V __attribute__((vector_size(32), aligned(8), may_alias));
+    static_assert(alignof(V) == 8, "modal arrays require unaligned SIMD loads");
+    V l0 {}, l1 {}, r0 {}, r1 {}, lq0 {}, lq1 {}, rq0 {}, rq1 {};
+    for (int group = 0; group < bank.count; group += ModeBank::lanes)
     {
-        a+=*reinterpret_cast<const V*>(weight+group)**reinterpret_cast<const V*>(y+group);
-        b+=*reinterpret_cast<const V*>(weight+group+4)**reinterpret_cast<const V*>(y+group+4);
+        const V y0 = *reinterpret_cast<const V*>(bank.y.data() + group);
+        const V y1 = *reinterpret_cast<const V*>(bank.y.data() + group + 4);
+        l0 += *reinterpret_cast<const V*>(bank.left.data() + group) * y0;
+        l1 += *reinterpret_cast<const V*>(bank.left.data() + group + 4) * y1;
+        r0 += *reinterpret_cast<const V*>(bank.right.data() + group) * y0;
+        r1 += *reinterpret_cast<const V*>(bank.right.data() + group + 4) * y1;
+        lq0 += *reinterpret_cast<const V*>(bank.leftQuadrature.data() + group) * y0;
+        lq1 += *reinterpret_cast<const V*>(bank.leftQuadrature.data() + group + 4) * y1;
+        rq0 += *reinterpret_cast<const V*>(bank.rightQuadrature.data() + group) * y0;
+        rq1 += *reinterpret_cast<const V*>(bank.rightQuadrature.data() + group + 4) * y1;
     }
-    double total=0.0;
-    for(int i=0;i<4;++i)total+=a[i];
-    for(int i=0;i<4;++i)total+=b[i];
-    return total;
+    double l = 0.0, r = 0.0, lq = 0.0, rq = 0.0;
+    for (int i = 0; i < 4; ++i)
+    {
+        l += l0[i];
+        r += r0[i];
+        lq += lq0[i];
+        rq += rq0[i];
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        l += l1[i];
+        r += r1[i];
+        lq += lq1[i];
+        rq += rq1[i];
+    }
+    // Store only completed sums: these independent outputs need not be
+    // repeatedly reloaded through potentially aliasing references.
+    left = l;
+    right = r;
+    leftQuadrature = lq;
+    rightQuadrature = rq;
 }
 constexpr int driveBlockAvx = 4 * ModeBank::lanes;
 template <int width>
@@ -2028,10 +2058,7 @@ __attribute__((target("avx2,no-fma"))) void runModesAvx(ModeBank& bank, const Ba
         for (int k = 0; k < count; ++k)
             strike.velocity += static_cast<double>(strike.shape[k]) * y[k];
     }
-    left = weightedSumAvx(bank.left.data(), y, count);
-    right = weightedSumAvx(bank.right.data(), y, count);
-    leftQuadrature = weightedSumAvx(bank.leftQuadrature.data(), y, count);
-    rightQuadrature = weightedSumAvx(bank.rightQuadrature.data(), y, count);
+    radiationSumsAvx(bank, left, right, leftQuadrature, rightQuadrature);
     // The pull on the bar, a few coordinates at a time over every group, so
     // their lane sums stay in registers instead of all 26 spilling and each
     // load of the states serves them all.
