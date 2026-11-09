@@ -41,11 +41,19 @@ clang++-18 -O2 -std=c++17 -DNDEBUG -DACUKOTO_DISABLE_AVX2 -fno-builtin -msse3
 ```
 
 It is not a U45. No Jukebox SDK build was made, Reason's code generator may
-differ from clang 18's, and its math library is not glibc's. Whether the
-kernels' per-function `target("avx2,…")` attributes and the run-time check
-in `CpuFeatures.h` survive Reason's toolchain was not tested: the Rack
-adapter does not define `ACUKOTO_DISABLE_AVX2` today, so this is a question
-for the next U45 build, not something this document settles.
+differ from clang 18's, and its math library is not glibc's.
+
+Which kernels Reason really runs on an AVX2 CPU is an open question, and it
+decides which column of the tables below applies there. The Rack adapter
+does not define `ACUKOTO_DISABLE_AVX2`; `CpuFeatures.h` asks the CPU itself
+because "the freestanding Rack toolchain has no libgcc CPU cache"; and
+0.25.4's validation records a compile-only Jukebox SDK pass with the AVX2
+kernels in the source
+([CPU and hand contact](../validation/cpu-and-hand-contact-2026-11-08.md)).
+So the kernels' per-function `target("avx2,…")` attributes may survive that
+toolchain and run. Nobody has measured it in Reason. Until someone does,
+the stand-in is the figure to plan by, and the FMA3 column the one to hope
+for on Intel.
 
 Under `-fno-builtin` every `std::floor`, `std::lround`, `std::pow`,
 `std::exp` and `erfc` is a real call into the host's library. Two of this
@@ -221,9 +229,8 @@ bits.
 - **0.25.10.** The same four renders, the same bits as 0.25.9.
 - **0.25.12.** Both demos, the dense phrase, the chords, a soft line over
   pressed and moved-ji keys and a phrase render the same bits as 0.25.11
-  (FMA3 build). The helpers return the library's integers for every value
-  the test tries, so the portable build's arithmetic is the same by
-  construction; it was not rendered separately.
+  in the FMA3 build and in the Reason stand-in, where the library calls
+  were.
 
 Two commit messages misstate a figure and cannot be amended on a pushed
 branch. `b14a5cc` says `Acukoto.PluckShape` holds 97,686 values; it holds

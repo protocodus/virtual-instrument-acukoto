@@ -42,7 +42,7 @@ engine measured against itself.
 | 10 | Pressed C5 on Koto Hirajoshi (B♭4's string, pressed two semitones) sounds 8.9 cents flat by its spectral peak, its fundamental decays at 41 dB/s where its neighbours' decay at 19 to 30, and its attack is 0.7 octave duller than theirs; C♯5 beside it decays as fast. Koto Hankumoijoshi's own C5 string does not do it. | **Not investigated.** The same in 0.25.7. It looks like E♭5 on its body modes (Known gaps), on a pressed string. |
 | 11 | `Tools/RenderPresetDemos.cpp` quotes a 0.455× realtime median of 2026-10-29 beside a budget of one whole core. | **Left**: the CPU ratchet belongs to the work that brings U12 to Acukoto. |
 | 12 | `ACUKOTO_ENABLE_SANITIZERS` does not include `float-cast-overflow`, and the engine converts doubles to `int` in many places (`floorInt` and `nearestInt` now among them) on the understanding that the value fits. | **Left**: a CI change. The fuzz and range tests pass. |
-| 13 | The Rack adapter does not define `ACUKOTO_DISABLE_AVX2`; whether Reason's toolchain honours the AVX2 kernels' target attributes is unverified. | **Left** for the next U45 build. |
+| 13 | Which kernels run in Reason on an AVX2 CPU is not known. The Rack adapter does not define `ACUKOTO_DISABLE_AVX2`, and `CpuFeatures.h` was written to ask the CPU from inside the Rack toolchain, so the AVX2 and FMA3 kernels may run there; the CPU document plans by a build without them. | **Left** for the next U45 build: it decides whether Reason on Intel costs 8-10% or 10-11% of a core. |
 
 Looked at and found sound: the junction's passivity bound (the loop gain is
 capped at 0.9999, 3 parts in 10,000 above the largest any key takes, C8 at
