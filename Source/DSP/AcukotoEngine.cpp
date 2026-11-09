@@ -4486,35 +4486,23 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
         // player tuned the koto, not how well: one well-tuned koto takes the
         // mean (2026-11-07; a scatter was drawn about it before 0.24.0).
         voice.cents = spec.cents;
-        const bool wound = spec.coreDiameter > 0.0;
-        const double bendingDiameter = wound ? spec.coreDiameter : spec.diameter;
-        const double area = 0.25 * pi * bendingDiameter * bendingDiameter;
-        voice.linearMass = wound ? spec.woundMass : material.density * area;
+        const double area = 0.25 * pi * spec.diameter * spec.diameter;
+        voice.linearMass = material.density * area;
         const double waveSpeed = 2.0 * spec.length * 440.0
             * std::pow(2.0, (spec.midiNote - 69) / 12.0 + spec.cents / 1200.0);
         voice.tension = voice.linearMass * waveSpeed * waveSpeed;
         voice.impedance = std::sqrt(voice.tension * voice.linearMass);
-        const double secondMoment = pi * std::pow(bendingDiameter, 4.0) / 64.0;
-        const double modulus = material.youngModulus + material.modulusPerStress * voice.tension / area;
-        // A wound string's friction acts on its tension's share of each
-        // partial's energy, 1 / (1 + B n^2), as its bending loss acts on the
-        // rest: (delta_W + eta B n^2) / (1 + B n^2) = delta_W + (eta -
-        // delta_W) B n^2 / (1 + B n^2), the constant section taking delta_W
-        // and the bending section eta - delta_W (Acustra's split, after Paté,
-        // Le Carrou and Fabre, JASA 135 (2014) 3045, Sec. III.A).
-        const double constantLoss = material.constantLoss + (wound ? material.windingFriction : 0.0);
-        const double bendingLoss = wound ? std::max(0.0, material.woundBendingLoss - material.windingFriction)
-                                         : material.lossModulus / modulus;
+        const double secondMoment = pi * std::pow(spec.diameter, 4.0) / 64.0;
+        const double modulus = material.youngModulus;
+        const double constantLoss = material.constantLoss;
+        const double bendingLoss = material.lossModulus / modulus;
         // Woodhouse and Lynch-Aird's air damping (Acta Acustica 105 (2019)
         // 516, Equation (13) with their (d + 0.2) correction, d in mm): a
         // loss factor (d + 0.2) 8 sqrt(2) rho_a / (rho d) sqrt(nu / (2 pi f)),
         // so a decay rate pi f eta = airRoot sqrt(f) that rises with the
-        // partial. Valette's law (below) gives every partial the
-        // fundamental's rate.
-        const double airRoot = material.measuredAirDamping
-            ? pi * (spec.diameter * 1.0e3 + 0.2) * 8.0 * std::sqrt(2.0) * airDensity
-                / (material.density * spec.diameter) * std::sqrt(airViscosity / airDensity / (2.0 * pi))
-            : 0.0;
+        // partial.
+        const double airRoot = pi * (spec.diameter * 1.0e3 + 0.2) * 8.0 * std::sqrt(2.0) * airDensity
+            / (material.density * spec.diameter) * std::sqrt(airViscosity / airDensity / (2.0 * pi));
         voice.ji = index;
 
         // Both planes of one stretch of the string, at its tension.
@@ -4531,13 +4519,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             // 13 cents flat. No koto measurement supports it, and Acustra
             // dropped the same correction by ear (Docs/decisions.md,
             // 2026-10-29).
-            // Air damping (Valette, in Mechanics of Musical Instruments,
-            // 1995): R = 2 pi eta + 2 pi d sqrt(pi eta rho f), decay rate
-            // R / (2 mu).
-            const double airResistance = 2.0 * pi * airViscosity
-                + 2.0 * pi * spec.diameter * std::sqrt(pi * airViscosity * airDensity * frequency);
-            const double airDecay = material.measuredAirDamping ? airRoot * std::sqrt(frequency)
-                                                                : airResistance / (2.0 * voice.linearMass);
+            const double airDecay = airRoot * std::sqrt(frequency);
             // The viscous loss at the fundamental goes with the air's in the
             // loop's gain; the section takes its rise above it.
             const double viscousDecay = material.viscousLoss * 4.0 * pi * pi * frequency * frequency;
@@ -4961,12 +4943,12 @@ void AcukotoEngine::updateDamping(int string) noexcept
         // Staccato stops the string with the left hand; its established
         // whole-string stop must not become a soft point contact near a
         // nodal end, which lets the fundamental ring for much longer.
-        if ((voice.plucked || voice.pluckedLeft) && !voice.staccato && realismEnhancements_)
+        if ((voice.plucked || voice.pluckedLeft) && !voice.staccato)
             hand += s.releaseRate;
         else if (voice.pluckedLeft)
-            left += voice.staccato ? handRate(0.0) : s.releaseRate;
+            left += handRate(0.0);
         else
-            rate += voice.plucked ? (voice.staccato ? handRate(0.0) : s.releaseRate) : s.sympathyRate;
+            rate += voice.plucked ? handRate(0.0) : s.sympathyRate;
     }
     // The thumb's hard tsume rest is the existing stop, not the release
     // fingertip's dashpot at this string's previous pluck position.
@@ -4993,16 +4975,6 @@ void AcukotoEngine::updateDamping(int string) noexcept
         left += s.sympathyRate;
     for (Loop* loop : { &voice.leftNormal, &voice.leftParallel })
         loop->setDamping(left > 0.0 ? std::exp(-left * loop->loopDelay / sampleRate_) : 1.0);
-}
-
-void AcukotoEngine::setRealismEnhancements(bool enabled) noexcept
-{
-    if (realismEnhancements_ == enabled)
-        return;
-    realismEnhancements_ = enabled;
-    if (state_)
-        for (int index = 0; index < stringCount_; ++index)
-            state_->strings[static_cast<std::size_t>(index)].dampingDirty = true;
 }
 
 void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
@@ -5817,21 +5789,16 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
                        + 4.0 * pi / 180.0 * deviation(2);
     const double normalShare = std::clamp(std::sin(angle) * std::sin(angle), 0.01, 0.9);
 
-    // Contact width and release time of the technique: a fingertip, a
-    // nail's or a plectrum's edge. A harpist's finger touches at most 2 cm
-    // of string, which Chadefaux et al. find too little to filter the
-    // string and so take the pluck as a point (JASA 131 (2012) 844,
-    // Sec. IV.A.5, Table V); the string leaves the fingertip's edge wrapped
-    // round it only over its kink angle, at most a few hundredths of a
-    // radian, so the finger is a point here too. A harpist's string slips
-    // 0.04 mm along the harder fingertip before it leaves at about 1.5 m/s
-    // (Chadefaux, Le Carrou and Fabre, JASA 133 (2013) 2444); accelerating
-    // evenly, that takes 0.053 ms, the finger's release time constant.
-    // Chosen by ear over the pad's 0.2 mm (0.27 ms) and an authored 0.10 ms
-    // (Docs/decisions.md, 2026-10-28). The nail's and the plectrum's are
-    // authored, of the order of Acustra's (a 0.2 mm edge over a metre or two
-    // per second).
-    double contact = 0.0, release = 0.053e-3;
+    // Contact width and release time of the technique: a fingertip or the
+    // tsume's edge. A harpist's finger touches at most 2 cm of string, which
+    // Chadefaux et al. find too little to filter the string and so take the
+    // pluck as a point (JASA 131 (2012) 844, Sec. IV.A.5, Table V). A
+    // harpist's string slips 0.04 mm along the harder fingertip edge before
+    // it leaves at about 1.5 m/s (Chadefaux, Le Carrou and Fabre, JASA 133
+    // (2013) 2444), 0.053 ms accelerating evenly, the release the lyre this
+    // engine comes from took by ear (Aculyre's Docs/decisions.md,
+    // 2026-10-28).
+    double contact = 0.0, release = 0.0;
     switch (technique)
     {
         // A bare finger on a koto string is the pad, not a harpist's
@@ -5839,12 +5806,11 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         // figure in Chadefaux, Le Carrou and Fabre 2013) across an estimated
         // 8 mm of flesh.
         case Technique::Finger: contact = 0.008; release = 0.27e-3; break;
-        case Technique::Nail: contact = 0.0012; release = 0.035e-3; break;
         // The tsume's rounded ivory edge: an estimated 2 mm. Its release is
         // fitted with the pluck's distance from the ryukaku (AcukotoPresets.h)
         // to the first 60 ms of 724 isolated notes in eight professional koto
         // recordings (Docs/validation/attack-comparison-2026-10-30.md): 0.03
-        // ms, a little quicker than off a nail (0.035 ms), as off a hard edge.
+        // ms, as off a hard edge.
         // It was 0.10 until 0.8.0, when the walls' highs, radiated too
         // strongly, had stood in for a quicker release.
         case Technique::Plectrum: contact = 0.002; release = 0.03e-3; break;
@@ -5872,7 +5838,6 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         contact = cornerContact;
     release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
              * std::exp(0.2 * deviation(3));
-    if (realismEnhancements_)
     {
         const double pRef = std::clamp(1.0 - controls.pluckDistance / measuredOn, 0.5, 0.98);
         const double refCompliance = std::max(1.0e-4, pRef * (1.0 - pRef));
@@ -6544,8 +6509,7 @@ AcukotoEngine::StringReport AcukotoEngine::stringReport(int string) const noexce
     report.tension = voice.tension;
     report.impedance = voice.impedance;
     report.inharmonicity = voice.inharmonicity;
-    const double carrying = spec.coreDiameter > 0.0 ? spec.coreDiameter : spec.diameter;
-    report.stress = voice.tension / (0.25 * pi * carrying * carrying);
+    report.stress = voice.tension / (0.25 * pi * spec.diameter * spec.diameter);
     report.intrinsicT60 = voice.intrinsicT60;
     report.dispersion = voice.normal.dispersion;
     report.dispersionStages = voice.normal.dispersionStages;

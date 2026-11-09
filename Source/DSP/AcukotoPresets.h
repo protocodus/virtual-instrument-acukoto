@@ -52,7 +52,7 @@ namespace acukoto
 // 4.15 GPa, and so glided two thirds as far.
 constexpr StringMaterial silkFor() noexcept
 {
-    StringMaterial material { "silk", 1330.0, 4.15e9, 0.0, 1.0 / 20000.0, 0.008e9, true };
+    StringMaterial material { "silk", 1330.0, 4.15e9, 1.0 / 20000.0, 0.008e9 };
     material.axialModulus = 7.0e9 * 0.8830222215594891;  // cos^2(20 degrees)
     // The highs of a silk string die faster than its bending and air losses
     // allow. In four professional recordings (Rokudan, Godanginuta, Kudan

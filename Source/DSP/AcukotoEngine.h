@@ -37,24 +37,12 @@ struct StringMaterial
 {
     const char* name;
     double density;       // kg/m^3
-    // Young's modulus at the string's stress sigma (Pa), E' = youngModulus
-    // + modulusPerStress * sigma: polymer strings stiffen under tension.
     double youngModulus;  // Pa
-    double modulusPerStress;
-    // Loss angle constant over the audio band: dislocation in steel
-    // (constantLossSection).
+    // Loss angle constant over the audio band (constantLossSection).
     double constantLoss;
     // Loss modulus E'' of the bending stiffness, EI(1 + i E''/E')
     // (bendingLossSection).
     double lossModulus;   // Pa
-    // Air damping by Woodhouse and Lynch-Aird's fit to measured polymer and
-    // gut strings rather than Valette's law.
-    bool measuredAirDamping;
-    // A wound string's dry friction between its turns, a constant loss angle
-    // on its tension, and its bending loss factor in place of the plain
-    // wire's E''/E' (AcukotoEngine::setInstrument).
-    double windingFriction { 0.0 };
-    double woundBendingLoss { 0.0 };
     // Young's modulus along the string, which its stretch under a wave (the
     // pitch glide) takes; zero for youngModulus. A twisted bundle stretches
     // as its filaments do but bends as though they slide, so the two differ.
@@ -74,11 +62,6 @@ struct StringSpec
     // The player's force on this string as a share of the instrument's
     // pluckForce: an even touch by the microphones (AcukotoPresets.h).
     double touch { 1.0 };
-    // A wound string: its maker's unit weight (kg/m), and the core diameter
-    // (m) that sets its bending stiffness and carries its tension, the wrap
-    // adding mass but almost no stiffness. Zero for plain wire.
-    double woundMass { 0.0 };
-    double coreDiameter { 0.0 };
     // How the player tunes it by ear: cents from the equal-tempered note,
     // and the spread of that among players (a standard deviation). The
     // engine tunes to the mean; the spread documents the measurement and
@@ -144,7 +127,6 @@ struct BodySpec
 enum class Technique
 {
     Finger,
-    Nail,
     Plectrum
 };
 
@@ -254,8 +236,6 @@ public:
     [[nodiscard]] const PlayingControls& controls() const noexcept { return controls_; }
     // Ablation for listening: the hard pluck's pitch glide.
     void setTensionModulation(bool enabled) noexcept { tensionModulation_ = enabled; }
-    void setRealismEnhancements(bool enabled) noexcept;
-    [[nodiscard]] bool realismEnhancements() const noexcept { return realismEnhancements_; }
 
     void process(float* left, float* right, int numSamples) noexcept;
 
@@ -371,7 +351,6 @@ private:
     double sampleRate_ { 48000.0 };
     int stringCount_ { 0 };
     bool tensionModulation_ { true };
-    bool realismEnhancements_ { true };
 };
 
 } // namespace acukoto

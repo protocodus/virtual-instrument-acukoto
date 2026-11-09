@@ -2,7 +2,7 @@
 // stage to a 48 kHz 24-bit stereo WAV.
 //
 //   RenderAcukotoPhrase <preset> <script.txt> <output.wav>
-//       [--technique finger|nail|plectrum] [--distance m] [--room 0-1]
+//       [--technique finger|plectrum] [--distance m] [--room 0-1]
 //       [--release 0-1] [--rms dBFS] [--tail s] [--rate hz]
 //
 // A script line is `<seconds> <command> <arguments>`, '#' starts a comment:
@@ -122,8 +122,7 @@ int main(int argc, char** argv)
         {
             const std::string option = argv[i], value = argv[i + 1];
             if (option == "--technique")
-                controls.technique = value == "finger" ? acukoto::Technique::Finger
-                                   : value == "nail" ? acukoto::Technique::Nail : acukoto::Technique::Plectrum;
+                controls.technique = value == "finger" ? acukoto::Technique::Finger : acukoto::Technique::Plectrum;
             else if (option == "--distance") controls.pluckDistance = std::atof(value.c_str());
             else if (option == "--room") controls.room = std::atof(value.c_str());
             else if (option == "--release") controls.release = std::atof(value.c_str());
