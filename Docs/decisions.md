@@ -8,6 +8,35 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-09 — The box bends and twists as paulownia does along the grain
+
+What was decided: how much the box loses as it bends and twists, the Q of
+its lowest structural modes (`boxQ`). Both candidates rest on Coaldrake's
+measured paulownia (JASA 148 (2020) 3153, Table I) and neither is a
+measurement of a koto's box:
+
+- **A**, the shipping engine: Q 60, an estimate that adds loss for the glued
+  box, its back board, its joints and its rests.
+- **B**: Q 140, paulownia's own Q along the grain with nothing added for
+  joints, the principle the walls already follow across the grain (`woodQ`,
+  2026-10-29 and 2026-11-07).
+
+The measurements did not choose between them. G3, on the box's 195 Hz twist,
+loses its fundamental 2.9 times as fast as the 35 recorded G3s with A and
+2.0 times with B; pooled over the strings, the decay of partials 1-8 sits a
+mean 0.37 (A) and 0.30 (B) log2 from the five professional recordings', and
+0.18 and 0.17 from the four JpnMusic recordings alone
+([measurements](validation/pluck-scatter-and-coupling-2026-11-09.md#low-strings-fast-fading-fundamentals-a-listening-test)).
+The owner heard the low strings alone and in a slow line to an awase on D3
+and D4, and the README's Koto Hirajoshi demo, through `RenderAcukotoMidi`
+(A untouched, B trimmed -0.33 and -0.23 dB to A's whole-file RMS; not
+committed), and chose **B** by ear.
+
+That licenses Q 140 for the box, from 0.25.6, with the strikes' and keys'
+touches re-levelled by `AcukotoLevels`. It does not make 140 a koto's
+measured loss: what the joints add is still unmeasured, and G3's
+fundamental still dies twice as fast as recorded (README, Known gaps).
+
 ## 2026-11-08 — owner accepts the physical-model review candidates
 
 The owner instructed: “use all candidates” after receiving the private

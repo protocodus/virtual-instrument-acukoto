@@ -1,6 +1,6 @@
 # Pluck scatter, body-coupling CPU and keyboard survey — 2026-11-09
 
-Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Five commits change the source:
+Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Six commits change the source:
 
 | Commit | Change | Output |
 | --- | --- | --- |
@@ -9,6 +9,7 @@ Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Five commits change the source:
 | `9e75dc7` | Wider AVX2 body-coupling blocks, AVX2 junction product | byte-identical |
 | `bb5c868` | Removes `ChordProbe.cpp`, a scratch probe committed at the root that no target builds | none |
 | `96daaf5` | Removes the unused one-argument `Loop::lineDelayAt` (Clang's `-Wunused-member-function`) | byte-identical |
+| `14c5047` | The box bends and twists with paulownia's own Q along the grain, 140, chosen by ear; the strikes and keys re-levelled | audible |
 
 GCC 13.3, Release (`-O3`), on a shared 4-vCPU Intel Xeon @ 2.10 GHz
 container (48 KB L1d, 2 MB L2 per core). Development-machine figures only,
@@ -149,8 +150,12 @@ paulownia's own measured Q across the grain with nothing added for joints
 the grain at Q 140 (JASA 148 (2020) 3153, Table I), so 140 is the walls'
 principle applied to the box. At 140, G3's fundamental falls 24 dB/s
 instead of 40, F♯3 (a moved ji's key) 25.7 instead of 21.7 and F♯5 64
-instead of 75; the other keys move within 1 dB/s and their levels within
-0.6 dB (velocity 0.7, both presets). The same value was probed once, in
+instead of 75 (velocity 0.7, both presets). The keys' levels move by at
+most 0.8 dB, but their decays move more than the A/B's key said: about
+twenty pitched keys by over 1 dB/s, most by 2-9 dB/s either way as they
+fall on or off a box mode that is now narrower, and the artificial key
+G7 (103) on Hirajoshi by −18. The key gave the other keys as within
+1 dB/s; that was wrong, a reading of the open strings alone. The same value was probed once, in
 0.8.0, and slowed G3's fundamental without bringing it to the recordings'
 ([attack comparison](attack-comparison-2026-10-30.md)); it was not heard
 then.
@@ -171,5 +176,37 @@ recordings alone). The fundamentals' median balance moves 0.1 dB.
 That is audible and the physics does not choose between the two pinnings,
 so it went to the owner as a lettered A/B (A: shipping; key withheld from
 the files), rendered through `RenderAcukotoMidi` and level-matched on
-whole-file RMS. It is not committed, and nothing ships from it until the
-owner chooses; `Docs/decisions.md` records the verdict then.
+whole-file RMS (B trimmed −0.33 and −0.23 dB to A), not committed. The
+owner chose **B** by ear, and it ships in 0.25.6 (`Docs/decisions.md`,
+2026-11-09).
+
+### What shipped
+
+`14c5047` sets the box's Q to 140 and re-levels it. The strings' touches
+still hold (within 0.38 dB of their intended levels). The strikes, which
+drive the box hardest, came out up to 1.33 dB over theirs, so their shared
+touches take the mean in dB of what each preset's `AcukotoLevels` asks
+(within 0.39 dB on both presets now), and `--write-keys` re-wrote the key
+touches (a second run writes the same table). `Acukoto.Levels` and the
+unit and audio tiers pass, the perf tier too.
+
+The survey at all three velocities on both presets, against the 0.25.6
+engine before this:
+
+- Levels: the pitched keys move by at most 0.79 dB (D3, at 0.3) and span
+  2.74 and 2.78 dB at velocity 0.7, the strings 0.98 dB; no key is a level
+  outlier at 0.7 or 1.0.
+- Decay outliers: F♯3 (54) 25.7 dB/s, G3 (55) 24.0, D4 (62) 3.7-3.9 slow,
+  F♯5 (78) 64, as above, and two keys newly over the line: C5 (72) on
+  Hirajoshi at 40.9 against its neighbours' 24.6, and C♯5 (73) on
+  Hankumoijoshi at 41.5 against 25.5. C5 crosses by its own rise of
+  3.7 dB/s, C♯5, which moved −1.2, because its neighbours B♭4 and C5
+  slowed by 11 and 5. C5's fit residual is 5.1 dB (6.1 before), a beat, so
+  its slope is local.
+- G3's fundamental now beats rather than decays: its fit residual rose from
+  2.1 to 6.2 dB, the string and the less damped twist trading energy, so
+  its 24 dB/s is a local slope too. Against the recordings it dies 2.0
+  times as fast as theirs, measured over a whole note (above).
+- Every sample is finite. The body strikes' native peaks at velocity 1.0
+  reach 1.73 and 1.76 before the output stage (1.78 and 1.77 before), and
+  the Performer's limiter holds them.
