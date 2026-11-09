@@ -11,6 +11,12 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+- **0.25.10** (local candidate): no subnormal number reaches the engine's arithmetic, whatever the host does about them. A soft high note dying away could square a string's last motion into the subnormal range on its way to the running energy that drives tension modulation, where every later sample paid for it. `Acukoto.Subnormals` plays a damped string beside a ringing one, a release into sleep, a soft high note and a tuning switch with the flush-to-zero modes off, and finds the processor's denormal and underflow flags clear. The output is the same to the bit.
+
+- **0.25.9** (local candidate): a pluck costs its block less. The string's shape under the tsume asks `erfc` and `exp` only within 8.5 contact widths of the pluck, where before every cell of the string asked (about 2600 library calls for the lowest string, and real calls in Reason's build): a note-on takes 20 µs on average where it took 27 on the development machine. The output is the same to the bit.
+
+- **0.25.8** (local candidate): on CPUs with AVX2 and FMA3 the body's modes are stepped and their radiation summed in one pass: 8% fewer instructions per sample on a dense phrase (15,235 to 13,963), and the output moves by rounding only, 165 dB under the signal. Reason's build does not use this kernel. [Measurements](Docs/benchmarks/cpu-consolidation-2026-11-09.md).
+
 - **0.25.7** (local candidate): on CPUs with AVX2 and FMA3 the body's modes, the junction and the strings' filters use fused multiply-adds: playing takes 12-24% less CPU per block on the development machine, and the output moves by rounding only, 135 dB or more under the signal. [Measurements](Docs/benchmarks/cpu-fma-2026-11-09.md).
 
 - **0.25.6** (local candidate): a pluck that strays harder now also slips off the tsume faster, so it sounds brighter: repeated notes' brightness follows their strength, and their release times scatter by 25% as one harpist's measured plucks do, where before they scattered by 20% whatever the strength. The box bends and twists with paulownia's own loss along the grain, chosen by ear: G3's fundamental, on the box's twist, fades at 24 dB/s where it faded at 40, and the strikes and keys are re-levelled to it. The body's modal step takes 11% less CPU on its own, with the same output to the bit. [Validation](Docs/validation/pluck-scatter-and-coupling-2026-11-09.md).
