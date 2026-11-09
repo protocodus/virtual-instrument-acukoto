@@ -1036,7 +1036,12 @@ struct UnitDcSection
 // bends up to 3 cents off between them, and extrapolation past +2 left an
 // octave up on G3 59 cents flat.
 constexpr int bendStepsPerSemitone = 4;
-constexpr int bendPoints = 24 * bendStepsPerSemitone + 1;
+constexpr int bendPoints = 28 * bendStepsPerSemitone + 1;
+// One explicit line sample plus a strictly positive first-order fraction.
+// This is a numerical causality guard, not the tuning solution.
+constexpr double minimumLineDelay = 1.0 + 1.0e-6;
+// Quarter-semitone grid covers -12 master tuning through +12 master +3
+// hand pressure, with another semitone for the physical tension glide.
 // 2^((k - 48) / 48), as std::pow gives them. A literal, because the Rack
 // SDK refuses any global that needs code to initialise it.
 constexpr std::array<double, bendPoints> bendRatios {
@@ -1072,7 +1077,13 @@ constexpr std::array<double, bendPoints> bendRatios {
     1.7562521603732995, 1.7817974362806785, 1.8077142767822019,
     1.8340080864093424, 1.8606843483042932, 1.8877486253633868,
     1.9152065613971474, 1.9430638823072117, 1.9713263972803752,
-    2.0
+    2.0,
+    2.029090669875047, 2.058604473286984, 2.0885475648548275,
+    2.1189261887185906, 2.149746679841393, 2.1810154653305154,
+    2.2127390657776664, 2.244924096618746, 2.277577269513383,
+    2.310705393744546, 2.344315377638503, 2.378414230005442,
+    2.4130090616010436, 2.4481070866093106, 2.483715624146968,
+    2.5198420997897464
 };
 constexpr bool bendRatiosOnGrid() noexcept
 {
@@ -1082,16 +1093,19 @@ constexpr bool bendRatiosOnGrid() noexcept
         if (step > 1.0e-15 || step < -1.0e-15)
             return false;
     }
-    return bendRatios[0] == 0.5 && bendRatios[bendPoints / 2] == 1.0 && bendRatios[bendPoints - 1] == 2.0;
+    return bendRatios[0] == 0.5 && bendRatios[48] == 1.0 && bendRatios[96] == 2.0;
 }
-static_assert(bendRatiosOnGrid(), "bendRatios steps by a quarter semitone from -12 to +12");
+static_assert(bendRatiosOnGrid(), "bendRatios steps by a quarter semitone from -12 to +16");
 
 // The line's whole samples for a delay of `samples`, leaving the Thiran
 // section a fraction in [1.3, 2.3): about 2, where the section is a pure
-// delay at every frequency (Loop::setLineDelay).
+// delay at every frequency (Loop::setLineDelay). Below eight samples use
+// (1, 2], joining adjacent taps through exact integer delays. The ordinary
+// 1.3/2.3 tap switch has a substantial phase gap near Nyquist.
 int wholeFor(double samples) noexcept
 {
-    return static_cast<int>(fastFloor(samples - 1.3));
+    return samples < 8.0 ? std::max(1, static_cast<int>(std::ceil(samples - 2.0)))
+                         : static_cast<int>(fastFloor(samples - 1.3));
 }
 
 // What sets one polarisation's pitch: its frequency, its filters and the
@@ -1139,6 +1153,7 @@ struct Loop
     int whole { 64 };
     int pendingAhead { 0 };
     int handOut { 0 }, handBack { 0 };
+    bool firstOrder { false };
     double handOutAlpha { 0.0 }, handBackAlpha { 0.0 };
     double handShare { 0.0 };
     double fraction { 0.0 };
@@ -1225,9 +1240,10 @@ struct Loop
         // The supported key/rate/bend range fits. Keep a future/custom
         // design beyond that range from turning a capped integer tap into
         // an enormous (and unstable) Thiran fraction.
-        samples = std::min(samples, static_cast<double>(delayCapacity - 6));
+        samples = std::clamp(samples, minimumLineDelay, static_cast<double>(delayCapacity - 6));
+        const bool useFirstOrder = samples <= 2.0;
         const double current = samples - whole;
-        if (current >= 1.1 && current < 2.3)
+        if (samples >= 8.0 && !firstOrder && current >= 1.1 && current < 2.3)
         {
             if (current == fraction)
                 return;
@@ -1235,12 +1251,28 @@ struct Loop
         }
         else
         {
-            whole = std::clamp(wholeFor(samples), 1, delayCapacity - 8);
-            tx1 = line[static_cast<std::size_t>((write - 1 - whole) & (delayCapacity - 1))];
-            tx2 = line[static_cast<std::size_t>((write - 2 - whole) & (delayCapacity - 1))];
+            const int nextWhole = std::clamp(wholeFor(samples), 1, delayCapacity - 8);
+            if (nextWhole == whole && current == fraction && useFirstOrder == firstOrder)
+                return;
+            if (nextWhole != whole)
+            {
+                whole = nextWhole;
+                tx1 = line[static_cast<std::size_t>((write - 1 - whole) & (delayCapacity - 1))];
+                tx2 = line[static_cast<std::size_t>((write - 2 - whole) & (delayCapacity - 1))];
+            }
             fraction = samples - whole;
         }
-        thiranCoefficients(fraction, thiranA1, thiranA2);
+        firstOrder = useFirstOrder;
+        // A second-order Thiran is stable only for D > 1. With a single
+        // explicit line sample, the highest supported notes need D < 1;
+        // the first-order section realizes a stable allpass for that delay.
+        if (firstOrder)
+        {
+            thiranA1 = (1.0 - fraction) / (1.0 + fraction);
+            thiranA2 = 0.0;
+        }
+        else
+            thiranCoefficients(fraction, thiranA1, thiranA2);
     }
 
 #if defined(__clang__) || defined(__GNUC__)
@@ -1263,7 +1295,19 @@ struct Loop
         const Double2 tx2 { a.tx2, b.tx2 };
         const Double2 ty1 { a.ty1, b.ty1 };
         const Double2 ty2 { a.ty2, b.ty2 };
-        Double2 y = a2 * x + a1 * tx1 + tx2 - a1 * ty1 - a2 * ty2;
+        Double2 y;
+        if (!a.firstOrder && !b.firstOrder)
+            y = a2 * x + a1 * tx1 + tx2 - a1 * ty1 - a2 * ty2;
+        else if (a.firstOrder && b.firstOrder)
+            y = a1 * x + tx1 - a1 * ty1;
+        else
+        {
+            for (int lane = 0; lane < 2; ++lane)
+                y[lane] = (lane == 0 ? a.firstOrder : b.firstOrder)
+                    ? a1[lane] * x[lane] + tx1[lane] - a1[lane] * ty1[lane]
+                    : a2[lane] * x[lane] + a1[lane] * tx1[lane] + tx2[lane]
+                        - a1[lane] * ty1[lane] - a2[lane] * ty2[lane];
+        }
         a.tx2 = tx1[0];
         b.tx2 = tx1[1];
         a.tx1 = x[0];
@@ -1351,7 +1395,8 @@ struct Loop
     double read() noexcept
     {
         const double x = line[static_cast<std::size_t>((write - whole) & (delayCapacity - 1))];
-        double y = thiranA2 * x + thiranA1 * tx1 + tx2 - thiranA1 * ty1 - thiranA2 * ty2;
+        double y = firstOrder ? thiranA1 * x + tx1 - thiranA1 * ty1
+                              : thiranA2 * x + thiranA1 * tx1 + tx2 - thiranA1 * ty1 - thiranA2 * ty2;
         tx2 = tx1;
         tx1 = x;
         ty2 = ty1;
@@ -4703,15 +4748,20 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                 const int whole = wholeFor(lineDelay);
                 const double fraction = lineDelay - whole;
                 double t1 = 0.0, t2 = 0.0;
-                thiranCoefficients(fraction, t1, t2);
-                return omega * whole + allpassLag(2, t1, t2, omega) + loop.filterLag(omega) - lead;
+                const int order = lineDelay <= 2.0 ? 1 : 2;
+                if (order == 1)
+                    t1 = (1.0 - fraction) / (1.0 + fraction);
+                else
+                    thiranCoefficients(fraction, t1, t2);
+                return omega * whole + allpassLag(order, t1, t2, omega) + loop.filterLag(omega) - lead;
             };
             const double omega0 = 2.0 * pi * f0 / fs;
             const auto lead0 = reflectionLeads(f0);
             for (int plane = 0; plane < 2; ++plane)
             {
                 LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
-                double lower = 6.0, upper = delayCapacity - 16.0;
+                double lower = lagAt(loop, omega0, 6.0, lead0[static_cast<std::size_t>(plane)]) < 2.0 * pi ? 6.0 : minimumLineDelay;
+                double upper = delayCapacity - 16.0;
                 for (int iteration = 0; iteration < 60; ++iteration)
                 {
                     const double middle = 0.5 * (lower + upper);
@@ -4731,6 +4781,25 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                     LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
                     loop.lagCycles[k] = (lagAt(loop, omega, loop.restLineDelay, lead[static_cast<std::size_t>(plane)])
                                          - omega * loop.restLineDelay) / (2.0 * pi);
+                    const double estimated = (1.0 - loop.lagCycles[k]) * loop.loopDelay / bendRatios[k];
+                    if (estimated < 8.0
+                        && lagAt(loop, omega, 8.0, lead[static_cast<std::size_t>(plane)]) >= 2.0 * pi)
+                    {
+                        // Near Nyquist the interpolator's phase depends strongly
+                        // on its own fractional delay. Solve that actual section,
+                        // rather than scaling the phase measured at the rest tap.
+                        double lower = minimumLineDelay, upper = 8.0;
+                        for (int iteration = 0; iteration < 60; ++iteration)
+                        {
+                            const double middle = 0.5 * (lower + upper);
+                            if (lagAt(loop, omega, middle, lead[static_cast<std::size_t>(plane)]) < 2.0 * pi)
+                                lower = middle;
+                            else
+                                upper = middle;
+                        }
+                        const double line = 0.5 * (lower + upper);
+                        loop.lagCycles[k] = 1.0 - line * bendRatios[k] / loop.loopDelay;
+                    }
                 }
             }
         };

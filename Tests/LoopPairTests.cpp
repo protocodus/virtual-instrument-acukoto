@@ -30,6 +30,7 @@ bool sameLoss(const acukoto::UnitDcSection& a, const acukoto::UnitDcSection& b)
 bool sameHistory(const acukoto::Loop& a, const acukoto::Loop& b)
 {
     return a.write == b.write && a.whole == b.whole
+        && a.firstOrder == b.firstOrder
         && a.pendingAhead == b.pendingAhead
         && same(a.fraction, b.fraction)
         && same(a.thiranA1, b.thiranA1) && same(a.thiranA2, b.thiranA2)
@@ -93,13 +94,18 @@ void seed(acukoto::Loop& loop, int lane, int configuration)
             = static_cast<float>((k % 9) - 4) / 256.0f;
 }
 
-void exercise(int configuration)
+void exercise(int configuration, bool shortLines)
 {
     // Delay buffers are large; the production engine also keeps them off-stack.
     auto scalar = std::make_unique<std::array<acukoto::Loop, 2>>();
     auto paired = std::make_unique<std::array<acukoto::Loop, 2>>();
     seed((*scalar)[0], 0, configuration);
     seed((*scalar)[1], 1, configuration);
+    if (shortLines)
+    {
+        (*scalar)[0].setLineDelay(1.4);
+        (*scalar)[1].setLineDelay(2.1);
+    }
     *paired = *scalar;
     bool okay = true;
     int sample = 0;
@@ -114,6 +120,10 @@ void exercise(int configuration)
                 for (int lane = 0; lane < 2; ++lane)
                     (*loops)[static_cast<std::size_t>(lane)].setLineDelay(
                         (lane == 0 ? 73.25 : 81.875) + (sample == 93 ? 0.03125 : (sample == 251 ? 2.5 : -1.25)));
+            if (shortLines && sample % 31 == 0)
+                for (int lane = 0; lane < 2; ++lane)
+                    (*loops)[static_cast<std::size_t>(lane)].setLineDelay(
+                        1.01 + ((sample / 31 + lane * 3) % 17) * 0.45);
             if (sample == 137)
             {
                 // The other plane receives a new excitation while its partner
@@ -157,12 +167,56 @@ void exercise(int configuration)
         ++failures;
     }
 }
+
+void stableShortDelays()
+{
+    auto loop = std::make_unique<acukoto::Loop>();
+    for (double delay : {acukoto::minimumLineDelay, 1.01, 1.2, 1.999999, 2.0, std::nextafter(2.0, 3.0), 2.000001, 2.9, 3.0, std::nextafter(3.0, 4.0), 3.000001,
+                         4.0, 5.0, 6.0, 7.999999, 8.0, 8.000001})
+    {
+        loop->setLineDelay(delay);
+        const std::complex<double> discriminant = std::sqrt(std::complex<double>(
+            loop->thiranA1 * loop->thiranA1 - 4.0 * loop->thiranA2, 0.0));
+        const double pole = loop->firstOrder ? std::abs(loop->thiranA1)
+            : std::max(std::abs((-loop->thiranA1 + discriminant) * 0.5),
+                       std::abs((-loop->thiranA1 - discriminant) * 0.5));
+        if (!(pole < 1.0))
+        {
+            std::fprintf(stderr, "FAIL delay %.9g pole %.17g\n", delay, pole);
+            ++failures;
+        }
+    }
+    const auto response = [&] (double delay, double omega)
+    {
+        loop->setLineDelay(delay);
+        const auto z = std::polar(1.0, -omega);
+        const auto section = loop->firstOrder
+            ? (loop->thiranA1 + z) / (1.0 + loop->thiranA1 * z)
+            : (loop->thiranA2 + loop->thiranA1 * z + z * z)
+                / (1.0 + loop->thiranA1 * z + loop->thiranA2 * z * z);
+        return std::pow(z, loop->whole) * section;
+    };
+    for (double boundary : {2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0})
+        for (double omega : {0.2, 1.5, 2.8, 3.0})
+        {
+            const auto below = response(boundary - 1.0e-7, omega);
+            const auto above = response(boundary + 1.0e-7, omega);
+            if (std::abs(below - above) > 1.0e-4
+                || std::abs(std::abs(below) - 1.0) > 1.0e-10)
+            {
+                std::fprintf(stderr, "FAIL short-delay phase boundary %.1f omega %.1f\n", boundary, omega);
+                ++failures;
+            }
+        }
+}
 }
 
 int main()
 {
+    stableShortDelays();
     for (int configuration = 0; configuration < 4; ++configuration)
-        exercise(configuration);
+        for (bool shortLines : {false, true})
+            exercise(configuration, shortLines);
     if (failures == 0)
         std::puts("Acukoto.LoopPair: exact scalar/paired histories, independent delays and pending waves, loss, dispersion, mute, damping ramps, cursor wrap and reset");
     return failures == 0 ? 0 : 1;

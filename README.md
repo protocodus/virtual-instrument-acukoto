@@ -11,7 +11,7 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
-- **0.25.5** (local candidate): octave harmonics remove the unwanted fundamental more cleanly, including short keyboard-extension strings; broad plucks keep both string ends fixed. Retriggered tremolos keep one hand at the latest velocity, overlapping delayed strokes consume one key-up each, and Release and Staccato now stop the played stretch left of the ji. Ordinary calibrated plucks remain effectively unchanged. [Review and validation](Docs/validation/realism-review-2026-11-09.md).
+- **0.25.5** (local candidate): octave harmonics remove the unwanted fundamental more cleanly, including short keyboard-extension strings; broad plucks keep both string ends fixed. Retriggered tremolos keep one hand at the latest velocity, overlapping delayed strokes consume one key-up each, and Release and Staccato now stop the played stretch left of the ji. The highest bent keys now use stable, correctly tuned interpolation at low sample rates. Ordinary calibrated plucks remain effectively unchanged; exact AVX2 radiation sums use less CPU. [Review and validation](Docs/validation/realism-review-2026-11-09.md).
 
 - **0.25.4** (local candidate): less CPU on Apple silicon through paired string filters and vectorized body coupling, with unchanged resonances and output quality. Released hand contacts now follow bent strings; thumb rests and staccato regain their firm stopping action. [Validation and measurements](Docs/validation/cpu-and-hand-contact-2026-11-08.md).
 

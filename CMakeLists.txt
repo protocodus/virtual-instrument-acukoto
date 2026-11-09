@@ -128,6 +128,11 @@ if(BUILD_TESTING)
     add_test(NAME Acukoto.PlayingOwnership COMMAND AcukotoPlayingOwnershipTests)
     set_tests_properties(Acukoto.PlayingOwnership PROPERTIES TIMEOUT 120)
 
+    add_executable(AcukotoRangeSafetyTests Tests/RangeSafetyTests.cpp)
+    target_link_libraries(AcukotoRangeSafetyTests PRIVATE AcukotoDSP)
+    add_test(NAME Acukoto.RangeSafety COMMAND AcukotoRangeSafetyTests)
+    set_tests_properties(Acukoto.RangeSafety PROPERTIES TIMEOUT 180)
+
     add_executable(AcukotoPluckShapeTests Tests/PluckShapeTests.cpp)
     target_include_directories(AcukotoPluckShapeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
     add_test(NAME Acukoto.PluckShape COMMAND AcukotoPluckShapeTests)
