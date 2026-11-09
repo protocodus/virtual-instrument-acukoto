@@ -350,10 +350,11 @@ public:
 
 private:
     struct State;
-    void applyPitch(int string, bool raised, int extensionKey = -1) noexcept;
+    void applyPitch(int string, int extensionKey = -1) noexcept;
     void pluck(int index, int midiNote, float velocity, int style) noexcept;
     void startNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
     void playNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
+    void releaseStringKey(int index) noexcept;
     void techniqueKey(int key, float velocity) noexcept;
     void strokeString(int string, float velocity, int style) noexcept;
     void startScrape(bool suri, float velocity) noexcept;

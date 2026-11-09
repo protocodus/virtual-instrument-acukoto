@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.25.4 LANGUAGES CXX)
+project(Acukoto VERSION 0.25.5 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -37,6 +37,7 @@ set(ACUKOTO_DSP_SOURCES
 add_library(AcukotoDSP STATIC
     ${ACUKOTO_DSP_SOURCES}
     Source/DSP/AcukotoEngine.h
+    Source/DSP/PluckShape.h
     Source/DSP/AcukotoPerformer.h
     Source/DSP/AcukotoPresets.h
     Source/DSP/OutputStage.h)
@@ -88,6 +89,9 @@ if(ACUKOTO_BUILD_TOOLS)
     add_executable(AcukotoCpuProbe Tools/MeasureCpu.cpp)
     target_link_libraries(AcukotoCpuProbe PRIVATE AcukotoDSP)
 
+    add_executable(AcukotoKeyboardSurvey Tools/KeyboardSurvey.cpp)
+    target_link_libraries(AcukotoKeyboardSurvey PRIVATE AcukotoDSP)
+
     # Setup-only acoustic power observer. Compiles its own engine with the
     # observation hook; the normal DSP target has no diagnostic overhead.
     add_executable(AcukotoAcousticPower Tools/AuditAcousticPower.cpp Source/DSP/AcukotoEngine.cpp)
@@ -118,6 +122,15 @@ if(BUILD_TESTING)
     target_link_libraries(AcukotoEngineTests PRIVATE AcukotoDSP)
     add_test(NAME Acukoto.Engine COMMAND AcukotoEngineTests)
     set_tests_properties(Acukoto.Engine PROPERTIES TIMEOUT 600)
+
+    add_executable(AcukotoPlayingOwnershipTests Tests/PlayingOwnershipTests.cpp)
+    target_link_libraries(AcukotoPlayingOwnershipTests PRIVATE AcukotoDSP)
+    add_test(NAME Acukoto.PlayingOwnership COMMAND AcukotoPlayingOwnershipTests)
+    set_tests_properties(Acukoto.PlayingOwnership PROPERTIES TIMEOUT 120)
+
+    add_executable(AcukotoPluckShapeTests Tests/PluckShapeTests.cpp)
+    target_include_directories(AcukotoPluckShapeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.PluckShape COMMAND AcukotoPluckShapeTests)
 
     # Offline-only port/work instrumentation: no per-sample diagnostic sums
     # or observer fields in the production DSP library or Rack build.
