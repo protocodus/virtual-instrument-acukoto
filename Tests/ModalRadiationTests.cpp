@@ -1,8 +1,12 @@
 // AVX radiation fusion must retain the portable bank's exact output bits.
 // Exercise cancellation, wide magnitude ranges, zero/padded banks and every
 // common bank size, independently of a musical signal's level or audibility.
+// The whole AVX modal step (its drive and pull blocks, with and without a
+// hand's strike) and the junction's matrix products must match the portable
+// ones bit for bit at every bank size, over steps whose states evolve.
 #include "EngineTestImplementation.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -51,6 +55,79 @@ int main()
             ++cases;
         }
     std::printf("modal radiation: %d banks match portable lane reductions bit for bit\n", cases);
+
+    auto portable = std::make_unique<acukoto::ModeBank>();
+    std::array<float, acukoto::ModeBank::capacity> shape {};
+    int steps = 0;
+    for (int count = acukoto::ModeBank::lanes; count <= acukoto::ModeBank::capacity; count += acukoto::ModeBank::lanes)
+        for (int struck = 0; struck < 2; ++struck)
+        {
+            *bank = {};
+            bank->count = count;
+            for (int k = 0; k < count; ++k)
+            {
+                const auto i = static_cast<std::size_t>(k);
+                bank->b0[i] = draw();
+                bank->a1[i] = draw();
+                bank->a2[i] = draw();
+                bank->s1[i] = draw();
+                bank->s2[i] = draw();
+                bank->left[i] = draw();
+                bank->right[i] = draw();
+                bank->leftQuadrature[i] = draw();
+                bank->rightQuadrature[i] = draw();
+                bank->pullState[i] = static_cast<float>(draw());
+                shape[i] = static_cast<float>(draw());
+                for (auto& row : bank->participation)
+                    row[i] = static_cast<float>(draw());
+            }
+            *portable = *bank;
+            for (int step = 0; step < 3; ++step, ++steps)
+            {
+                acukoto::BarVector force {};
+                for (double& f : force)
+                    f = draw();
+                acukoto::StrikeDrive hitA {}, hitB {};
+                if (struck != 0)
+                {
+                    hitA.shape = hitB.shape = shape.data();
+                    hitA.force = hitB.force = draw();
+                }
+                double a[4], b[4];
+                acukoto::BarVector pullA {}, pullB {};
+                acukoto::runModes(*portable, force, hitA, a[0], a[1], a[2], a[3], pullA);
+                acukoto::runModesAvx(*bank, force, hitB, b[0], b[1], b[2], b[3], pullB);
+                if (std::memcmp(a, b, sizeof a) != 0 || std::memcmp(&pullA, &pullB, sizeof pullA) != 0
+                    || hitA.velocity != hitB.velocity
+                    || portable->s1 != bank->s1 || portable->s2 != bank->s2 || portable->y != bank->y
+                    || portable->pullState != bank->pullState || portable->drive != bank->drive)
+                {
+                    std::fprintf(stderr, "FAIL modal step: count %d, struck %d, step %d\n", count, struck, step);
+                    return 1;
+                }
+            }
+        }
+    std::printf("modal step: %d steps match the portable bank bit for bit\n", steps);
+
+    int products = 0;
+    for (int trial = 0; trial < 64; ++trial, ++products)
+    {
+        acukoto::BarMatrix matrix;
+        acukoto::BarVector v {};
+        for (auto& row : matrix.m)
+            for (double& x : row)
+                x = draw();
+        for (double& x : v)
+            x = trial == 0 ? 0.0 : draw();
+        const acukoto::BarVector reference = matrix.transposeApply(v);
+        const acukoto::BarVector actual = acukoto::transposeApplyAvx(matrix, v);
+        if (std::memcmp(&reference, &actual, sizeof reference) != 0)
+        {
+            std::fprintf(stderr, "FAIL junction product: trial %d\n", trial);
+            return 1;
+        }
+    }
+    std::printf("junction product: %d products match the portable sum bit for bit\n", products);
 #endif
     return 0;
 }

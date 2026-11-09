@@ -1993,7 +1993,9 @@ __attribute__((target("avx2,no-fma"))) void radiationSumsAvx(const ModeBank& ban
     leftQuadrature = lq;
     rightQuadrature = rq;
 }
-constexpr int driveBlockAvx = 4 * ModeBank::lanes;
+// 64 modes take eight of the sixteen registers as sums, 32 the rest of
+// the bank before single groups do.
+constexpr int driveBlockAvx = 8 * ModeBank::lanes;
 template <int width>
 __attribute__((target("avx2,no-fma"))) void driveModesAvx(const ModeBank& bank, const float* share, int first, float* drive) noexcept
 {
@@ -2012,7 +2014,9 @@ __attribute__((target("avx2,no-fma"))) void driveModesAvx(const ModeBank& bank, 
 
 // The modes' pull on `coordinates` bar coordinates from `first`: each
 // coordinate's participations times the states, in lanes, then the lanes.
-constexpr std::size_t pullBlockAvx = 6;
+// Nine sums, the state and a product stay in the sixteen registers, so
+// three passes over the bank serve all 26 coordinates; thirteen spill.
+constexpr std::size_t pullBlockAvx = 9;
 template <std::size_t coordinates>
 __attribute__((target("avx2,no-fma"))) void pullOnBarAvx(const ModeBank& bank, std::size_t first, BarVector& pull) noexcept
 {
@@ -2050,6 +2054,11 @@ __attribute__((target("avx2,no-fma"))) void runModesAvx(ModeBank& bank, const Ba
     int first = 0;
     for (; first + driveBlockAvx <= count; first += driveBlockAvx)
         driveModesAvx<driveBlockAvx>(bank, share, first, drive);
+    if (first + driveBlockAvx / 2 <= count)
+    {
+        driveModesAvx<driveBlockAvx / 2>(bank, share, first, drive);
+        first += driveBlockAvx / 2;
+    }
     for (; first < count; first += ModeBank::lanes)
         driveModesAvx<ModeBank::lanes>(bank, share, first, drive);
     if (strike.shape)
@@ -2166,6 +2175,38 @@ struct BarMatrix
 #endif
     }
 };
+
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+BarVector transposeApplyPlain(const BarMatrix& matrix, const BarVector& v) noexcept
+{
+    return matrix.transposeApply(v);
+}
+
+// BarMatrix::transposeApply four outputs to a vector: each output's sum
+// still runs over j in order, with no fused multiply-add, so the result is
+// the same to the bit.
+__attribute__((target("avx2,no-fma"))) BarVector transposeApplyAvx(const BarMatrix& matrix, const BarVector& v) noexcept
+{
+    typedef double V __attribute__((vector_size(32), aligned(8), may_alias));
+    static_assert(alignof(V) == 8, "bar matrices require unaligned SIMD loads");
+    static_assert(barCoordinates % 4 == 2, "the last two outputs take one Double2");
+    constexpr std::size_t wide = barCoordinates / 4;
+    V r[wide] {};
+    Double2 last {};
+    for (std::size_t j = 0; j < barCoordinates; ++j)
+    {
+        const double* row = matrix.m[j].data();
+        const V vj { v[j], v[j], v[j], v[j] };
+        for (std::size_t i = 0; i < wide; ++i)
+            r[i] += *reinterpret_cast<const V*>(row + 4 * i) * vj;
+        last += *reinterpret_cast<const Double2*>(row + 4 * wide) * Double2 { v[j], v[j] };
+    }
+    BarVector out;
+    __builtin_memcpy(out.data(), r, sizeof(r));
+    __builtin_memcpy(out.data() + 4 * wide, &last, sizeof(last));
+    return out;
+}
+#endif
 
 // Gauss-Jordan with partial pivoting (setup only). After column c is
 // eliminated, a's columns up to c are read by nothing that reaches r, the
@@ -4262,6 +4303,7 @@ struct AcukotoEngine::State
     ModeBank bank {};
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
     decltype(&runModes) renderModes {runModes};
+    decltype(&transposeApplyPlain) applyTransposed {transposeApplyPlain};
 #endif
     // The modes' state at the bridge, sum(pull s1): process() sums it as it
     // updates them, noteOn's preload makes it stale.
@@ -4406,6 +4448,7 @@ void AcukotoEngine::prepare(double sampleRate)
     state_->room.prepare(sampleRate_);
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
     state_->renderModes=instrumentCpu::hasAvx2()?runModesAvx:runModes;
+    state_->applyTransposed=instrumentCpu::hasAvx2()?transposeApplyAvx:transposeApplyPlain;
 #endif
     state_->outputSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sampleRate_));
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
@@ -6358,13 +6401,21 @@ void AcukotoEngine::process(float* left, float* right, int numSamples) noexcept
         // Until 0.25.2 the hand was added only after this solve, so the
         // modes moved by Y0_hand F_hand more than the reflected waves did.
         const BarVector& past = s.modalPast;
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+        BarVector rhs = s.applyTransposed(y0, drive);
+#else
         BarVector rhs = y0.transposeApply(drive);
+#endif
         for (std::size_t i = 0; i < barCoordinates; ++i)
             rhs[i] += past[i];
         if (hand.shape)
             for (std::size_t i = 0; i < barCoordinates; ++i)
                 rhs[i] += s.strikeMobility[static_cast<std::size_t>(hit.key)][i] * hand.force;
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+        const BarVector velocity = s.applyTransposed(solve, rhs);
+#else
         const BarVector velocity = solve.transposeApply(rhs);
+#endif
         BarVector plateForce;
         for (std::size_t i = 0; i < barCoordinates; ++i)
             plateForce[i] = drive[i] - zg[i] * velocity[i];
