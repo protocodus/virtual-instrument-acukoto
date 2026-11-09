@@ -1,6 +1,6 @@
 # Pluck scatter, body-coupling CPU and keyboard survey — 2026-11-09
 
-Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Four commits change the source:
+Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Five commits change the source:
 
 | Commit | Change | Output |
 | --- | --- | --- |
@@ -8,6 +8,7 @@ Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Four commits change the source:
 | `ebdb653` | The tsume's release time follows each pluck's force draw | audible, small |
 | `9e75dc7` | Wider AVX2 body-coupling blocks, AVX2 junction product | byte-identical |
 | `bb5c868` | Removes `ChordProbe.cpp`, a scratch probe committed at the root that no target builds | none |
+| `96daaf5` | Removes the unused one-argument `Loop::lineDelayAt` (Clang's `-Wunused-member-function`) | byte-identical |
 
 GCC 13.3, Release (`-O3`), on a shared 4-vCPU Intel Xeon @ 2.10 GHz
 container (48 KB L1d, 2 MB L2 per core). Development-machine figures only,
@@ -114,10 +115,10 @@ as in 0.25.5; none is new:
 
 | Key | fundamental decay, dB/s | neighbours | fit residual | cause |
 | --- | --- | --- | --- | --- |
-| F♯3 (54) | 21.7 | 8.8-9.1 | 0.5 dB | not traced (a key between the strings) |
+| F♯3 (54) | 21.7 | 8.8-9.1 | 0.5 dB | not traced (a moved ji's key) |
 | G3 (55) | 40.1 | 9.3 | 2.1 dB | on the 195 Hz twist, split (Known gaps) |
 | D4 (62) | 3.7-3.8, slow | 12.1-12.5 | 0.8 dB | on the shell's 293 Hz breathing (`woodQ`) |
-| F♯5 (78) | 74.3-75.1 | 33-39 | 3.5-3.9 dB | not traced (a key between the strings), beating |
+| F♯5 (78) | 74.3-75.1 | 33-39 | 3.5-3.9 dB | not traced (a moved ji's key), beating |
 
 A residual of 2-4 dB marks a beat, not an exponential decay, so those two
 slopes are local. The partial balance shows the same body coincidences the
@@ -143,9 +144,25 @@ paulownia's own measured Q across the grain with nothing added for joints
 (`woodQ`, chosen by ear on 2026-11-07). Coaldrake measured paulownia along
 the grain at Q 140 (JASA 148 (2020) 3153, Table I), so 140 is the walls'
 principle applied to the box. At 140, G3's fundamental falls 24 dB/s
-instead of 40, F♯3 (pressed) 25.7 instead of 21.7 and F♯5 64 instead of 75;
-the other keys move within 1 dB/s and their levels within 0.6 dB (velocity
-0.7, both presets).
+instead of 40, F♯3 (a moved ji's key) 25.7 instead of 21.7 and F♯5 64
+instead of 75; the other keys move within 1 dB/s and their levels within
+0.6 dB (velocity 0.7, both presets). The same value was probed once, in
+0.8.0, and slowed G3's fundamental without bringing it to the recordings'
+([attack comparison](attack-comparison-2026-10-30.md)); it was not heard
+then.
+
+Against the five professional recordings, measured again for this
+(`Tools/measure_koto_notes.py`, the same protocol, `RenderAcukotoNotes`
+for both: velocity 0.7, room off), the recordings no more decide it than
+the physics does. G3's fundamental, against the 35 recorded G3s, dies 2.9
+times as fast as theirs with 60 and 2.0 times with 140 (log2 1.55 and
+1.03), and its balance against the second partial moves from 3.1 dB under
+to 0.4 dB over (they sit 4.3 under; the four JpnMusic recordings' 0.4
+over). Pooled over every string, the median decay of partials 1-8, model
+over recorded in log2, is 0.20, 0.24, 0.61, −0.18, 0.36, 0.26, 0.49, 0.63
+with 60 and 0.17, 0.34, 0.36, 0.00, 0.05, 0.20, 0.68, 0.60 with 140: a
+mean distance of 0.37 and 0.30 (0.18 and 0.17 against the four JpnMusic
+recordings alone). The fundamentals' median balance moves 0.1 dB.
 
 That is audible and the physics does not choose between the two pinnings,
 so it went to the owner as a lettered A/B (A: shipping; key withheld from
