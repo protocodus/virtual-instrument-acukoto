@@ -1,12 +1,13 @@
 # Pluck scatter, body-coupling CPU and keyboard survey — 2026-11-09
 
-Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Three source commits:
+Acukoto 0.25.6 against 0.25.5 (`d8374b3`). Four commits change the source:
 
 | Commit | Change | Output |
 | --- | --- | --- |
 | `e7c8b5b` | Removes code no preset reaches: the A/B realism switch (always on), the wound-string and guitar-material branches, the nail technique; drops the stale sharping-lever Known gap | byte-identical |
 | `ebdb653` | The tsume's release time follows each pluck's force draw | audible, small |
 | `9e75dc7` | Wider AVX2 body-coupling blocks, AVX2 junction product | byte-identical |
+| `bb5c868` | Removes `ChordProbe.cpp`, a scratch probe committed at the root that no target builds | none |
 
 GCC 13.3, Release (`-O3`), on a shared 4-vCPU Intel Xeon @ 2.10 GHz
 container (48 KB L1d, 2 MB L2 per core). Development-machine figures only,
@@ -67,17 +68,23 @@ portable code bit for bit.
 | modal step (`runModesAvx`) | 400.6M | 367.2M |
 | junction products (inlined / `transposeApplyAvx`) | in `process` | 40.8M |
 
-Native time did not move measurably. Over eight alternating pairs per
-preset, one core pinned, 3 s each, the thread-CPU medians per 64-frame block
-were 198.1 → 197.0 µs (Hirajoshi) and 202.8 → 200.3 µs (Hankumoijoshi),
-−0.5% and −1.2%, inside this shared machine's run-to-run spread (183-266 µs);
-the least-disturbed runs were about 5% lower. The body is bound by memory,
-not arithmetic: per sample it streams its 26 × 360 participations twice
-(37 KB), its states and coefficients (17 KB) and its radiation weights
-(12 KB), about 69 KB against a 48 KB L1d. Further gains would need changes
-that are not exact (storing the bank at a lower precision, or running the
-upper modes at a lower rate), which change the sound and are a separate
-decision. `Acukoto.CpuBudget` passes.
+Native time of the whole engine did not move measurably. Over eight
+alternating pairs per preset, one core pinned, 3 s each, the thread-CPU
+medians per 64-frame block were 198.1 → 197.0 µs (Hirajoshi) and 202.8 →
+200.3 µs (Hankumoijoshi), −0.5% and −1.2%, inside this shared machine's
+run-to-run spread (183-266 µs); the least-disturbed runs were about 5% lower.
+Timed alone (one modal step called 200,000 times on a 360-mode bank, best of
+five, one core pinned, with a force that keeps the states out of the
+subnormal range), the step takes 1.82-1.84 µs before and 1.63-1.64 µs after,
+11% less, which is about 12 µs of a 198 µs block: what the least-disturbed
+runs show. Per mode it costs 4.0-4.2 ns at 128-192 modes, inside L1, and
+4.5-4.8 ns at 360-424, where the bank's 69 KB per step (26 × 360
+participations read twice, 37 KB; states and coefficients, 17 KB; radiation
+weights, 12 KB) exceeds the 48 KB L1d: it is bound mostly by its unfused
+multiply-adds, a little by memory. More would need changes that are not
+exact (fused multiply-adds, a lower-precision bank, or the upper modes at a
+lower rate), which change the output and are a separate decision.
+`Acukoto.CpuBudget` passes.
 
 ## Keyboard survey
 
