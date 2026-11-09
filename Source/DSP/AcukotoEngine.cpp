@@ -1513,16 +1513,6 @@ struct Loop
         return (1.0 - lag) * loopDelay / ratio - muteDelay;
     }
 
-    double lineDelayAt(double ratio) const noexcept
-    {
-        if (ratio == 1.0)
-            return restLineDelay - muteDelay;
-        const auto k = static_cast<std::size_t>(
-            std::upper_bound(bendRatios.begin() + 1, bendRatios.end() - 1, ratio) - bendRatios.begin() - 1);
-        const double t = (ratio - bendRatios[k]) / (bendRatios[k + 1] - bendRatios[k]);
-        return lineDelayAt(ratio, k, t);
-    }
-
     // Takes a new pitch while the wave keeps travelling.
     void apply(const LoopDesign& design) noexcept
     {
