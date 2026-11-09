@@ -2110,6 +2110,116 @@ __attribute__((target("avx2,no-fma"))) void runModesAvx(ModeBank& bank, const Ba
         pullOnBarAvx<barCoordinates % pullBlockAvx>(bank, c, pull);
 }
 
+// The same step with the drive and the pull as fused multiply-adds, for CPUs
+// with FMA3: half the arithmetic of the bank's two 26 x modes products, where
+// most of its time goes. Each sum keeps its order and lanes but rounds once
+// per term instead of twice, so it is no longer the portable bank's to the
+// bit: in AcukotoCpuProbe's dense and gesture playing the output moved by
+// rounding only, 135 dB or more under the signal and at most one 24-bit step
+// (Docs/benchmarks/cpu-fma-2026-11-09.md). ModalRadiationTests holds it to
+// the portable bank's rounding.
+template <int width>
+__attribute__((target("avx2,fma"))) void driveModesFma(const ModeBank& bank, const float* share, int first, float* drive) noexcept
+{
+    typedef float V __attribute__((vector_size(32),aligned(4),may_alias));
+    V sum[width/8] {};
+    for(std::size_t c=0;c<barCoordinates;++c)
+    {
+        const V* p=reinterpret_cast<const V*>(bank.participation[c].data()+first);
+        const V f {share[c],share[c],share[c],share[c],share[c],share[c],share[c],share[c]};
+        for(int v=0;v<width/8;++v)sum[v]=__builtin_ia32_vfmaddps256(p[v],f,sum[v]);
+    }
+    for(int v=0;v<width/8;++v)
+        __builtin_memcpy(drive+first+8*v,&sum[v],sizeof(V));
+}
+
+template <std::size_t coordinates>
+__attribute__((target("avx2,fma"))) void pullOnBarFma(const ModeBank& bank, std::size_t first, BarVector& pull) noexcept
+{
+    typedef float V __attribute__((vector_size(32),aligned(4),may_alias));
+    V lane[coordinates] {};
+    for(int group=0;group<bank.count;group+=ModeBank::lanes)
+    {
+        const V state=*reinterpret_cast<const V*>(bank.pullState.data()+group);
+        for(std::size_t c=0;c<coordinates;++c)
+            lane[c]=__builtin_ia32_vfmaddps256(*reinterpret_cast<const V*>(bank.participation[first+c].data()+group),state,lane[c]);
+    }
+    for(std::size_t c=0;c<coordinates;++c)
+    {
+        pull[first+c]=0.0;
+        for(int i=0;i<ModeBank::lanes;++i)pull[first+c]+=lane[c][i];
+    }
+}
+
+// runModesAvx with the fused drive and pull; everything else is its code.
+__attribute__((target("avx2,fma"))) void runModesFma(ModeBank& bank, const BarVector& force, StrikeDrive& strike, double& left, double& right,
+              double& leftQuadrature, double& rightQuadrature, BarVector& pull) noexcept
+{
+    const int count = bank.count;
+    float share[barCoordinates];
+    for (std::size_t c = 0; c < barCoordinates; ++c)
+        share[c] = static_cast<float>(force[c]);
+    float* drive = bank.drive.data();
+    int first = 0;
+    for (; first + driveBlockAvx <= count; first += driveBlockAvx)
+        driveModesFma<driveBlockAvx>(bank, share, first, drive);
+    if (first + driveBlockAvx / 2 <= count)
+    {
+        driveModesFma<driveBlockAvx / 2>(bank, share, first, drive);
+        first += driveBlockAvx / 2;
+    }
+    for (; first < count; first += ModeBank::lanes)
+        driveModesFma<ModeBank::lanes>(bank, share, first, drive);
+    if (strike.shape)
+    {
+        const auto share = static_cast<float>(strike.force);
+        for (int k = 0; k < count; ++k)
+            drive[k] += strike.shape[k] * share;
+    }
+    const double* b0 = bank.b0.data();
+    const double* a1 = bank.a1.data();
+    const double* a2 = bank.a2.data();
+    double* s1 = bank.s1.data();
+    double* s2 = bank.s2.data();
+    float* pullState = bank.pullState.data();
+    double* y = bank.y.data();
+    typedef double D __attribute__((vector_size(32),aligned(8),may_alias));
+    typedef float F __attribute__((vector_size(16),aligned(4),may_alias));
+    for(int k=0;k<count;k+=4)
+    {
+        const D x=*reinterpret_cast<const D*>(b0+k)
+            *__builtin_convertvector(*reinterpret_cast<const F*>(drive+k),D);
+        const D velocity=x+*reinterpret_cast<const D*>(s1+k);
+        const D next=*reinterpret_cast<const D*>(s2+k)-*reinterpret_cast<const D*>(a1+k)*velocity;
+        *reinterpret_cast<D*>(s2+k)=-x-*reinterpret_cast<const D*>(a2+k)*velocity;
+        *reinterpret_cast<D*>(s1+k)=next;
+        *reinterpret_cast<D*>(y+k)=velocity;
+        *reinterpret_cast<F*>(pullState+k)=__builtin_convertvector(next,F);
+    }
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    bank.currentVelocity = {};
+    bank.inputPower = 0.0;
+    for (int k = 0; k < count; ++k)
+    {
+        bank.inputPower += static_cast<double>(drive[k]) * y[k];
+        for (std::size_t c = 0; c < barCoordinates; ++c)
+            bank.currentVelocity[c] += static_cast<double>(bank.participation[c][k]) * y[k];
+    }
+#endif
+    if (strike.shape)
+    {
+        strike.velocity = 0.0;
+        for (int k = 0; k < count; ++k)
+            strike.velocity += static_cast<double>(strike.shape[k]) * y[k];
+    }
+    radiationSumsAvx(bank, left, right, leftQuadrature, rightQuadrature);
+    std::size_t c = 0;
+    for (; c + pullBlockAvx <= barCoordinates; c += pullBlockAvx)
+        pullOnBarFma<pullBlockAvx>(bank, c, pull);
+    if constexpr (barCoordinates % pullBlockAvx > 0)
+        pullOnBarFma<barCoordinates % pullBlockAvx>(bank, c, pull);
+}
+
 #endif
 
 struct BarMatrix
@@ -2190,6 +2300,28 @@ __attribute__((target("avx2,no-fma"))) BarVector transposeApplyAvx(const BarMatr
         for (std::size_t i = 0; i < wide; ++i)
             r[i] += *reinterpret_cast<const V*>(row + 4 * i) * vj;
         last += *reinterpret_cast<const Double2*>(row + 4 * wide) * Double2 { v[j], v[j] };
+    }
+    BarVector out;
+    __builtin_memcpy(out.data(), r, sizeof(r));
+    __builtin_memcpy(out.data() + 4 * wide, &last, sizeof(last));
+    return out;
+}
+
+// transposeApplyAvx with fused multiply-adds, for CPUs with FMA3; it rounds
+// once per term, so it matches the portable sum to rounding, not to the bit.
+__attribute__((target("avx2,fma"))) BarVector transposeApplyFma(const BarMatrix& matrix, const BarVector& v) noexcept
+{
+    typedef double V __attribute__((vector_size(32), aligned(8), may_alias));
+    constexpr std::size_t wide = barCoordinates / 4;
+    V r[wide] {};
+    Double2 last {};
+    for (std::size_t j = 0; j < barCoordinates; ++j)
+    {
+        const double* row = matrix.m[j].data();
+        const V vj { v[j], v[j], v[j], v[j] };
+        for (std::size_t i = 0; i < wide; ++i)
+            r[i] = __builtin_ia32_vfmaddpd256(*reinterpret_cast<const V*>(row + 4 * i), vj, r[i]);
+        last = __builtin_ia32_vfmaddpd(*reinterpret_cast<const Double2*>(row + 4 * wide), Double2 { v[j], v[j] }, last);
     }
     BarVector out;
     __builtin_memcpy(out.data(), r, sizeof(r));
@@ -4443,8 +4575,9 @@ void AcukotoEngine::prepare(double sampleRate)
         ? sampleRate : 48000.0;
     state_->room.prepare(sampleRate_);
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
-    state_->renderModes=instrumentCpu::hasAvx2()?runModesAvx:runModes;
-    state_->applyTransposed=instrumentCpu::hasAvx2()?transposeApplyAvx:transposeApplyPlain;
+    state_->renderModes=instrumentCpu::hasAvx2Fma()?runModesFma:instrumentCpu::hasAvx2()?runModesAvx:runModes;
+    state_->applyTransposed=instrumentCpu::hasAvx2Fma()?transposeApplyFma
+                           :instrumentCpu::hasAvx2()?transposeApplyAvx:transposeApplyPlain;
 #endif
     state_->outputSmoothing = 1.0 - std::exp(-1.0 / (0.01 * sampleRate_));
     state_->bendSmoothing = 1.0 - std::exp(-controlPeriod / (0.01 * sampleRate_));
