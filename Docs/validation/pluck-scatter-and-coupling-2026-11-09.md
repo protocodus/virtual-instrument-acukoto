@@ -85,6 +85,10 @@ weights, 12 KB) exceeds the 48 KB L1d: it is bound mostly by its unfused
 multiply-adds, a little by memory. More would need changes that are not
 exact (fused multiply-adds, a lower-precision bank, or the upper modes at a
 lower rate), which change the output and are a separate decision.
+The strings take the other 42% of `process()`'s instructions after this
+change, spread over their loops' sections, each already two polarisations
+to an SSE2 vector; no one line of them takes more than 2.1%, so nothing
+there stands out to vectorise further.
 `Acukoto.CpuBudget` passes.
 
 ## Keyboard survey
