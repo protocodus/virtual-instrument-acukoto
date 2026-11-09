@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.25.9 LANGUAGES CXX)
+project(Acukoto VERSION 0.25.10 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -132,6 +132,11 @@ if(BUILD_TESTING)
     target_link_libraries(AcukotoRangeSafetyTests PRIVATE AcukotoDSP)
     add_test(NAME Acukoto.RangeSafety COMMAND AcukotoRangeSafetyTests)
     set_tests_properties(Acukoto.RangeSafety PROPERTIES TIMEOUT 180)
+
+    add_executable(AcukotoSubnormalTests Tests/SubnormalTests.cpp)
+    target_link_libraries(AcukotoSubnormalTests PRIVATE AcukotoDSP)
+    add_test(NAME Acukoto.Subnormals COMMAND AcukotoSubnormalTests)
+    set_tests_properties(Acukoto.Subnormals PROPERTIES TIMEOUT 180)
 
     add_executable(AcukotoPluckShapeTests Tests/PluckShapeTests.cpp)
     target_include_directories(AcukotoPluckShapeTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")

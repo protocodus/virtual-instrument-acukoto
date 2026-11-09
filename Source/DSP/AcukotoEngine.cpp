@@ -5114,6 +5114,16 @@ constexpr double silentEnergy = 1.0e-6;
 // string's energy is below one where a ringing string radiates about that.
 constexpr double idleLevel = 3.0e-9;
 constexpr double idleEnergy = 1.0e-12;
+
+// A squared velocity for the running-energy ring (StringVoice::squares), which
+// holds floats. In the first samples after the engine wakes a string that
+// was not plucked moves by under 1e-19, and its square is under the smallest
+// normal float: stored as it is, it is a subnormal that the sum then reads a
+// round trip later, where a host has not set flush-to-zero. It counts as none.
+inline float ringSquare(double square) noexcept
+{
+    return square < static_cast<double>(std::numeric_limits<float>::min()) ? 0.0f : static_cast<float>(square);
+}
 } // namespace
 
 void AcukotoEngine::applyPitch(int string, int extensionKey) noexcept
@@ -6224,7 +6234,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
             {
                 float& square = voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip + k)
                                                                        & (delayCapacity - 1))];
-                square += static_cast<float>(value * value);
+                square += ringSquare(value * value);
             }
         }
         loop.pendingAhead = std::max(loop.pendingAhead, count);
@@ -6549,7 +6559,7 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
             drive[voice.tipCoordinate()] += twiceZ * (vp + lp);
             // The loop's mean squared velocity over a round trip; both
             // directions' slopes count, hence the factor in glidePerEnergy.
-            const float square = static_cast<float>(vn * vn + vp * vp);
+            const float square = ringSquare(vn * vn + vp * vp);
             float& slot = voice.squares[static_cast<std::size_t>(voice.squaresIndex)];
             const float leaving = voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip)
                                                                          & (delayCapacity - 1))];
