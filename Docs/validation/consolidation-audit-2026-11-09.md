@@ -53,8 +53,10 @@ strings at full velocity reconstruct to −1.37 and −1.41 dBFS at 8×
 against the stage's −1.5 dBFS sample ceiling, an overshoot of 0.09 to
 0.13 dB at 1× and 2×, so Aculyre's 0.6 dB reserve is not needed here); a
 re-pluck's scaling of the running-energy ring, where Aculyre had found
-subnormals (a sounding string's squares are far above that range when it
-is plucked again, and no test raises a flag).
+subnormals (a sounding string's squares are far above that range; a
+string plucked in the first samples of its sympathetic motion could leave
+a square or two there, each read once, which is no sustained cost, and no
+test raises a flag).
 
 ## The key-range survey
 
