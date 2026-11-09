@@ -36,9 +36,10 @@
 // again until it holds. A key is played the same way as a string, with the
 // default controls' oshide: its level without its key touch is its level less
 // that touch in dB, and its intended level is the same share of the way from
-// there to the strings' mean without their touches. A key's pluck is linear in
-// its touch as a string's is: --write-keys lands it, and a second run
-// confirms it and writes the same table.
+// there to the strings' mean without their touches. Since 0.25.11 a pluck
+// also slips off faster for its touch, so a key's level is linear in its
+// touch only to about 0.6 dB: run --write-keys and rebuild until --check
+// holds (three runs settle it to 0.01 dB).
 
 #include "../Source/DSP/AcukotoEngine.h"
 #include "../Source/DSP/AcukotoPerformer.h"

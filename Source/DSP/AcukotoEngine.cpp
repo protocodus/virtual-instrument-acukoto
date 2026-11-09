@@ -6056,6 +6056,17 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // from the displacement's 14% alone and nothing from the force, so a
     // pluck that strayed harder was no brighter for it and the releases
     // scattered by 20% where the harpist's do by 25%.
+    // The touch is force too: a key the player plucks harder to even it
+    // (StringSpec::touch, keyTouch) leaves at a larger displacement, and by
+    // the same D^1.2 slips off faster. Until 0.25.11 the release followed
+    // the velocity alone, so a key with a touch of 2 was plucked twice as
+    // hard and let go as slowly as its neighbour. At velocity 0.3, where the
+    // release's corner is near 2.2 kHz, the moved-ji keys above F6, which
+    // take the largest touches, lost their fundamentals to it: the keys from
+    // D3 to C8 stood 7.6 and 8.4 dB apart in the two tunings against 2.7
+    // and 2.8 at 0.7, and with the release held at its 0.7 value they stood
+    // 2.7 apart at 0.3 as well. Now 3.4 and 3.4
+    // (Docs/validation/consolidation-audit-2026-11-09.md).
     // A back stroke (sukui-zume) meets the string with the tsume's edge as a
     // stroke does, only moving the other way. Until 0.20.0 it took a rounder
     // back, an estimated 4 mm slipping off over twice the time: a tremolo's
@@ -6066,7 +6077,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // (estimated) is sharper.
     if (tsume && (style & cornerStroke) != 0 && (style & backStroke) == 0)
         contact = cornerContact;
-    release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2), 0.4, 10.0)
+    release *= std::clamp(std::pow(v / 0.5, -1.4 * 1.2) * std::pow(touch, -1.2), 0.4, 10.0)
              * std::exp(-1.2 * 0.14 * forceDeviation + 0.185 * deviation(3));
     {
         const double pRef = std::clamp(1.0 - controls.pluckDistance / measuredOn, 0.5, 0.98);

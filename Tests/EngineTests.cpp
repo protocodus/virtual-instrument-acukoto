@@ -552,6 +552,39 @@ int main()
         check(alternated > 0.07, "plucks between other notes keep one force", alternated);
     }
 
+    // A touch is force (StringSpec::touch, keyTouch), and a harder pluck
+    // slips off the tsume faster, as the displacement^1.2: on every key at
+    // one velocity the release time times the force^1.2 is the same but for
+    // the release's own 18.5% scatter, here over ten plucks each made after
+    // another string's. Until 0.25.11 the release followed the velocity
+    // alone and the product went as the touch^1.2: 1.4 in its logarithm
+    // between C-sharp 5 (touch 0.58) and F-sharp 7 (1.85).
+    {
+        const auto& engine = performer->engine();
+        const auto slip = [&] (int key)
+        {
+            constexpr int plucks = 10;
+            double mean = 0.0;
+            for (int count = 1; count <= plucks; ++count)
+            {
+                std::vector<Note> notes;
+                for (int k = 0; k < count; ++k)
+                {
+                    notes.push_back({ 0.1 * k, 50, 0.4f });
+                    notes.push_back({ 0.1 * k + 0.05, key, 0.4f });
+                }
+                render(*performer, notes, 0.1 * count, { 256 });
+                const auto pluck = engine.lastPluck();
+                mean += (std::log(pluck.release) + 1.2 * std::log(pluck.force)) / plucks;
+            }
+            return mean;
+        };
+        const double light = slip(73), own = slip(74), heavy = slip(102);
+        std::printf("release x force^1.2, log: C#5 %.3f, D5 %.3f, F#7 %.3f\n", light, own, heavy);
+        check(std::abs(heavy - light) < 0.3, "a key plucked harder for its touch slips off no faster", heavy - light);
+        check(std::abs(own - light) < 0.3, "a string's own note and a pressed one slip off by different laws", own - light);
+    }
+
     // The techniques on the free keys A0 to C-sharp 2 (AcukotoEngine.cpp,
     // TechniqueKey), each against what it is measured or derived to do.
     {
