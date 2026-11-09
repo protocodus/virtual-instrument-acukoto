@@ -37,11 +37,33 @@ public:
     }
 
 private:
-    static double cdf(double u) noexcept { return 0.5 * std::erfc(-u / std::sqrt(2.0)); }
+    static constexpr double farField = 8.5;
+    // Past farField it is 0 or 1 to the last place of anything it is added
+    // to here, and erfc is not asked for a value that underflows.
+    static double cdf(double u) noexcept
+    {
+        if (u >= farField)
+            return 1.0;
+        if (u <= -farField)
+            return 0.0;
+        return 0.5 * std::erfc(-u / std::sqrt(2.0));
+    }
+    // Past 8.5 widths from the contact G is its asymptote: to the right the
+    // Gaussian term is under a twentieth of u's last place and the erfc
+    // within 2e-17 of 2, so the sum below is exactly u; to the left G is
+    // under 1.2e-18 of the width, beneath the last place of the chord it is
+    // taken from wherever the string is more than 0.004 widths from its
+    // end. So only the few cells around the contact call erfc and exp, not
+    // every cell of the period at each note-on (they are library calls in
+    // Reason's build), and no far cell's exp underflows.
     double primitive(double x) const noexcept
     {
         constexpr double twoPi = 6.283185307179586476925286766559;
         const double u = (x - point_) / width_;
+        if (u >= farField)
+            return width_ * u;
+        if (u <= -farField)
+            return 0.0;
         return width_ * (u * cdf(u) + std::exp(-0.5 * u * u) / std::sqrt(twoPi));
     }
     double displacement(double x) const noexcept

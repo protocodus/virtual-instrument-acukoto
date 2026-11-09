@@ -80,6 +80,43 @@ int main()
                     }
                 }
             }
+    // Far from the contact the shape takes G's asymptote instead of erfc and
+    // exp (PluckShape::primitive). The full expression, written out here,
+    // must give the same number to the bit at every cell boundary a pluck
+    // asks for, straight and reflected, on both sides of the contact.
+    const auto full = [] (double length, double point, double width, double x)
+    {
+        const auto cdf = [] (double u) { return 0.5 * std::erfc(-u / std::sqrt(2.0)); };
+        const auto primitive = [&] (double at)
+        {
+            const double u = (at - point) / width;
+            return width * (u * cdf(u) + std::exp(-0.5 * u * u) / std::sqrt(2.0 * pi));
+        };
+        const double atLeft = primitive(0.0), atRight = primitive(length);
+        const double share = cdf((length - point) / width) - cdf(-point / width);
+        return x <= 0.0 || x >= length ? 0.0 : (atLeft + x * (atRight - atLeft) / length - primitive(x)) / share;
+    };
+    int farCells = 0;
+    for (double length : { 0.12, 0.3, 0.55, 0.9, 1.4 })
+        for (double point : { 0.012, 0.03, 0.045, 0.08, 0.2 })
+            for (double width : { 0.0005, 0.0015, 0.003, 0.006, 0.012 })
+            {
+                if (point >= length)
+                    continue;
+                const acukoto::detail::PluckShape shape(length, point, width);
+                for (double period : { 23.37, 48.001, 101.999, 326.53, 1306.12 })
+                {
+                    const double cell = 2.0 * length / period;
+                    for (int k = 0; k <= static_cast<int>(period); ++k)
+                        for (double x : { cell * k, 2.0 * length - cell * k })
+                        {
+                            check(shape(x) == full(length, point, width, x),
+                                  "the far-field shape differs from the full expression", x);
+                            farCells += std::abs(x - point) >= 8.5 * width ? 1 : 0;
+                        }
+                }
+            }
+    check(farCells > 100000, "the far field was not reached", farCells);
     std::printf("pluck shape: 48 geometries, endpoint force error <= %.4g, odd harmonic mode/L <= %.4g\n",
                 worstForce, worstOdd);
     return failures == 0 ? 0 : 1;
