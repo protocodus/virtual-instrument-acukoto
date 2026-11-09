@@ -7,6 +7,8 @@
 // no test hooks or diagnostic work enter the shipping engine.
 #include "EngineTestImplementation.h"
 
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 
@@ -211,13 +213,48 @@ void stableShortDelays()
 }
 }
 
+// floorInt and nearestInt stand in for std::floor and std::lround where the
+// instrument plays; they must give the library's integers, at the halves,
+// either side of them and of every whole number, and at both signs.
+void libraryIntegers()
+{
+    const auto same = [] (double x)
+    {
+        if (acukoto::floorInt(x) != static_cast<int>(std::floor(x))
+            || acukoto::nearestInt(x) != static_cast<int>(std::lround(x)))
+        {
+            ++failures;
+            std::fprintf(stderr, "FAIL integer of %.17g: floor %d, nearest %d\n", x, acukoto::floorInt(x),
+                         acukoto::nearestInt(x));
+        }
+    };
+    for (int whole = -20000; whole <= 20000; ++whole)
+        for (double offset : { 0.0, 0.25, 0.5, 0.75 })
+        {
+            const double x = whole + offset;
+            for (double sign : { 1.0, -1.0 })
+            {
+                same(sign * x);
+                same(sign * std::nextafter(x, 1.0e9));
+                same(sign * std::nextafter(x, -1.0e9));
+            }
+        }
+    std::uint64_t random = 0x9e3779b97f4a7c15ull;
+    for (int k = 0; k < 2000000; ++k)
+    {
+        random = random * 6364136223846793005ull + 1442695040888963407ull;
+        same((static_cast<double>(random >> 11) / 9007199254740992.0 - 0.5) * 65536.0);
+    }
+}
+
 int main()
 {
+    libraryIntegers();
     stableShortDelays();
     for (int configuration = 0; configuration < 4; ++configuration)
         for (bool shortLines : {false, true})
             exercise(configuration, shortLines);
     if (failures == 0)
-        std::puts("Acukoto.LoopPair: exact scalar/paired histories, independent delays and pending waves, loss, dispersion, mute, damping ramps, cursor wrap and reset");
+        std::puts("Acukoto.LoopPair: exact scalar/paired histories, independent delays and pending waves, loss, dispersion, mute, damping ramps, cursor wrap and reset; the library's floors and roundings");
     return failures == 0 ? 0 : 1;
 }

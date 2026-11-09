@@ -958,13 +958,30 @@ typedef double Double2 __attribute__((vector_size(16), aligned(8), may_alias));
 static_assert(alignof(Float4) == 4 && alignof(Double2) == 8, "unaligned 128-bit SIMD vectors");
 
 ACUKOTO_FORCE_INLINE double fastAbs(double x) noexcept { return __builtin_fabs(x); }
-ACUKOTO_FORCE_INLINE double fastFloor(double x) noexcept { return __builtin_floor(x); }
 ACUKOTO_FORCE_INLINE double fastSqrt(double x) noexcept { return __builtin_sqrt(x); }
 #else
 inline double fastAbs(double x) noexcept { return std::abs(x); }
-inline double fastFloor(double x) noexcept { return std::floor(x); }
 inline double fastSqrt(double x) noexcept { return std::sqrt(x); }
 #endif
+
+// The floor and the nearest integer (halves away from zero, as std::lround)
+// of a value that fits an int. Reason's toolchain makes std::floor,
+// __builtin_floor and std::lround library calls on x86-64 (no SSE4.1), on
+// paths that run whenever a loop's delay moves and every control period
+// (Aculele d6c184b, Aculyre 61889b1). A value less its whole part is exact,
+// so these are the library's integers for every such value
+// (Acukoto.LoopPair); adding a half first would round 0.5 - 2^-54 up.
+ACUKOTO_FORCE_INLINE int floorInt(double x) noexcept
+{
+    const int whole = static_cast<int>(x);
+    return whole - (x < whole ? 1 : 0);
+}
+ACUKOTO_FORCE_INLINE int nearestInt(double x) noexcept
+{
+    const int whole = static_cast<int>(x);
+    const double rest = x - whole;
+    return whole + (rest >= 0.5 ? 1 : 0) - (rest <= -0.5 ? 1 : 0);
+}
 
 // y = x - (1 - z^-1)(c0 + c1 z^-1) / A(z) x: the section above with its unit
 // gain at DC exact in any precision (Acustra's StringLoop runs its loss
@@ -1105,7 +1122,7 @@ static_assert(bendRatiosOnGrid(), "bendRatios steps by a quarter semitone from -
 int wholeFor(double samples) noexcept
 {
     return samples < 8.0 ? std::max(1, static_cast<int>(std::ceil(samples - 2.0)))
-                         : static_cast<int>(fastFloor(samples - 1.3));
+                         : floorInt(samples - 1.3);
 }
 
 // What sets one polarisation's pitch: its frequency, its filters and the
@@ -1482,8 +1499,8 @@ struct Loop
         const double period = loopDelay / ratio;
         const double outDelay = std::clamp(0.5 * point * period, 1.0, static_cast<double>(last));
         const double backDelay = std::clamp((1.0 - 0.5 * point) * period, 1.0, static_cast<double>(last));
-        handOut = static_cast<int>(fastFloor(outDelay));
-        handBack = static_cast<int>(fastFloor(backDelay));
+        handOut = floorInt(outDelay);
+        handBack = floorInt(backDelay);
         handOutAlpha = outDelay - handOut;
         handBackAlpha = backDelay - handBack;
         const double norm = 0.5 * ((1.0 - handOutAlpha) * (1.0 - handOutAlpha) + handOutAlpha * handOutAlpha
@@ -5977,7 +5994,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
             {
                 const double cover = std::clamp(std::min(to, k + 1.0) - std::max(from, static_cast<double>(k)), 0.0, 1.0);
                 float& arriving = loop->pending[static_cast<std::size_t>((loop->write + k) & (delayCapacity - 1))];
-                const int j = static_cast<int>(std::lround(k - lag));
+                const int j = nearestInt(k - lag);
                 float* inLine = j >= 0 && j < loop->whole
                     ? &loop->line[static_cast<std::size_t>((loop->write - loop->whole + j) & (delayCapacity - 1))]
                     : nullptr;
@@ -6156,7 +6173,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
                                * s.bend * voice.pressRatio * voice.handRatio;
     voice.setLoopsRatio(releasedRatio);
     const int releasedRoundTrip = std::clamp(
-        static_cast<int>(std::lround(sampleRate_ / (voice.frequency * releasedRatio))), 1, delayCapacity - 1);
+        nearestInt(sampleRate_ / (voice.frequency * releasedRatio)), 1, delayCapacity - 1);
     while (voice.roundTrip < releasedRoundTrip)
     {
         ++voice.roundTrip;
@@ -6522,7 +6539,7 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
                     ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press * voice.handRatio;
                 voice.setLoopsRatio(ratio);
                 // The mean follows the period the bend and the glide set.
-                const int roundTrip = std::clamp(static_cast<int>(std::lround(sampleRate_ / (voice.frequency * ratio))),
+                const int roundTrip = std::clamp(nearestInt(sampleRate_ / (voice.frequency * ratio)),
                                                  1, delayCapacity - 1);
                 while (voice.roundTrip < roundTrip)
                 {
