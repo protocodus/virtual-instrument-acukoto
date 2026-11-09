@@ -1,6 +1,6 @@
 # Acukoto realism review — 2026-11-09
 
-Work in progress, candidate 0.25.5. The five-hour review began at 06:02 UTC. Canonical source
+Local candidate 0.25.5. The five-hour review began at 06:02 UTC. Canonical source
 was refreshed from the environment snapshot `3d86094` to current upstream
 `9d7bda9` (0.25.4) before the candidate was evaluated. All comparisons below
 use that current source unless explicitly labelled otherwise. The original
@@ -13,7 +13,7 @@ owner-approved tuning and timbre. Correct demonstrated mistakes in contact,
 attack and playing ownership; preserve the keyboard extension as the declared
 artificial range. Do not infer an ear verdict from numerical measurements.
 No new samples, EQ layer, audio-thread allocations or per-sample random sources.
-CPU optimization follows the acoustic work and will be measured separately.
+CPU optimization is measured separately against frozen acoustic output.
 
 Frozen baseline source, executables, raw surveys and review WAVs live outside
 the checkout in `/workspace/scratch/acukoto-2026-11-09/`.
@@ -65,14 +65,22 @@ the checkout in `/workspace/scratch/acukoto-2026-11-09/`.
    than 20 dB). Example H2–H1 changes are G4 36→47 dB, A5 29→53, F7 2→34
    and C8 −15→9. Ordinary plucks at the same settings change at most
    0.00035 dB in K-weighted level and 0.00017 dB/s in early decay slope.
-   Wider technique qualification is ongoing.
+   Broader technique and tail qualification is recorded below.
 
 The release's circular one-pole still uses `ceil(period)` sample cells. The
 spatial projection fixes the midpoint contact, not this inherited fractional
 last-cell approximation. Coupled rest-stretch modes also remain. Residual
 fundamental energy on the shortest extension keys is not claimed to vanish.
+The initial tension estimate also still uses the ideal triangular held
+energy before the injected wave's measured energy takes over. A separate
+probe on five native/extension keys at three velocities finds an initial
+frequency-ratio discrepancy of at most 0.565 cents for ordinary plucks,
+1.096 cents for harmonics and 1.252 cents for finger plucks; the largest is
+the hard C8 extension, while the tested native A5 harmonic is 0.181 cents.
+This short first-journey approximation was quantified and left unchanged;
+the new projection is not presented as a complete tension-energy model.
 
-## Validation so far
+## Validation
 
 `Acukoto.PlayingOwnership` uses only the public API. The current upstream
 baseline fails 21 regression assertions across tremolo count/velocity, deferred key
@@ -92,6 +100,69 @@ target also builds. Clang 19.1.7 ASan/UBSan passes Engine, HandContact,
 PlayingOwnership, PluckShape and LoopPair; the existing 120-second libFuzzer
 run completes without a finding. CPU-budget and optimization qualification
 follow this acoustic freeze, separately from these results.
+
+## Low-rate, high-key stability and tuning
+
+Final edge qualification found an inherited failure in both upstream
+`9d7bda9` and the first optimized candidate `ab29599`: at the documented
+22.05 kHz minimum rate, C8 with master tuning +12 produced nonfinite raw
+samples within 300 ms on both designs, with hand pressure 0 or +3. The
+second-order Thiran section was being asked for a fractional delay below
+one sample, outside its stability range. This is before the output guard.
+
+`f6dbfc2` uses a first-order allpass when the available line is two samples
+or shorter, and keeps second-order fractions strictly above one elsewhere.
+Short tap intervals join through exact integer delays; the former 1.3/2.3
+fraction switch had a substantial phase gap near Nyquist. Setup solves the
+same actual short interpolator used by scalar and paired processing, rather
+than scaling the phase at the rest tap. The setup grid extends to +16
+semitones to cover +12 master tuning, +3 hand pressure and tension headroom.
+No solve, allocation or transcendental calculation is added per audio sample.
+A strictly positive fractional-delay guard remains for numerical causality;
+it is not used to set the tested supported pitches.
+
+All 32 original public witnesses are now finite. The new raw-engine range
+regression covers 192 static combinations of both presets, four rates
+22.05/24/44.1/48 kHz, three high keys, master/hand endpoints and tension
+modulation on/off. Sixteen held-bend/re-pluck/release trajectories match
+exactly with 64- and 37-frame callbacks. Peak raw output is 0.9421. Private
+interpolation tests independently check pole radii, unit magnitude and
+phase continuity at short tap/order boundaries, including nextafter values;
+scalar and paired histories match for both equal and mixed orders.
+
+At C8/22.05 kHz/+12/+3, the settled line is 1.04824 samples and the largest
+observed pole radius is 0.907963, comfortably above the numerical delay
+floor. With tension modulation off, the intended frequency is 9956.063 Hz;
+the raw stereo spectral peak is +0.110/−0.199 cents in 5–60 ms and
++0.107/−0.266 cents in 20–120 ms (Hirajoshi/Hankumoijoshi). Across the eight
+C8/+12 endpoint cases at 22.05/44.1 kHz, both windows stay within 2.43 cents.
+The public regression also checks the low-rate extreme spectrum against
+the established six-cent tuning tolerance, so a stable but detuned lower
+clamp would fail. These artificial near-Nyquist notes are not presented as
+measured acoustic-koto behaviour.
+
+The complete rebuilt safety suite passes all 15 non-CPU tests with unchanged
+limits (175.71 seconds). Clang ASan/UBSan passes RangeSafety and LoopPair
+(56.23 seconds); the configured 120-second libFuzzer gate passes (194.07
+wall seconds under shared load). All nine factory patches at 1x/2x/4x and
+all 128 keys of both presets through the shipping Performer at 48 kHz and
+velocity 0.7 remain byte-identical to the acoustic freeze. An additional
+472 raw cases cover every pitched key at 22.05 kHz, master +12/hand +3,
+both designs and ordinary/finger/harmonic/muted playing: all finite, maximum
+peak 0.744961. The final exact CPU layout is `e899ec3`; its own source-specific
+validation and timing receipts are in the CPU report.
+A separate setup diagnostic checks 13,848 short extension-grid entries over
+22.05/24/44.1/48/96/192 kHz and both designs: every phase root is strictly
+bracketed, maximum phase residual is 1.42e-14 radians and minimum line is
+1.0093033 samples. For ordinary unity entries it recovers the fixed bridge
+lead from the stored measured lag rather than erasing the inherited tiny
+rest-tap residual. The final exact CPU layout passes all 15 non-CPU gates
+again (179.92 seconds), and its ASan/UBSan range/paired tests pass in
+51.46 seconds. Root also validates strict Clang19 C++17 x86-64/AArch64 DSP
+compilation and the authored native Rack host contract.
+
+The original broad keyboard survey below predates this last safety fix;
+its 44.1/48/96 kHz ordinary playing range is checked for output preservation.
 
 ## Cleanup
 
@@ -197,12 +268,25 @@ level targets; a complete, consistent loading model was not established.
 The production body remains unchanged and this discrepancy is explicitly
 open. See [the investigation and rejected prototype evidence](acoustic-budget-investigation-2026-11-09.md).
 
-## Remaining work
+## Review audio and CPU qualification
 
-The sound/ownership work is frozen for profiling. Qualify CPU changes against
-that exact source and output, run the performance gate in the coordinated
-quiet window, and record final CPU/audio equivalence separately. The accepted
+The sound/ownership freeze and subsequent low-rate safety correction have
+separate source and timing receipts in the
+[CPU report](cpu-realism-2026-11-09.md). The accepted
 11.06-second Performer A/B is in the external `review/` directory, with the
 unchanged upstream as A, candidate as B, whole-file RMS matching, raw levels,
-score and separate key. No listening preference or real-time deadline
+score and separate key. Both the safety correction and final exact CPU layout
+re-render the accepted raw B file byte for byte; an independent audit
+confirms the complete-file hashes and unchanged A/B/level ledger. No listening preference or real-time deadline
 guarantee is inferred from these renders.
+
+
+Final CPU qualification retains two exact transformations. The corrected
+model uses 5.69% fewer profiled instructions with them, and the final dense
+profile uses 2.26% fewer than upstream. Native timing is mixed: the final
+nine-patch paired aggregate is +2.46% versus the corrected reference, so
+there is no claimed factory speed win. The unchanged CPU budget passes;
+maximum-velocity thirteen-finger attacks at 4x exceed a 64-frame period,
+as they already did upstream. The CPU report retains these limits and all
+paired rounds. Final DSP source is `e899ec3`; documentation commits do not
+change the sound or timing binaries.
