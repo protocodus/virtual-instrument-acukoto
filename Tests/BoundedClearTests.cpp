@@ -1,7 +1,9 @@
 // A clear zeroes only the part of each ring that can still be read: the lines
 // within Loop::reach(), what is still to arrive of `pending`, the energy ring
 // within the voice's longest round trip, the room's rings within their taps.
-// Three checks hold those bounds to the engine that plays:
+// A pluck on a sounding string keeps to the same part of the energy ring: the
+// tsume scales it by what its contact left, a bare finger zeroes it.
+// Four checks hold those bounds to the engine that plays:
 //
 //  - Nothing the controls reach asks a loop for a line as long as its
 //    `longest`, or a voice for a round trip as long as its longestRoundTrip.
@@ -12,6 +14,9 @@
 //    loud value everywhere else plays, bit for bit, as one whose rings are
 //    zero there, which is the full clear.
 //  - clearRing itself and one loop's clears, across the ring's end.
+//  - A pluck on a sounding string, with the tsume and with a bare finger,
+//    leaves every slot of the energy ring beyond the voice's longest round
+//    trip as it was, and plays, bit for bit, the same whatever those hold.
 //
 // Include the implementation to reach the engine's rings; nothing but a friend
 // declaration enters the shipping engine for it.
@@ -334,6 +339,52 @@ void clearsLeaveNothingToRead(const acukoto::InstrumentSpec& instrument, double 
     }
     sameAsTheFullClear(loud, zeroed, "after falling asleep");
 }
+
+// Every slot of each string's energy ring beyond its longest round trip.
+template <typename Visit>
+void beyondTheRoundTrip(acukoto::AcukotoEngine& engine, Visit visit)
+{
+    auto& s = acukoto::AcukotoEngineTestAccess::state(engine);
+    for (int index = 0; index < engine.stringCount(); ++index)
+    {
+        auto& voice = s.strings[static_cast<std::size_t>(index)];
+        for (int behind = voice.longestRoundTrip + 1; behind <= acukoto::delayCapacity; ++behind)
+            visit(voice.squares[static_cast<std::size_t>((voice.squaresIndex - behind) & mask)]);
+    }
+}
+
+// Until 0.25.15 a pluck on a sounding string scaled (the tsume) or zeroed (a
+// bare finger) all 64 KB of its energy ring, every string of a chord in one
+// block, where only the longest round trip behind the cursor can be read.
+void aRepluckKeepsToTheRoundTrip(const acukoto::InstrumentSpec& instrument, double rate, acukoto::Technique technique)
+{
+    Player marked(instrument, rate), zeroed(instrument, rate);
+    constexpr float mark = 7.0f;
+    for (Player* player : { &marked, &zeroed })
+    {
+        acukoto::PlayingControls controls {};
+        controls.technique = technique;
+        player->engine->setControls(controls);
+        player->chord(1.0f);
+        // Long enough for the chord's last stroke to have crossed to its string.
+        player->run(16384);
+        beyondTheRoundTrip(*player->engine, [&] (float& slot) { slot = player == &marked ? mark : 0.0f; });
+        player->out.clear();
+        // Every string still sounds, its key down: each pluck meets it at once.
+        for (int index = 0; index < instrument.stringCount; ++index)
+            player->engine->pluckString(index, 0.8f);
+    }
+    int moved = 0;
+    beyondTheRoundTrip(*marked.engine, [&] (float& slot) { moved += slot != mark; });
+    check(moved == 0, "a pluck on a sounding string changed its energy ring beyond the round trip (rate, slots)", rate, moved);
+    for (Player* player : { &marked, &zeroed })
+        player->run(8192);
+    check(marked.out.size() == zeroed.out.size()
+              && std::memcmp(marked.out.data(), zeroed.out.data(), marked.out.size() * sizeof(float)) == 0,
+          "a pluck on a sounding string read its energy ring beyond the round trip", rate);
+    check(squaresSum(*marked.engine) == squaresSum(*zeroed.engine) && squaresSum(*marked.engine) > 0.0,
+          "the running energy after a pluck on a sounding string", squaresSum(*marked.engine), squaresSum(*zeroed.engine));
+}
 }
 
 int main()
@@ -345,11 +396,17 @@ int main()
             longestCoversTheControls(*instrument, rate);
     clearsLeaveNothingToRead(*acukoto::presets[0], 48000.0);
     clearsLeaveNothingToRead(*acukoto::presets[1], 96000.0);
+    for (acukoto::Technique technique : { acukoto::Technique::Plectrum, acukoto::Technique::Finger })
+    {
+        aRepluckKeepsToTheRoundTrip(*acukoto::presets[0], 48000.0, technique);
+        aRepluckKeepsToTheRoundTrip(*acukoto::presets[1], 96000.0, technique);
+    }
     if (failures != 0)
     {
         std::fprintf(stderr, "%d bounded-clear check(s) failed\n", failures);
         return 1;
     }
-    std::printf("bounded clears: every line and round trip within its bound; a reset and a sleep play as the full clear\n");
+    std::printf("bounded clears: every line and round trip within its bound; a reset and a sleep play as the full clear; "
+                "a pluck on a sounding string keeps to the round trip\n");
     return 0;
 }

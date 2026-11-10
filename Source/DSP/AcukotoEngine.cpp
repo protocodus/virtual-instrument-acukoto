@@ -4499,6 +4499,14 @@ struct AcukotoEngine::State
             squaresSum = 0.0;
         }
 
+        // What a contact leaves of the running energy: of the ring, the same
+        // slots a clear zeroes, and the caller sums them again.
+        void scaleSquares(float kept) noexcept
+        {
+            for (int k = 1; k <= longestRoundTrip; ++k)
+                squares[static_cast<std::size_t>((squaresIndex - k) & (delayCapacity - 1))] *= kept;
+        }
+
         void refreshHand() noexcept
         {
             const double speakingRate = pluckedLeft ? 0.0 : contactRate;
@@ -6041,8 +6049,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         preload[voice.tipCoordinate()] -= 2.0 * voice.impedance * voice.parallel.last;
         voice.normal.silence();
         voice.parallel.silence();
-        for (float& square : voice.squares)
-            square = 0.0f;
+        voice.clearSquares();
     }
 
     // The tsume plucks just beside the ryukaku, the far end from the ji, the
@@ -6128,9 +6135,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
             }
         }
         // The running energy keeps what the contact left.
-        const float kept = before > 0.0 ? static_cast<float>(after / before) : 1.0f;
-        for (float& square : voice.squares)
-            square *= kept;
+        voice.scaleSquares(before > 0.0 ? static_cast<float>(after / before) : 1.0f);
     }
     // The player evens the scale by what is heard (StringSpec::touch), and
     // the keys between and above the strings' own notes too

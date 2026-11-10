@@ -54,10 +54,10 @@ int main(int argc, char** argv)
 {
     demos::Instrument instrument;
     instrument.name = "Acukoto";
-    // Real time on one core. The slower demo's median was 0.455x realtime
-    // (Koto Hankumoijoshi) on a 2.1 GHz Xeon cloud container on 2026-10-29,
-    // so three times it would allow more than real time; re-set this from a
-    // CI measurement once the engine is lighter.
+    // Real time on one core, set when the slower demo took 0.455x realtime
+    // (2026-10-29). A demo now takes about a tenth of one 2.1 GHz Xeon vCPU
+    // (Docs/benchmarks/cpu-consolidation-2026-11-10.md); the budget has not
+    // been re-set from a CI measurement.
     instrument.cpuBudget = 1.0;
     for (const acukoto::InstrumentSpec* preset : acukoto::presets)
         instrument.presets.emplace_back(preset->name);

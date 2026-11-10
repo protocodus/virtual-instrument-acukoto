@@ -11,6 +11,8 @@ The main build renders these demos once Acukoto has a plug-in to build. Until th
 
 ## Version history
 
+- **0.25.15** (local candidate): a pluck on a string that is still sounding no longer rewrites all 64 KB of that string's energy memory, 832 KB for a chord across all thirteen strings; it keeps to the part that can be read. The output is the same to the bit. [Measurements](Docs/benchmarks/cpu-consolidation-2026-11-10.md).
+
 - **0.25.14** (local candidate): the strings' own touches are fitted again, so each open string stands within 0.01 dB of the level its touch is meant to give it at velocity 0.7. They had not been since 0.25.11, where a pluck's release began to follow its touch: D3 stood 0.43 dB over and Hankumoijoshi's E♭5 0.50 under. No string moves by more than 0.5 dB; the key touches are regenerated with them, and `Acukoto.Levels` now holds the strings to 0.1 dB. [Audit](Docs/validation/consolidation-audit-2026-11-10.md).
 
 - **0.25.13** (local candidate): the instrument's three largest blocks are gone. When it fell asleep, when a preset switch's crossfade ended and when it was reset, an engine zeroed all 8.3 MB of its strings' and room's memory, 14-35% of a core for that one block on the development machine. It now zeroes the 0.18 MB that can still be read, and each of those blocks takes less than an ordinary one. The output is the same to the bit. [Measurements](Docs/benchmarks/cpu-consolidation-2026-11-09.md).
