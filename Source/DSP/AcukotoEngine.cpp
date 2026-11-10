@@ -1665,8 +1665,8 @@ struct Mode
 // so the compiler can vectorize each group. A mode's drive is its
 // participation times b0 and its pull on the bar the participation alone, so
 // one single-precision table serves both, and with the pull's copy of the
-// states it runs the two sums over 26 coordinates and 356 modes four to a
-// vector. The participations are rounded to single precision where the
+// states it runs the two sums over 26 coordinates and the body's modes (291
+// at 48 kHz) four to a vector. The participations are rounded to single precision where the
 // modes are built (Mode::participation), so the junction's mobility is
 // exactly the bank's. The states, the filters and the radiation stay double.
 // Every ji meets every mode, so the bank is one part.
@@ -2886,7 +2886,7 @@ void symmetricEigen(double* a, int n, double* values, double* e) noexcept
 constexpr int beamElements = 60;
 constexpr int beamNodes = beamElements + 1;
 constexpr int maxBeamModes = 16;
-constexpr int maxWallModes = 280;
+constexpr int maxWallModes = 210;  // with wallAllHz, below
 constexpr int airSegments = 36;
 constexpr int holeCount = 2;
 constexpr int maxBodyDofs = 3 * maxBeamModes + maxWallModes + (airSegments - 1) + holeCount
@@ -3036,7 +3036,13 @@ constexpr int maxWallCandidates = 1400;
 // one in each run of consecutive modes is kept, scaled to carry the run's
 // share of the top's motion, and radiating as the run does; the runs
 // lengthen with frequency (wallModes).
-constexpr double wallAllHz = 3000.0;
+// 2.2 kHz and a cap of 210 wall modes since 0.25.16, where they were 3 kHz
+// and 280: the owner's choice by ear of the two bodies (Docs/decisions.md,
+// 2026-11-10), not a measured equivalence. It leaves out the modes from 2.2
+// to 3 kHz that mostly move the back and the sides and gathers the top's
+// there into runs, as above 3 kHz: 291 body modes at 48 kHz for 356. The
+// third octaves from 2 to 3.2 kHz fall 1.4 to 3.8 dB in one phrase.
+constexpr double wallAllHz = 2200.0;
 // Where the radiating grid samples each wall mode across the body: the top's
 // and the back's gridAcross, each side's gridUp.
 constexpr int wallSamples = 2 * gridAcross + 2 * gridUp;

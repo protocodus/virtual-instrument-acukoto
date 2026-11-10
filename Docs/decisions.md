@@ -8,6 +8,43 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-10 — The walls keep every mode to 2.2 kHz
+
+What was decided: how many of the walls' modes the body runs. Every wall
+mode is kept up to a limit (`wallAllHz`); above it only the modes that
+mostly move the top are kept, one for each run of them, up to a cap
+(`maxWallModes`). Fewer modes cost less: the body's modes are two thirds of
+the instrument's instructions in a build like Reason's. Four bodies were
+rendered, alike in everything else:
+
+- **A**, the shipping engine (0.25.10): every wall mode to 3 kHz, a cap of
+  280. 178 modes below the limit and 92 runs above it, 356 body modes.
+- **B**: to 2.2 kHz, a cap of 210. 98 and 107, 291 body modes.
+- **C**: to 1.2 kHz, a cap of 180. 35 and 126, 247 body modes.
+- **D**: to 3 kHz, a cap of 224. 178 and 46, 309 body modes.
+
+No measurement could choose. None of B, C and D is the same sound as A by
+measurement: B's difference from A is 6.1 dB under A in RMS (C 2.1 dB,
+D 10.7 dB), and against A its third octaves stand −1.4 dB at 2 kHz, −3.8 at
+2.5 kHz, −2.2 at 3.2 kHz and +1.2 at 5 kHz in the phrase. Each body is
+defensible as a model, A's finer runs no more measured on a koto than B's;
+what the thinner walls take from the sound is a matter of ear. The owner was
+sent the four (Koto Hirajoshi, one 8.42 s phrase through the Performer at
+48 kHz and 1x; B, C and D trimmed +0.34, +1.33 and +0.08 dB to A's
+whole-file RMS; not committed) and chose **B**. It is recorded as the
+owner's selection by ear, not as a measured equivalence or a listening
+score.
+
+That licenses 0.25.16's `wallAllHz = 2200` and `maxWallModes = 210`, with
+the strings', the keys' and the body strikes' touches fitted to that body by
+the unchanged 80% rule. It does not establish that the two bodies sound alike on every key.
+What the choice costs by measurement, which one phrase on the strings' own
+range may not show, is in the README's Known gaps: without their touches the
+strings stand further apart, the keys at soft velocities stand further
+apart with them, and a few keys above the strings lean on their touches by
+up to 5 dB more or less than before
+([audit](validation/consolidation-audit-2026-11-10.md#the-body-of-02516)).
+
 ## 2026-11-10 — A soft pluck leaves the tsume as its key's touch says
 
 What was decided: whether the time a string takes to slip off the tsume

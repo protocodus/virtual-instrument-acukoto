@@ -1,6 +1,7 @@
 # Acukoto consolidation audit, second pass — 2026-11-10
 
-Acukoto 0.25.13 (`0504830`) to 0.25.15. A fix-only pass over the model after
+Acukoto 0.25.13 (`0504830`) to 0.25.15, and 0.25.16's body
+([below](#the-body-of-02516)). A fix-only pass over the model after
 [the 2026-11-09 audit](consolidation-audit-2026-11-09.md): no new control,
 mechanism or preset, and no re-voicing. The CPU work of the same day is in
 [CPU: consolidation, second pass](../benchmarks/cpu-consolidation-2026-11-10.md).
@@ -119,6 +120,79 @@ string does the same on its own body's modes; these are the model's modes,
 which are Coaldrake's measured ones only for the first bending, twist and
 air modes. Nothing here is a defect in the maths, and detuning a mode or a
 string to hide it would be voicing.
+
+## The body of 0.25.16
+
+0.25.16 keeps every wall mode to 2.2 kHz where 0.25.15 keeps them to 3 kHz,
+291 body modes for 356: the owner's choice by ear of the 2026-11-09
+`wall-modes` set's B ([decisions](../decisions.md)), for the CPU it saves
+([CPU document](../benchmarks/cpu-consolidation-2026-11-10.md#fewer-wall-modes)).
+It is not a fix and not a measured equivalence. Everything above this
+section was measured on 0.25.15's body; this is what was measured again on
+0.25.16's.
+
+**The modes the strings sit on did not move.** The body's modes under
+2.2 kHz are the same to 0.1 Hz (523.8 Hz, Q 113; 610.7 and 614.8 Hz, Q 54
+and 95; 195.3 Hz, Q 135; E♭5's ji's mobility at 614.7 Hz 0.0093 m/s/N), and
+the table under [Strings on body modes](#strings-on-body-modes) reads the
+same within 0.5 cents and 1 dB on every open string and on the pressed C5.
+
+**The levels moved, note by note.** `AcukotoLevels`, velocity 0.7, before
+any touch (a string's level less its touch in dB, which since 0.25.11 is
+approximate):
+
+| | 0.25.15 | 0.25.16 |
+| --- | ---: | ---: |
+| Strings' mean, Koto Hirajoshi / Koto Hankumoijoshi | −24.75 / −24.39 dB | −25.86 / −25.46 dB |
+| Loudest string over quietest, without touches | 4.82 / 5.94 dB | 6.14 / 7.00 dB |
+| The same with touches (the 80% rule) | 0.96 / 1.19 dB | 1.23 / 1.41 dB |
+| Keys D3 to C8 at velocity 0.7 | 2.49 / 2.59 dB | 3.01 / 2.39 dB |
+| at velocity 0.3 | 3.24 / 3.58 dB | 4.97 / 4.16 dB |
+| at velocity 1.0 | 2.72 / 3.00 dB | 3.07 / 2.44 dB |
+
+On 0.25.15's touches the new body put the strings up to 1.2 dB from their
+intended levels (G4 +1.21, B♭4 −1.14, A5 −1.20 on Koto Hirajoshi) and the
+keys up to 4.7 dB (F6 and F7 3.8 to 4.7 dB under, E7 4.0 under on Koto
+Hirajoshi, C8 2.5 over on Koto Hankumoijoshi; before the refit Koto
+Hirajoshi's keys stood 7.65 dB apart). Five rounds of the refit put every
+string and key back within 0.01 dB at velocity 0.7. The touches that do it:
+
+- The strings' touches run from 0.72 to 1.37 (0.76 to 1.31 before). The
+  largest moves are B♭3 on Koto Hankumoijoshi, 1.09 to 1.37, and A5 on Koto
+  Hirajoshi, 1.03 to 1.18; without touches B♭3 stands 2.2 and 3.6 dB lower
+  than it did on the two presets, B♭4 2.5 and G5 2.0 to 2.3 lower.
+- The key touches run from 0.57 to 2.28 (0.64 to 2.12). On Koto
+  Hankumoijoshi F6's goes from 0.66 to 1.18 and F7's from 0.74 to 1.31, a
+  pluck 5 dB harder; on Koto Hirajoshi F♯6's falls from 1.64 to 1.12.
+  A harder pluck also leaves the tsume faster, so those keys change in
+  attack as well as in what the body gives them.
+
+**The body strikes kept their sound and lost their place.** Each strike's
+level is within 0.04 dB of what it was, but its rule sets it by the strings'
+mean, which fell 1.1 dB: on 0.25.15's touches the twelve stood 0.75 to
+1.05 dB over their intended levels on Koto Hirajoshi and 0.43 to 0.73 over
+on Koto Hankumoijoshi, and `Acukoto.Levels` failed. Their touches
+(`AcukotoStrikes.h`, one table for both presets) are 7 to 10% lower after
+four rounds: within 0.02 dB on Koto Hirajoshi, which the table follows as it
+did, and within 0.35 dB on Koto Hankumoijoshi.
+
+From 2.2 to 3 kHz the modes that mostly move the back and the sides are
+gone and one mode stands for each run of the top's, so a partial there
+meets fewer modes than it did. Which notes lose by it follows where their
+partials fall: the same A5 string stands 2.5 dB lower without its touch on
+Koto Hirajoshi and 0.2 dB higher on Koto Hankumoijoshi, which differs only
+in two strings' tuning and ji.
+
+The owner chose this body on one phrase on the strings' own range. A second
+set, 0.25.13 against 0.25.16 on both demos, on every key from C6 to C8 and
+on the soft-note material of 2026-11-09, was rendered for the owner's ear
+and is not committed; B is trimmed +0.55 to +1.16 dB to A's whole-file RMS
+there, so 0.25.16 plays that much quieter.
+
+**Not measured again on this body:** the README's figures for the attack's
+fall-off and build-up, the upper strings' early fall, the sympathetic
+levels after ato-oshi and the comparison with recordings. They stand as
+measured on the 356-mode body.
 
 ## Left open
 
