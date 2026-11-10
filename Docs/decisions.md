@@ -8,6 +8,31 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-10 — A soft pluck leaves the tsume as its key's touch says
+
+What was decided: whether the time a string takes to slip off the tsume
+follows a key's touch as well as its velocity. Both candidates use the
+release law chosen by ear on 2026-10-28 (release time as velocity^-1.68):
+
+- **A**, the shipping engine (0.25.10): the release follows the velocity
+  alone, so a key whose touch plucks it harder still leaves the tsume as
+  slowly as a soft one.
+- **B**: the release follows the force of the pluck, velocity times the key's
+  touch, with the key touches regenerated (`AcukotoLevels --write-keys`).
+
+The measurements favoured B without closing it: every key from D3 to C8 alone
+for 2 s at velocity 0.3 spread 7.6 dB (Hirajoshi) and 8.4 dB (Hankumoijoshi)
+in K-weighted level with A and 3.4 dB with B, and at 0.7 no key moves by more
+than 0.15 dB. What a soft note should sound like on the moved-ji keys is
+still a matter of ear. The owner was sent the pair (Koto Hirajoshi, every
+note at MIDI velocity 38, through the Performer at 48 kHz and 1x; B trimmed
+-0.23 dB to A's whole-file RMS; not committed) and answered "go with
+candidate": **B**. It is recorded as the owner's selection, not as a
+measured result or a listening score.
+
+That licenses 0.25.11's release law and its key touches. It does not measure
+how a player's soft stroke leaves a tsume.
+
 ## 2026-11-09 — The box bends and twists as paulownia does along the grain
 
 What was decided: how much the box loses as it bends and twists, the Q of
