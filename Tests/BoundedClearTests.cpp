@@ -25,16 +25,17 @@
 
 // AcukotoEngine keeps its state private, and its type with it. The names in an
 // explicit instantiation are exempt from access checking ([temp.spec]), so
-// this one may name the member; the friend it defines hands the state to a
-// generic lambda, which never has to name the type.
-template <typename Visit> void withState(acukoto::AcukotoEngine& engine, Visit&& visit);
+// this one may name the member, and the friend it defines returns the state
+// as `auto`, which never has to name the type. The friend is an ordinary
+// function: inside a friend template's body MSVC does not know `Member`.
+struct StateKey
+{
+    friend auto stateOf(acukoto::AcukotoEngine& engine, StateKey);
+};
 template <auto Member>
 struct StateDoor
 {
-    template <typename Visit> friend void withState(acukoto::AcukotoEngine& engine, Visit&& visit)
-    {
-        visit(*(engine.*Member));
-    }
+    friend auto stateOf(acukoto::AcukotoEngine& engine, StateKey) { return (engine.*Member).get(); }
 };
 template struct StateDoor<&acukoto::AcukotoEngine::state_>;
 
@@ -120,64 +121,60 @@ void longestCoversTheControls(const acukoto::InstrumentSpec& instrument, double 
     auto engine = std::make_unique<acukoto::AcukotoEngine>();
     engine->prepare(rate);
     engine->setInstrument(instrument);
-    withState(*engine, [&] (auto& s)
+    auto& s = *stateOf(*engine, StateKey {});
+    for (int index = 0; index < engine->stringCount(); ++index)
     {
-        for (int index = 0; index < engine->stringCount(); ++index)
+        auto& voice = s.strings[static_cast<std::size_t>(index)];
+        const auto sweep = [&] (const auto& pitch, int key)
         {
-            auto& voice = s.strings[static_cast<std::size_t>(index)];
-            const auto sweep = [&] (const auto& pitch, int key)
+            voice.normal.apply(pitch.planes[0]);
+            voice.parallel.apply(pitch.planes[1]);
+            voice.leftNormal.apply(voice.left[0]);
+            voice.leftParallel.apply(voice.left[1]);
+            for (int step = 0; step <= 40 * 16; ++step)
             {
-                voice.normal.apply(pitch.planes[0]);
-                voice.parallel.apply(pitch.planes[1]);
-                voice.leftNormal.apply(voice.left[0]);
-                voice.leftParallel.apply(voice.left[1]);
-                for (int step = 0; step <= 40 * 16; ++step)
-                {
-                    const double ratio = lowestRatio * std::pow(2.0, step / (12.0 * 16.0));
-                    voice.setLoopsRatio(ratio);
-                    for (const acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
-                        check(loop->whole + loop->fraction < loop->longest - 0.5,
-                              "a line reaches its longest (rate, key, ratio)", rate, key, ratio);
-                    check(acukoto::nearestInt(rate / (pitch.planes[0].frequency * ratio)) < voice.longestRoundTrip,
-                          "a round trip reaches its longest (rate, key, ratio)", rate, key, ratio);
-                }
-                // And the reach is what the tap's reads need.
+                const double ratio = lowestRatio * std::pow(2.0, step / (12.0 * 16.0));
+                voice.setLoopsRatio(ratio);
                 for (const acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
-                    check(loop->reach() <= acukoto::delayCapacity && loop->reach() >= loop->whole + 2,
-                          "a loop's reach", rate, key, loop->reach());
-            };
-            sweep(voice.pitch, -1);
-            for (int key = acukoto::lowestKey; key <= acukoto::highestKey; ++key)
-                if (s.extensionString[static_cast<std::size_t>(key)] == index)
-                    sweep(s.extension[static_cast<std::size_t>(key)], key);
-        }
-    });
+                    check(loop->whole + loop->fraction < loop->longest - 0.5,
+                          "a line reaches its longest (rate, key, ratio)", rate, key, ratio);
+                check(acukoto::nearestInt(rate / (pitch.planes[0].frequency * ratio)) < voice.longestRoundTrip,
+                      "a round trip reaches its longest (rate, key, ratio)", rate, key, ratio);
+            }
+            // And the reach is what the tap's reads need.
+            for (const acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
+                check(loop->reach() <= acukoto::delayCapacity && loop->reach() >= loop->whole + 2,
+                      "a loop's reach", rate, key, loop->reach());
+        };
+        sweep(voice.pitch, -1);
+        for (int key = acukoto::lowestKey; key <= acukoto::highestKey; ++key)
+            if (s.extensionString[static_cast<std::size_t>(key)] == index)
+                sweep(s.extension[static_cast<std::size_t>(key)], key);
+    }
 }
 
 // Writes `value` into every slot a clear at this moment leaves untouched.
 void fillUntouched(acukoto::AcukotoEngine& engine, float value)
 {
-    withState(engine, [&] (auto& s)
+    auto& s = *stateOf(engine, StateKey {});
+    for (int index = 0; index < engine.stringCount(); ++index)
     {
-        for (int index = 0; index < engine.stringCount(); ++index)
-        {
-            auto& voice = s.strings[static_cast<std::size_t>(index)];
-            for (acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
-                for (int behind = loop->reach() + 1; behind <= acukoto::delayCapacity; ++behind)
-                    loop->line[static_cast<std::size_t>((loop->write - behind) & mask)] = value;
-            for (int behind = voice.longestRoundTrip + 1; behind <= acukoto::delayCapacity; ++behind)
-                voice.squares[static_cast<std::size_t>((voice.squaresIndex - behind) & mask)] = value * value;
-        }
-        auto& room = s.room;
-        for (std::size_t index = 0; index < room.lines.size(); ++index)
-            for (int behind = room.lengths[index] + 1; behind <= room.capacity; ++behind)
-                room.lines[index][static_cast<std::size_t>((room.positions[index] - behind) & (room.capacity - 1))] = value;
-        for (int behind = room.earlyReach + 1; behind <= room.earlyCapacity; ++behind)
-            room.early[static_cast<std::size_t>((room.earlyPosition - behind) & (room.earlyCapacity - 1))] = value;
-        for (std::size_t index = 0; index < room.diffusers.size(); ++index)
-            for (int behind = room.diffuserLengths[index] + 1; behind <= room.diffuserCapacity; ++behind)
-                room.diffusers[index][static_cast<std::size_t>((room.diffuserPosition - behind) & (room.diffuserCapacity - 1))] = value;
-    });
+        auto& voice = s.strings[static_cast<std::size_t>(index)];
+        for (acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
+            for (int behind = loop->reach() + 1; behind <= acukoto::delayCapacity; ++behind)
+                loop->line[static_cast<std::size_t>((loop->write - behind) & mask)] = value;
+        for (int behind = voice.longestRoundTrip + 1; behind <= acukoto::delayCapacity; ++behind)
+            voice.squares[static_cast<std::size_t>((voice.squaresIndex - behind) & mask)] = value * value;
+    }
+    auto& room = s.room;
+    for (std::size_t index = 0; index < room.lines.size(); ++index)
+        for (int behind = room.lengths[index] + 1; behind <= room.capacity; ++behind)
+            room.lines[index][static_cast<std::size_t>((room.positions[index] - behind) & (room.capacity - 1))] = value;
+    for (int behind = room.earlyReach + 1; behind <= room.earlyCapacity; ++behind)
+        room.early[static_cast<std::size_t>((room.earlyPosition - behind) & (room.earlyCapacity - 1))] = value;
+    for (std::size_t index = 0; index < room.diffusers.size(); ++index)
+        for (int behind = room.diffuserLengths[index] + 1; behind <= room.diffuserCapacity; ++behind)
+            room.diffusers[index][static_cast<std::size_t>((room.diffuserPosition - behind) & (room.diffuserCapacity - 1))] = value;
 }
 
 // Right after a clear: every slot within the bounds is zero, and all of `pending`.
@@ -190,27 +187,25 @@ void clearedIsZero(acukoto::AcukotoEngine& engine, const char* after)
             count += ring[static_cast<std::size_t>((cursor - behind) & (static_cast<int>(ring.size()) - 1))] != 0.0f;
         return count;
     };
-    withState(engine, [&] (auto& s)
+    auto& s = *stateOf(engine, StateKey {});
+    for (int index = 0; index < engine.stringCount(); ++index)
     {
-        for (int index = 0; index < engine.stringCount(); ++index)
+        auto& voice = s.strings[static_cast<std::size_t>(index)];
+        for (const acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
         {
-            auto& voice = s.strings[static_cast<std::size_t>(index)];
-            for (const acukoto::Loop* loop : { &voice.normal, &voice.parallel, &voice.leftNormal, &voice.leftParallel })
-            {
-                check(nonZero(loop->line, loop->write, loop->reach()) == 0, after, index, loop->write, loop->reach());
-                check(nonZero(loop->pending, 0, acukoto::delayCapacity) == 0 && loop->pendingAhead == 0,
-                      after, index, loop->pendingAhead);
-            }
-            check(nonZero(voice.squares, voice.squaresIndex, voice.longestRoundTrip) == 0 && voice.squaresSum == 0.0,
-                  after, index, voice.squaresIndex, voice.longestRoundTrip);
+            check(nonZero(loop->line, loop->write, loop->reach()) == 0, after, index, loop->write, loop->reach());
+            check(nonZero(loop->pending, 0, acukoto::delayCapacity) == 0 && loop->pendingAhead == 0,
+                  after, index, loop->pendingAhead);
         }
-        const auto& room = s.room;
-        for (std::size_t index = 0; index < room.lines.size(); ++index)
-            check(nonZero(room.lines[index], room.positions[index], room.lengths[index]) == 0, after, index);
-        check(nonZero(room.early, room.earlyPosition, room.earlyReach) == 0, after);
-        for (std::size_t index = 0; index < room.diffusers.size(); ++index)
-            check(nonZero(room.diffusers[index], room.diffuserPosition, room.diffuserLengths[index]) == 0, after, index);
-    });
+        check(nonZero(voice.squares, voice.squaresIndex, voice.longestRoundTrip) == 0 && voice.squaresSum == 0.0,
+              after, index, voice.squaresIndex, voice.longestRoundTrip);
+    }
+    const auto& room = s.room;
+    for (std::size_t index = 0; index < room.lines.size(); ++index)
+        check(nonZero(room.lines[index], room.positions[index], room.lengths[index]) == 0, after, index);
+    check(nonZero(room.early, room.earlyPosition, room.earlyReach) == 0, after);
+    for (std::size_t index = 0; index < room.diffusers.size(); ++index)
+        check(nonZero(room.diffusers[index], room.diffuserPosition, room.diffuserLengths[index]) == 0, after, index);
 }
 
 struct Player
@@ -298,11 +293,9 @@ struct Player
 double squaresSum(acukoto::AcukotoEngine& engine)
 {
     double sum = 0.0;
-    withState(engine, [&] (auto& s)
-    {
-        for (int index = 0; index < engine.stringCount(); ++index)
-            sum += s.strings[static_cast<std::size_t>(index)].squaresSum;
-    });
+    auto& s = *stateOf(engine, StateKey {});
+    for (int index = 0; index < engine.stringCount(); ++index)
+        sum += s.strings[static_cast<std::size_t>(index)].squaresSum;
     return sum;
 }
 
