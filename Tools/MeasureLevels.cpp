@@ -14,8 +14,8 @@
 //       prints each string's, each strike's and each key's level, the level
 //       its touch is meant to give it and the touch that would give it that
 //   AcukotoLevels --check [--limit dB] [--velocity 0-1]
-//       exits 1 when a string, a strike or a key stands more than the limit
-//       (default 0.5 dB) from its intended level
+//       exits 1 when a strike or a key stands more than the limit (default
+//       0.5 dB) from its intended level, or a string more than 0.1 dB
 //   AcukotoLevels --write-keys <path>
 //       writes the key touches that would give every key its intended level
 //       to <path>, Source/DSP/AcukotoKeyTouches.h; run it again until --check
@@ -39,7 +39,12 @@
 // there to the strings' mean without their touches. Since 0.25.11 a pluck
 // also slips off faster for its touch, so a key's level is linear in its
 // touch only to about 0.6 dB: run --write-keys and rebuild until --check
-// holds (three runs settle it to 0.01 dB).
+// holds (three runs settle it to 0.01 dB). The strings' own touches
+// (AcukotoPresets.h) are written by hand from the first print, and a string's
+// level without its touch moves with the touch the same way: write the
+// printed touches, rebuild and run again until every string stands within
+// 0.01-0.02 dB, with --write-keys each time, since a key's touch is a share
+// of its string's.
 
 #include "../Source/DSP/AcukotoEngine.h"
 #include "../Source/DSP/AcukotoPerformer.h"
@@ -63,6 +68,12 @@ namespace
 constexpr int sampleRate = 48000;
 // The share of the correction that would level every string.
 constexpr double correction = 0.8;
+// The strings' own limit in --check. Their touches are refitted by hand, and
+// under the keys' 0.5 dB a refit that was due went unseen: after 0.25.11 moved
+// the release with the touch, D3 stood 0.43 dB over its intended level and
+// Hankumoijoshi's E-flat 5 0.50 under until 0.25.14. A fit settles within
+// 0.02 dB; 0.1 leaves room for another platform's rounding.
+constexpr double stringLimit = 0.1;
 constexpr std::size_t lead = sampleRate / 100;
 constexpr std::size_t window = sampleRate * 6 / 10;
 
@@ -226,10 +237,10 @@ int main(int argc, char** argv)
                         string.touch * std::pow(10.0, (intended[i] - levels[i]) / 20.0));
             worst = std::max(worst, std::abs(levels[i] - intended[i]));
         }
-        if (check && worst > limit)
+        if (check && worst > std::min(limit, stringLimit))
         {
             std::printf("FAIL %s: a string is %.2f dB from its intended level, over the %.2f dB limit\n", spec.name,
-                        worst, limit);
+                        worst, std::min(limit, stringLimit));
             ++failures;
         }
 

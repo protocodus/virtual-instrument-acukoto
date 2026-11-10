@@ -122,10 +122,10 @@ constexpr StringSpec koto(int midiNote, double cents, double spread, double touc
 // spreads are the standard deviation among the six (Fig. 8), largest at the
 // minor seconds; string 1 is everyone's reference.
 constexpr std::array<StringSpec, maxStrings> hirajoshi {{
-    koto(50, 0.0, 0.0, 1.298), koto(55, -1.7, 0.8, 1.016), koto(57, 0.9, 1.8, 0.977), koto(58, -5.1, 2.7, 1.196),
-    koto(62, 1.0, 2.0, 1.173), koto(63, -11.3, 4.2, 0.876), koto(67, -1.1, 2.0, 0.996), koto(69, 2.1, 1.7, 0.912),
-    koto(70, -4.6, 2.8, 0.927), koto(74, 2.0, 2.0, 0.892), koto(75, -9.7, 4.3, 0.790), koto(79, 2.2, 2.6, 1.061),
-    koto(81, 5.3, 2.1, 1.002)
+    koto(50, 0.0, 0.0, 1.237), koto(55, -1.7, 0.8, 1.027), koto(57, 0.9, 1.8, 0.985), koto(58, -5.1, 2.7, 1.188),
+    koto(62, 1.0, 2.0, 1.137), koto(63, -11.3, 4.2, 0.900), koto(67, -1.1, 2.0, 0.995), koto(69, 2.1, 1.7, 0.931),
+    koto(70, -4.6, 2.8, 0.898), koto(74, 2.0, 2.0, 0.903), koto(75, -9.7, 4.3, 0.793), koto(79, 2.2, 2.6, 1.070),
+    koto(81, 5.3, 2.1, 1.030)
 }};
 
 // Hankumoijoshi: hirajoshi with string 8 lowered a semitone and string 9
@@ -135,10 +135,10 @@ constexpr std::array<StringSpec, maxStrings> hirajoshi {{
 // 9, C5, a perfect fourth above 7. Their spreads add 7's to a minor second's
 // own (4's and 6's over 3's and 5's, 2.9 cents) and to a fourth's (2's, 0.8).
 constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
-    koto(50, 0.0, 0.0, 1.359), koto(55, -1.7, 0.8, 1.023), koto(57, 0.9, 1.8, 0.999), koto(58, -5.1, 2.7, 1.067),
-    koto(62, 1.0, 2.0, 1.179), koto(63, -11.3, 4.2, 0.937), koto(67, -1.1, 2.0, 0.995), koto(68, -10.2, 3.5, 0.867),
-    koto(72, -3.1, 2.2, 0.751), koto(74, 2.0, 2.0, 0.861), koto(75, -9.7, 4.3, 0.742), koto(79, 2.2, 2.6, 1.160),
-    koto(81, 5.3, 2.1, 1.185)
+    koto(50, 0.0, 0.0, 1.314), koto(55, -1.7, 0.8, 1.049), koto(57, 0.9, 1.8, 1.019), koto(58, -5.1, 2.7, 1.089),
+    koto(62, 1.0, 2.0, 1.167), koto(63, -11.3, 4.2, 0.917), koto(67, -1.1, 2.0, 1.005), koto(68, -10.2, 3.5, 0.877),
+    koto(72, -3.1, 2.2, 0.760), koto(74, 2.0, 2.0, 0.874), koto(75, -9.7, 4.3, 0.784), koto(79, 2.2, 2.6, 1.136),
+    koto(81, 5.3, 2.1, 1.173)
 }};
 
 // The body. Coaldrake's koto is 1.83 m long (ICA 2019); a 1981 Yamada-style
@@ -161,13 +161,13 @@ constexpr std::array<StringSpec, maxStrings> hankumoijoshi {{
 // these walls 3.5 dB short, 2.2 against the four JpnMusic recordings). The
 // thickest without the shortfall, 0.7: a top 15.4 mm thick, sides of 11.2 mm
 // and a back board of 5.6 mm, the whole 5.2 kg (a 7.5 kg koto weighs its
-// fittings, legs and struts too). The box then bends at 95 and 234 Hz and
+// fittings, legs and struts too). The box then bends at 94 and 231 Hz and
 // twists at 184, 195 and 320. As one shell (the top and sides carved from one log, the back
-// glued under them), its section first breathes at 293 Hz, the top falling
+// glued under them), its section first breathes at 299 Hz, the top falling
 // as the back rises and the sides bow out. The holes are estimated in place
 // and fitted in size, with the walls yielding, to the cavity's two air modes
 // Coaldrake identified at 85 and 157 Hz: round holes of 4.5 and 3.75 cm
-// radius at 0.30 and 1.30 m give 86 and 146, the second held below 157 by
+// radius at 0.30 and 1.30 m give 85 and 146, the second held below 157 by
 // the walls whatever the holes.
 //
 // The strings: the ryukaku 8 cm in from the head, the unkaku 1.50 m beyond it
