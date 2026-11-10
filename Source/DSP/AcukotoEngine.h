@@ -328,6 +328,8 @@ public:
 #endif
 
 private:
+    friend struct AcukotoEngineTestAccess;
+
     struct State;
     void applyPitch(int string, int extensionKey = -1) noexcept;
     void pluck(int index, int midiNote, float velocity, int style) noexcept;

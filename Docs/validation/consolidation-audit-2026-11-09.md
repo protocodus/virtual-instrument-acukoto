@@ -267,8 +267,11 @@ At 0.25.13, the same build: the unit tier passes, 15 of 15
 (`Acukoto.BoundedClears` is the fifteenth); the audio tier passes, 2 of 2;
 every target builds without a warning, `AcukotoDSPCxx17` among them. The
 perf tier was not run again. The new test reaches the engine's private
-state through an explicit template instantiation, which GCC 13 and
-clang 18 compiled here; MSVC and AppleClang have not compiled it yet.
+state through `AcukotoEngineTestAccess`, the friend the engine names for
+its tests, as Acustra's and Aculele's tests do. Its first two forms needed
+no friend: they reached the state through an explicit template
+instantiation, which GCC 13, clang 18 and AppleClang compiled and MSVC did
+not.
 
 ## Not done, in order
 

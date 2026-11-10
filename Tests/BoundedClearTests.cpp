@@ -13,8 +13,8 @@
 //    zero there, which is the full clear.
 //  - clearRing itself and one loop's clears, across the ring's end.
 //
-// Include the implementation to reach the engine's rings; no test hook or
-// diagnostic work enters the shipping engine.
+// Include the implementation to reach the engine's rings; nothing but a friend
+// declaration enters the shipping engine for it.
 #include "EngineTestImplementation.h"
 #include "DSP/AcukotoPresets.h"
 
@@ -23,21 +23,15 @@
 #include <memory>
 #include <vector>
 
-// AcukotoEngine keeps its state private, and its type with it. The names in an
-// explicit instantiation are exempt from access checking ([temp.spec]), so
-// this one may name the member, and the friend it defines returns the state
-// as `auto`, which never has to name the type. The friend is an ordinary
-// function: inside a friend template's body MSVC does not know `Member`.
-struct StateKey
+// AcukotoEngine keeps its state private, and its type with it; this is the
+// friend it names for its tests.
+namespace acukoto
 {
-    friend auto stateOf(acukoto::AcukotoEngine& engine, StateKey);
-};
-template <auto Member>
-struct StateDoor
+struct AcukotoEngineTestAccess
 {
-    friend auto stateOf(acukoto::AcukotoEngine& engine, StateKey) { return (engine.*Member).get(); }
+    static auto& state(AcukotoEngine& engine) { return *engine.state_; }
 };
-template struct StateDoor<&acukoto::AcukotoEngine::state_>;
+}
 
 namespace
 {
@@ -121,7 +115,7 @@ void longestCoversTheControls(const acukoto::InstrumentSpec& instrument, double 
     auto engine = std::make_unique<acukoto::AcukotoEngine>();
     engine->prepare(rate);
     engine->setInstrument(instrument);
-    auto& s = *stateOf(*engine, StateKey {});
+    auto& s = acukoto::AcukotoEngineTestAccess::state(*engine);
     for (int index = 0; index < engine->stringCount(); ++index)
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
@@ -156,7 +150,7 @@ void longestCoversTheControls(const acukoto::InstrumentSpec& instrument, double 
 // Writes `value` into every slot a clear at this moment leaves untouched.
 void fillUntouched(acukoto::AcukotoEngine& engine, float value)
 {
-    auto& s = *stateOf(engine, StateKey {});
+    auto& s = acukoto::AcukotoEngineTestAccess::state(engine);
     for (int index = 0; index < engine.stringCount(); ++index)
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
@@ -187,7 +181,7 @@ void clearedIsZero(acukoto::AcukotoEngine& engine, const char* after)
             count += ring[static_cast<std::size_t>((cursor - behind) & (static_cast<int>(ring.size()) - 1))] != 0.0f;
         return count;
     };
-    auto& s = *stateOf(engine, StateKey {});
+    auto& s = acukoto::AcukotoEngineTestAccess::state(engine);
     for (int index = 0; index < engine.stringCount(); ++index)
     {
         auto& voice = s.strings[static_cast<std::size_t>(index)];
@@ -293,7 +287,7 @@ struct Player
 double squaresSum(acukoto::AcukotoEngine& engine)
 {
     double sum = 0.0;
-    auto& s = *stateOf(engine, StateKey {});
+    auto& s = acukoto::AcukotoEngineTestAccess::state(engine);
     for (int index = 0; index < engine.stringCount(); ++index)
         sum += s.strings[static_cast<std::size_t>(index)].squaresSum;
     return sum;
