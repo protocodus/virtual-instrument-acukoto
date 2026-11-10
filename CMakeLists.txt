@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Acukoto: a physically modelled koto. The JUCE-free engine and performer,
 # the demo renderer and the analysis tools; there is no plug-in yet.
-project(Acukoto VERSION 0.25.12 LANGUAGES CXX)
+project(Acukoto VERSION 0.25.13 LANGUAGES CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -222,6 +222,13 @@ if(BUILD_TESTING)
     add_executable(AcukotoModalRadiationTests Tests/ModalRadiationTests.cpp)
     target_include_directories(AcukotoModalRadiationTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
     add_test(NAME Acukoto.ModalRadiation COMMAND AcukotoModalRadiationTests)
+
+    # The clears zero only what can still be read; this holds each bound to
+    # the engine's own reads. It includes the implementation, like LoopPair.
+    add_executable(AcukotoBoundedClearTests Tests/BoundedClearTests.cpp)
+    target_include_directories(AcukotoBoundedClearTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+    add_test(NAME Acukoto.BoundedClears COMMAND AcukotoBoundedClearTests)
+    set_tests_properties(Acukoto.BoundedClears PROPERTIES TIMEOUT 300)
 
     get_property(ACUKOTO_TESTS DIRECTORY PROPERTY TESTS)
     foreach(test IN LISTS ACUKOTO_TESTS)

@@ -1,9 +1,11 @@
 # Acukoto CPU: consolidation — 2026-11-09
 
-Acukoto 0.25.12 (`c06a415`) against 0.25.7 (`6a76701`), at the default
-settings: 48 kHz, 1× oversampling, both presets, played through the
-Performer. Four changes touch the cost. None changes a mode, a coefficient,
-a control period or a level.
+Acukoto 0.25.13 against 0.25.7 (`6a76701`), at the default settings:
+48 kHz, 1× oversampling, both presets, played through the Performer. Five
+changes touch the cost. None changes a mode, a coefficient, a control
+period or a level. The tables of ordinary playing below were taken at
+0.25.12 (`c06a415`); 0.25.13 changes only the blocks that clear the state,
+and its figures are in that section.
 
 | Version | Commit | Change | Sound |
 | --- | --- | --- | --- |
@@ -11,6 +13,7 @@ a control period or a level.
 | 0.25.9 | `b14a5cc` | A pluck's shape calls `erfc` and `exp` only around its contact | the same bits |
 | 0.25.10 | `f98397e` | No subnormal reaches the running-energy ring | the same bits |
 | 0.25.12 | `c06a415` | No library call for a floor or a rounding while playing | the same bits |
+| 0.25.13 | this document's commit | A clear zeroes only the stretch of each ring that can still be read | the same bits |
 
 0.25.11 (`93aae28`) is an audible fix with no measurable cost; it is in the
 [audit](../validation/consolidation-audit-2026-11-09.md).
@@ -21,8 +24,9 @@ In the build that stands in for Reason's, the steady cost is unchanged
 (+0.3%):
 that build runs the portable kernels, and nothing numerically neutral was
 found that pays there. The 10% ceiling is not met in either build. The
-largest blocks left are not note-ons but the ones that clear the engine's
-state, and they are not fixed (see "The blocks that clear the state").
+largest blocks were not note-ons but the ones that clear the engine's
+state: 0.25.13 zeroes 0.18 MB in them where 0.25.12 zeroed 8.3 MB (see
+"The blocks that clear the state").
 
 ## The build Reason runs
 
@@ -186,34 +190,160 @@ several takes.
 
 ## The blocks that clear the state
 
-The largest blocks are the ones in which an engine clears its strings, and
-they are still there:
+The largest blocks were the ones in which an engine clears its strings:
+the block in which it falls asleep, the block that ends a preset switch's
+20 ms crossfade (the Performer resets the engine it has faded out; demo
+02's block 3, and its worst) and `Performer::reset()`. Up to 0.25.12
+`Loop::silence()` zeroed the whole `line` and `pending` rings of all 52
+loops, 16,384 floats each, and `sleep()` and `reset()` also zeroed the
+thirteen running-energy rings and the room's lines: 8,290,304 bytes an
+engine.
 
-| Block | FMA3 build | Reason stand-in |
-| --- | --- | --- |
-| An ordinary block before sleep | 0.427 ms (8.0%) | 0.537 ms (10.1%) |
-| The block in which the engine falls asleep | 0.988 ms (18.5%) | 1.302 ms (24.4%) |
-| `Performer::reset()`, both engines | 1.445 ms (27.1%) | 1.846 ms (34.6%) |
-| Demo 02, block 3: the end of the preset switch's 20 ms crossfade | 14.3-15.4% | 20.2-20.9% |
+0.25.13 zeroes only what can still be read. The idea is Aculyre's
+(`91c8b86`, `Loop::reach`); the bounds are Acukoto's, each derived beside
+the code in `AcukotoEngine.cpp`:
 
-(One D4, released, with Release at its default: the engine sleeps 13.70 s
-after the key-up, 0.5 s after its output has fallen under −170 dBFS.)
+- **A loop's line** is read no further than `longest + 3` samples behind
+  its cursor. `longest` is the longest delay the controls can ask of that
+  loop, set at `setInstrument` from every design the loop can take (its
+  string's own and, for the played stretch, each moved-ji key's) at the
+  lowest ratio the controls reach: the pitch bend's octave and the hand's
+  half tone down, 0.4719. `setLineDelay`, the one place the tap moves,
+  holds the delay to it, so the bound is enforced and not only expected.
+- **A loop's pending ring** holds something only in the `pendingAhead`
+  samples ahead of its cursor.
+- **A string's running-energy ring** is read one round trip back; the two
+  places that set the round trip hold it to the longest one of the string
+  and its moved-ji keys at that lowest ratio.
+- **The room's** lines, early taps and diffusers have fixed lengths.
 
-The cause is `Loop::silence()`: it zeroes the whole `line` and `pending`
-rings of all 52 loops, 16,384 floats each, 6.8 MB, and `sleep()` and
-`reset()` also zero the thirteen 64 KB running-energy rings. The Performer
-resets the engine it has faded out when a preset switch's crossfade ends,
-which is demo 02's block 3 and its worst.
+No ring keeps a full clear. At 48 kHz a clear now zeroes 178,520 bytes an
+engine (the lines 84 KB, a reach of 117 to 692 samples; the energy rings
+16 KB; the room 78 KB), 356,236 at 96 kHz and 711,536 at 192 kHz.
 
-Aculyre has the fix for the same engine family (`91c8b86`, `Loop::reach`):
-clear only the stretch of each ring that playing can have written, a bound
-computed at `setInstrument` from every design's longest delay. It was not
-ported in this round. Acukoto's bound has to cover four loops a string, the
-113-point bend table, the hand's presses and the moved-ji keys, the
-running-energy rings need the same treatment, and it wants a test that the
-cleared engine is the freshly prepared one to the bit. It is the first CPU
-item for the next round, and it needs no listening: the result is the same
-bits.
+`Acukoto.BoundedClears` (unit) holds the bounds to the engine's own reads.
+Every loop of both presets at 44.1, 48, 96 and 192 kHz stays under its
+`longest` and its longest round trip at every ratio from the lowest up 40
+semitones; a loop's clear zeroes exactly its reach and all of what is
+pending; and after a reset with a pluck in flight and after falling asleep,
+an engine whose rings hold 1000 everywhere the clear left untouched plays
+the same bits as one whose rings are zero there, bent low from its first
+sample and then over every key. Twelve mutations each fail it: a halved
+reach and one five samples short, a `longest` without the hand's half tone
+and one from the rest position alone, a halved energy clear, a round trip
+from the rest pitch, each of the room's three clears halved, a pending
+clear one sample short in `reset()` and in `silence()`, and a line cleared
+behind the old cursor.
+
+Instructions in the one block (or call), callgrind, on the binaries that
+rendered the scenarios under "The sound". The sleep counted here is the
+palm-damped note's, 3.6 s in, which clears the same state as the ringing
+one's; the crossfade's is the block that ends a switch under thirteen
+ringing strings; the reset follows 190 blocks of re-plucks:
+
+| Block | FMA3, 0.25.12 | FMA3, 0.25.13 | Stand-in, 0.25.12 | Stand-in, 0.25.13 |
+| --- | ---: | ---: | ---: | ---: |
+| The block in which the engine falls asleep | 10,028,208 | 1,867,836 | 5,084,872 | 4,405,929 |
+| The block that ends a preset switch's crossfade | 11,002,410 | 2,841,228 | 7,475,073 | 6,796,880 |
+| `Performer::reset()`, both engines | 16,660,776 | 335,350 | 1,495,002 | 138,627 |
+
+The two builds' counts are not comparable with each other, and neither is
+the time. GCC's build calls glibc's `memset`, which fills with `rep stosb`,
+and callgrind counts that at about one instruction a byte: 8.16 million of
+the FMA3 build's 10.03 million were the fill. clang's stand-in fills inline
+with SSE stores, about twelve bytes an instruction, so the same fill was
+0.68 million there. What the fill cost was the 8.3 MB it wrote, four times
+this CPU's 2 MB second-level cache, and the timings show it.
+
+Thread CPU time, 256-frame blocks, percent of one core; two rounds, shown
+as a range. The first three rows are one D4, released, with Release at its
+default (the engine sleeps 13.70 s after the key-up, 0.5 s after its output
+has fallen under −170 dBFS), the least of seven takes; the last two are
+demo 02, the least of five takes a block:
+
+| Block | FMA3, 0.25.12 | FMA3, 0.25.13 | Stand-in, 0.25.12 | Stand-in, 0.25.13 |
+| --- | --- | --- | --- | --- |
+| An ordinary block before sleep | 0.614-0.632 ms (11.5-11.8%) | 0.635-0.636 ms (11.9%) | 0.761-0.777 ms (14.3-14.6%) | 0.779-0.799 ms (14.6-15.0%) |
+| The block in which the engine falls asleep | 0.899-1.002 ms (16.9-18.8%) | 0.390-0.407 ms (7.3-7.6%) | 1.500-1.543 ms (28.1-28.9%) | 0.497-0.501 ms (9.3-9.4%) |
+| `Performer::reset()`, both engines | 1.238-1.308 ms (23.2-24.5%) | 0.088-0.090 ms (1.6-1.7%) | 2.057-2.159 ms (38.6-40.5%) | 0.092-0.098 ms (1.7-1.8%) |
+| Demo 02, block 3: the end of the preset switch's crossfade | 14.67-15.00% | 0.93-0.96% | 22.03-22.78% | 1.01-1.08% |
+| Demo 02, its worst block | 14.67-15.00% (block 3) | 13.30-13.68% (a block with note-ons) | 22.03-22.78% (block 3) | 15.89-15.97% (a block with note-ons) |
+
+The engine falls asleep halfway through its block, so that block is now
+smaller than an ordinary one. Demo 02's block 3 was nothing but the clear:
+no string sounds yet when its opening switch ends.
+
+**These timings are from a slower machine than the tables under
+"Timings".** The container restarted between the two, and the same 0.25.12
+binary's dense phrase averages 11.5 to 11.9% here where it averaged 8.0 to
+8.1% there. Compare within this section only. On the first machine
+0.25.12's sleep block was 0.988 ms (18.5%) in the FMA3 build and 1.302 ms
+(24.4%) in the stand-in, its reset 1.445 ms (27.1%) and 1.846 ms (34.6%),
+and demo 02's block 3 14.3-15.4% and 20.2-20.9%.
+
+### Ordinary playing, and the size of a loop
+
+Ordinary playing runs the same instructions as 0.25.12 in the stand-in and
+0.06% more in the FMA3 build: 1.5 s of the dense phrase takes
+2,522,995,728 instructions in the stand-in (2,522,995,750 in 0.25.12) and
+1,004,027,235 in the FMA3 build (1,003,436,113), the chords 2,512,782,328
+(2,512,782,379) and 1,004,742,455 (1,004,159,526). The FMA3 build's eight
+instructions a sample were not traced; `setLineDelay` now reads the loop's
+bound where it compared with a constant.
+
+A first version of this change was nonetheless 17% slower in ordinary
+playing, and the cause is worth keeping. It stored `longest` as a `double`
+in each loop, which made a loop 8 bytes larger (132,608 to 132,616).
+Paired runs of the dense phrase on the first machine while it was quiet
+(FMA3 build, mean of the blocks, six rounds each, load average under 1):
+
+| Build | Dense phrase, mean block |
+| --- | --- |
+| 0.25.12 | 7.99-8.75% (five of the six rounds 7.99-8.12%) |
+| 0.25.13, first version (a loop 8 bytes larger) | 9.41-9.63% |
+| 0.25.13 as committed (every size and offset as in 0.25.12) | 8.01-8.12% |
+
+The first version's instruction counts were within 0.006% of 0.25.12's.
+Aligning every function to 64 bytes did not bring its time back, so it was
+not where the code landed, and 0.25.12 with nothing but one unused `double`
+added to the loop was 5.6% slower. So it is the data's layout: eight bytes
+more in a loop move both of its 64 KB rings and every loop behind it.
+Which reads that hurts was not established (no cache simulation, no
+hardware counters), so this is a finding about this CPU and these builds,
+not a law. The committed
+version stores every bound as an `int` in a gap the compiler had already
+left (`Loop::longest` beside `dispersionStages`,
+`StringVoice::longestRoundTrip` beside `ji`, `Room::earlyReach` beside
+`earlyPosition`): `sizeof(Loop)`, the offsets of `line` and `pending`, the
+voice, the room and the whole state measure as they did in 0.25.12.
+**Anything added to `Loop` or to the voice has to be timed, not only
+counted.**
+
+The committed version against 0.25.12 on the second machine, after the
+restart: the mean block over five paired rounds of the dense phrase (three
+with 0.25.12 run first, two with it second) and two of demo 02.
+
+| Phrase | Build | 0.25.12 | 0.25.13 | 0.25.13 against 0.25.12, round by round |
+| --- | --- | --- | --- | --- |
+| Dense | FMA3 | 11.46-12.09% | 11.60-12.11% | +1.6, +1.2, +1.9, +2.3, −0.7% (mean +1.3%) |
+| Dense | Stand-in | 14.21-14.88% | 14.20-14.82% | +2.5, −1.1, −1.5, +1.9, −0.1% (mean +0.3%) |
+| Demo 02 | FMA3 | 11.54-11.70% | 11.53-11.69% | −0.1, −0.1% |
+| Demo 02 | Stand-in | 13.99-14.13% | 14.22-14.30% | +1.2, +1.6% |
+
+The same binary moves by 5% between rounds on this machine (0.25.12's
+dense phrase in the FMA3 build, 11.46 to 12.09%), so every difference here
+is inside the spread, and the first machine's six rounds showed none
+(8.01-8.12% against 7.99-8.12%). The rounds lean to the slow side by about
+1% all the same, and these runs cannot say whether that is the machine or
+the code. The instruction counts say it should not be the code. A serial
+timing on a quiet machine is the figure to trust; none was taken here.
+
+### What the clears still leave
+
+A bare-finger pluck on a string that is still sounding (`pluck()`) zeroes
+that string's whole running-energy ring, 64 KB, as before; its two
+`silence()` calls are bounded now. It is one string at a note-on, and was
+not one of the three blocks.
 
 ## The sound
 
@@ -231,6 +361,18 @@ bits.
   pressed and moved-ji keys and a phrase render the same bits as 0.25.11
   in the FMA3 build and in the Reason stand-in, where the library calls
   were.
+- **0.25.13.** Eleven renders, the same bits as 0.25.12 in the FMA3 build
+  and in the Reason stand-in: both demos, the dense phrase and the chords
+  on both presets, and five that cross a clear and play on after it. A
+  ringing D4 left to fall asleep (13.70 s after its key-up) and woken by a
+  note; the same
+  woken by all thirteen strings with the pitch bend at −12 and the hand
+  press at −1, where the lines reach furthest back; the same with the palm
+  on the strings; a preset switch under thirteen ringing strings with the
+  pedal down, then back to the engine the crossfade reset, bent low from
+  its first sample; and `Performer::reset()` in the middle of a phrase of
+  re-plucks under a moving bend, played on bent low, with a second reset
+  under ringing strings.
 
 Two commit messages misstate a figure and cannot be amended on a pushed
 branch. `b14a5cc` says `Acukoto.PluckShape` holds 97,686 values; it holds
@@ -269,7 +411,8 @@ x86-64 half only.
 ## Tried or weighed, and dropped
 
 - **Shorter delay rings** (`delayCapacity` 1024 for the keys that fit): no
-  gain while playing. The cost of their size is the clearing above.
+  gain while playing. The cost of their size was the clearing above, which
+  0.25.13 bounds without resizing them.
 - **Skipping small participations** in the 26 × 356 drive and pull: every
   one of the 26 coordinates is significant for most modes, so there is no
   sparsity to use without changing the sound.
@@ -289,11 +432,11 @@ x86-64 half only.
 
 ## What is left, and what it would cost in sound
 
-Nothing neutral remains that pays in Reason's build except the bounded
-clears. The one audible lever that does is the number of wall modes: the
-body's share scales with the mode count. Three reductions were rendered as
-a listening set for the owner (`wall-modes`, in the project files, with its
-key); the branch carries none of them.
+Nothing neutral is known to remain that pays in Reason's build; 0.25.13
+took the bounded clears. The one audible lever that does is the number of
+wall modes: the body's share scales with the mode count. Three reductions
+were rendered as a listening set for the owner (`wall-modes`, in the
+project files, with its key); the branch carries none of them.
 
 | Letter | Wall modes | Body modes | Stand-in instructions (estimate) | Largest third-octave change after level matching |
 | --- | --- | ---: | ---: | --- |

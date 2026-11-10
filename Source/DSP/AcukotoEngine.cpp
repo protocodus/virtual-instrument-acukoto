@@ -1058,6 +1058,12 @@ constexpr int bendPoints = 28 * bendStepsPerSemitone + 1;
 // One explicit line sample plus a strictly positive first-order fraction.
 // This is a numerical causality guard, not the tuning solution.
 constexpr double minimumLineDelay = 1.0 + 1.0e-6;
+// The furthest the controls lower a string, in semitones: the pitch bend's
+// octave and the hand's half-tone fall (hiki-iro). setControls() holds them
+// to these, and they set how long a line the instrument is built for
+// (LoopDesign::longestLine).
+constexpr double lowestPitchBend = -12.0;
+constexpr double lowestHandPress = -1.0;
 // Quarter-semitone grid covers -12 master tuning through +12 master +3
 // hand pressure, with another semitone for the physical tension glide.
 // 2^((k - 48) / 48), as std::pow gives them. A literal, because the Rack
@@ -1147,6 +1153,25 @@ struct LoopDesign
     // filters' dispersion and the bridge's reflection) at bendRatios.
     std::array<double, bendPoints> lagCycles {};
 
+    // The longest line the design asks for from `lowest` times its own
+    // frequency up, `lowest` under bendRatios' first: Loop::lineDelayAt
+    // before any mute, which only shortens it. Between two of bendRatios
+    // that is one straight line in the ratio over another, so it peaks at
+    // one of the two, and below the first it runs on the same way, down to
+    // `lowest`. Past the last it only shortens (Acukoto.BoundedClears checks
+    // every loop of every preset). In whole samples, rounded up with one to
+    // spare, so that the last bits of a block's own arithmetic cannot reach
+    // it, and within the ring.
+    int longestLine(double lowest) const noexcept
+    {
+        const double t = (lowest - bendRatios[0]) / (bendRatios[1] - bendRatios[0]);
+        const double lag = lagCycles[0] + t * (lagCycles[1] - lagCycles[0]);
+        double longest = std::max(restLineDelay, (1.0 - lag) * loopDelay / lowest);
+        for (std::size_t k = 0; k < bendRatios.size(); ++k)
+            longest = std::max(longest, (1.0 - lagCycles[k]) * loopDelay / bendRatios[k]);
+        return static_cast<int>(std::min(std::ceil(longest) + 1.0, delayCapacity - 6.0));
+    }
+
     // Phase lag of everything in the loop but the line's whole samples and
     // the Thiran section, at omega (rad/sample).
     double filterLag(double omega) const noexcept
@@ -1161,6 +1186,21 @@ struct LoopDesign
         return lag;
     }
 };
+
+// Zeroes `count` slots of a ring from `start` on (any integer: it wraps). The
+// rings are megabytes and a clear runs inside an audio block, so each one
+// zeroes only what can still be read, with the reason beside it.
+template <std::size_t Capacity>
+void clearRing(std::array<float, Capacity>& ring, int start, int count) noexcept
+{
+    static_assert((Capacity & (Capacity - 1)) == 0, "a ring's size is a power of two");
+    const int capacity = static_cast<int>(Capacity);
+    start &= capacity - 1;
+    count = std::clamp(count, 0, capacity);
+    const int first = std::min(count, capacity - start);
+    std::fill_n(ring.begin() + start, first, 0.0f);
+    std::fill_n(ring.begin(), count - first, 0.0f);
+}
 
 // One polarisation of one stretch of a string: the round trip from the
 // bridge (the ji) to the stretch's fixed end (the ryukaku or the unkaku) and
@@ -1181,6 +1221,15 @@ struct Loop
     // The wave that last arrived at the bridge.
     double last { 0.0 };
     int dispersionStages { 0 };
+    // The longest line setLineDelay() grants, in whole samples.
+    // setInstrument() makes it the longest any of the loop's designs asks
+    // for within the controls' range (LoopDesign::longestLine), so it
+    // shortens nothing the instrument plays; before that it is the ring's
+    // own limit. It bounds how far back the line is read: see reach(). An
+    // int in the gap beside an int, so that the loop is as large as it was:
+    // eight bytes more cost ordinary playing 17%
+    // (Docs/benchmarks/cpu-consolidation-2026-11-09.md).
+    int longest { delayCapacity - 6 };
     double dispersion { 0.0 };
     double dispersionCents { 0.0 };  // the design's worst partial error
     std::array<double, maxDispersionStages> dispersionState {};
@@ -1213,12 +1262,29 @@ struct Loop
     // a gap and pluck at the wrong point.
     std::array<float, delayCapacity> pending {};
 
+    // How far behind the cursor the line can be read or changed, in samples.
+    // setLineDelay() alone moves the tap, and leaves whole under samples - 1
+    // (its fraction is at least 1.1, and wholeFor() rounds samples - 2 up or
+    // samples - 1.3 down) or at 1, with samples no more than `longest`. The
+    // tap is read at write - whole (read, readPair) and its two past inputs
+    // at write - 1 - whole and write - 2 - whole (setLineDelay); the hand's
+    // taps lie within 2 + max(2, whole - 2) (setHand, touch) and the wave a
+    // tsume stops within whole (pluck). So nothing reaches further than
+    // whole + 2, or 4 on a line under four samples: under longest + 3.
+    int reach() const noexcept { return longest + 3; }
+
     // Stops the wave and everything still on its way, keeping the pitch and
-    // the hand's damping.
+    // the hand's damping. Of the line, only the reach() slots behind the
+    // cursor are zeroed: an older slot is written, as the cursor comes round
+    // to it, before the tap can be that far back again. Of `pending`, only
+    // what is still to arrive: every write to it lies within pendingAhead of
+    // the cursor (pluck and runScrapes raise pendingAhead over what they
+    // add; what a tsume stops is only scaled), and each sample's read zeroes
+    // its slot as the cursor passes, so the rest of the ring is zero already.
     void silence() noexcept
     {
-        line.fill(0.0f);
-        pending.fill(0.0f);
+        clearRing(line, write - reach(), reach());
+        clearRing(pending, write, pendingAhead);
         pendingAhead = 0;
         tx1 = tx2 = ty1 = ty2 = last = 0.0;
         dispersionState.fill(0.0);
@@ -1230,10 +1296,14 @@ struct Loop
 
     void reset() noexcept
     {
-        silence();
         // Back to where prepare() leaves the line, so a reset plays as a
-        // fresh instance does, sample for sample.
+        // fresh instance does, sample for sample. What is still to arrive
+        // lies ahead of the old cursor and is cleared there; silence() then
+        // clears the line behind the new one.
+        clearRing(pending, write, pendingAhead);
+        pendingAhead = 0;
         write = 0;
+        silence();
         handOut = handBack = 0;
         handOutAlpha = handBackAlpha = 0.0;
         handShare = 0.0;
@@ -1258,8 +1328,9 @@ struct Loop
     {
         // The supported key/rate/bend range fits. Keep a future/custom
         // design beyond that range from turning a capped integer tap into
-        // an enormous (and unstable) Thiran fraction.
-        samples = std::clamp(samples, minimumLineDelay, static_cast<double>(delayCapacity - 6));
+        // an enormous (and unstable) Thiran fraction, and every line within
+        // what a clear zeroes (reach).
+        samples = std::clamp(samples, minimumLineDelay, static_cast<double>(longest));
         const bool useFirstOrder = samples <= 2.0;
         const double current = samples - whole;
         if (samples >= 8.0 && !firstOrder && current >= 1.1 && current < 2.3)
@@ -2475,6 +2546,8 @@ struct Room
     std::array<double, lineCount> filterStates {};
     std::array<float, earlyCapacity> early {};
     int earlyPosition { 0 };
+    // The longest of the early taps and the predelay.
+    int earlyReach { 0 };
     std::array<int, 6> earlyTapsLeft {}, earlyTapsRight {};
     std::array<double, 6> earlyGainsLeft {}, earlyGainsRight {};
     int predelay { 0 };
@@ -2528,19 +2601,26 @@ struct Room
             earlyGainsRight[static_cast<std::size_t>(index)] = -earlyGain[5 - index];
         }
         predelay = static_cast<int>(9.0e-3 * sampleRate);
+        earlyReach = predelay;
+        for (std::size_t tap = 0; tap < 6; ++tap)
+            earlyReach = std::max({ earlyReach, earlyTapsLeft[tap], earlyTapsRight[tap] });
         reset();
     }
+    // Every ring here is read only at the fixed distances prepare() sets
+    // behind its cursor: a line and a diffuser at its length, `early` at its
+    // taps and the predelay. So only that much behind each cursor is zeroed;
+    // an older slot is written again before a read comes to it.
     void reset() noexcept
     {
-        for (auto& line : lines)
-            line.fill(0.0f);
         positions.fill(0);
+        for (std::size_t index = 0; index < lineCount; ++index)
+            clearRing(lines[index], -lengths[index], lengths[index]);
         filterStates.fill(0.0);
-        early.fill(0.0f);
         earlyPosition = 0;
-        for (auto& diffuser : diffusers)
-            diffuser.fill(0.0f);
+        clearRing(early, -earlyReach, earlyReach);
         diffuserPosition = 0;
+        for (std::size_t index = 0; index < diffuserCount; ++index)
+            clearRing(diffusers[index], -diffuserLengths[index], diffuserLengths[index]);
     }
     void process(double input, double& left, double& right) noexcept
     {
@@ -4351,6 +4431,14 @@ struct AcukotoEngine::State
         double impedance { 0.0 };
         double linearMass { 0.0 };
         int ji { 0 };          // its ji's coordinates: ji (heave), maxStrings + ji (tip)
+        // The longest round trip the voice is given: setInstrument() makes
+        // it the round trip of its lowest pitch at the controls' lowest
+        // ratio, and pluck() and process() hold roundTrip to it. `squares`
+        // is read and written no further than roundTrip behind
+        // squaresIndex, so that is all of it a clear zeroes (clearSquares).
+        // In the gap beside ji, so that the voice is as large as it was
+        // (see Loop::longest).
+        int longestRoundTrip { delayCapacity - 1 };
         // The left hand's press behind the ji (oshide), as a pitch ratio: the
         // target and where the glide has reached.
         double pressTarget { 1.0 };
@@ -4404,6 +4492,12 @@ struct AcukotoEngine::State
         std::array<float, delayCapacity> squares {};
         PitchDesign pitch {};
         std::array<LoopDesign, 2> left {};
+
+        void clearSquares() noexcept
+        {
+            clearRing(squares, squaresIndex - longestRoundTrip, longestRoundTrip);
+            squaresSum = 0.0;
+        }
 
         void refreshHand() noexcept
         {
@@ -5017,9 +5111,33 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
         };
         tune(voice.pitch.planes, true);
         tune(voice.left, true);
+        // What a clear of this string has to zero (Loop::reach,
+        // StringVoice::clearSquares): its longest lines and round trip, over
+        // every pitch its ji can give it, at the lowest ratio the controls
+        // reach. The tension glide only raises the ratio, and so does a
+        // left-hand press: its waver would have to stand 33 standard
+        // deviations (1 / (2 pressForceSpread)) under its mean to undo it.
+        const double lowestRatio = std::pow(2.0, lowestPitchBend / 12.0) * std::pow(2.0, lowestHandPress / 12.0);
+        // Rounded up with a sample to spare, as the lines are.
+        const auto longestRoundTrip = [&] (const State::PitchDesign& pitch)
+        {
+            return std::clamp(static_cast<int>(std::ceil(fs / (pitch.planes[0].frequency * lowestRatio))) + 1,
+                              pitch.roundTrip, delayCapacity - 1);
+        };
+        voice.normal.longest = voice.pitch.planes[0].longestLine(lowestRatio);
+        voice.parallel.longest = voice.pitch.planes[1].longestLine(lowestRatio);
+        voice.leftNormal.longest = voice.left[0].longestLine(lowestRatio);
+        voice.leftParallel.longest = voice.left[1].longestLine(lowestRatio);
+        voice.longestRoundTrip = longestRoundTrip(voice.pitch);
         for (int key = lowestKey; key <= highestKey; ++key)
             if (s.extensionString[static_cast<std::size_t>(key)] == index)
-                tune(s.extension[static_cast<std::size_t>(key)].planes, false);
+            {
+                State::PitchDesign& extension = s.extension[static_cast<std::size_t>(key)];
+                tune(extension.planes, false);
+                voice.normal.longest = std::max(voice.normal.longest, extension.planes[0].longestLine(lowestRatio));
+                voice.parallel.longest = std::max(voice.parallel.longest, extension.planes[1].longestLine(lowestRatio));
+                voice.longestRoundTrip = std::max(voice.longestRoundTrip, longestRoundTrip(extension));
+            }
         voice.normal.whole = wholeFor(voice.pitch.planes[0].restLineDelay);
         voice.parallel.whole = wholeFor(voice.pitch.planes[1].restLineDelay);
         voice.leftNormal.whole = wholeFor(voice.left[0].restLineDelay);
@@ -5058,9 +5176,8 @@ void AcukotoEngine::reset() noexcept
         voice.parallel.reset();
         voice.leftNormal.reset();
         voice.leftParallel.reset();
-        voice.squares.fill(0.0f);
-        voice.squaresSum = 0.0;
         voice.squaresIndex = 0;
+        voice.clearSquares();
         voice.energy = 0.0;
         voice.keyDown = voice.sustained = voice.plucked = voice.pluckedLeft = false;
         voice.leftQuietSamples = 0;
@@ -5234,15 +5351,15 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     c.room = unitClamp(c.room);
     c.width = 2.0 * unitClamp(0.5 * c.width);
     c.volume = c.volume >= 0.0 && c.volume <= 4.0 ? c.volume : (c.volume > 4.0 ? 4.0 : 0.0);
-    c.pitchBend = c.pitchBend >= -12.0 && c.pitchBend <= 12.0 ? c.pitchBend
-                                                               : (c.pitchBend > 12.0 ? 12.0 : 0.0);
+    c.pitchBend = c.pitchBend >= lowestPitchBend && c.pitchBend <= 12.0 ? c.pitchBend
+                                                                          : (c.pitchBend > 12.0 ? 12.0 : 0.0);
     // Hiki-iro draws a ringing string toward the ji, reducing its speaking
     // tension: Pro Musica Nipponia, "Koto", technique 6, describes half- or
     // whole-tone falls on the middle strings, harder on the lowest/highest
     // (https://www.promusica.or.jp/english/koto.html). Allow the conservative
     // half-tone downward gesture, beside the existing upward press. This is
     // a pitch/tension gesture; the finger's frictional slip is not modelled.
-    c.handPress = std::isfinite(c.handPress) ? std::clamp(c.handPress, -1.0, 3.0) : 0.0;
+    c.handPress = std::isfinite(c.handPress) ? std::clamp(c.handPress, lowestHandPress, 3.0) : 0.0;
 
     s.releaseRate = handRate(c.release);
     s.sympathyRate = handRate(c.sympathy);
@@ -6175,7 +6292,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
                                * s.bend * voice.pressRatio * voice.handRatio;
     voice.setLoopsRatio(releasedRatio);
     const int releasedRoundTrip = std::clamp(
-        nearestInt(sampleRate_ / (voice.frequency * releasedRatio)), 1, delayCapacity - 1);
+        nearestInt(sampleRate_ / (voice.frequency * releasedRatio)), 1, voice.longestRoundTrip);
     while (voice.roundTrip < releasedRoundTrip)
     {
         ++voice.roundTrip;
@@ -6383,8 +6500,7 @@ void AcukotoEngine::sleep() noexcept
         voice.parallel.silence();
         voice.leftNormal.silence();
         voice.leftParallel.silence();
-        voice.squares.fill(0.0f);
-        voice.squaresSum = 0.0;
+        voice.clearSquares();
         voice.energy = 0.0;
         if (voice.plucked || voice.pluckedLeft)
         {
@@ -6542,7 +6658,7 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
                 voice.setLoopsRatio(ratio);
                 // The mean follows the period the bend and the glide set.
                 const int roundTrip = std::clamp(nearestInt(sampleRate_ / (voice.frequency * ratio)),
-                                                 1, delayCapacity - 1);
+                                                 1, voice.longestRoundTrip);
                 while (voice.roundTrip < roundTrip)
                 {
                     ++voice.roundTrip;

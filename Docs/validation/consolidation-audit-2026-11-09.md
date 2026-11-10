@@ -1,7 +1,7 @@
 # Acukoto consolidation audit — 2026-11-09
 
-Acukoto 0.25.7 (`6a76701`) to 0.25.12 (`c06a415`). A pass to finish what
-exists before a release: read the model end to end, survey every key, fix
+Acukoto 0.25.7 (`6a76701`) to 0.25.12 (`c06a415`), and 0.25.13 for its
+finding 4. A pass to finish what exists before a release: read the model end to end, survey every key, fix
 what a measurement or a derivation settles, and take the CPU that costs
 nothing in sound. The CPU evidence is in
 [CPU: consolidation](../benchmarks/cpu-consolidation-2026-11-09.md).
@@ -33,7 +33,7 @@ engine measured against itself.
 | 1 | At soft velocities the keys above F6 fell quiet: 7.6 and 8.4 dB between the loudest and quietest key at velocity 0.3. The pluck's release time followed the velocity but not the key's touch, which is force too. | Fixed at the cause, 0.25.11 (`93aae28`): 3.4 and 3.4 dB. Audible; listening set `soft-notes`. |
 | 2 | Every note-on raised the CPU's underflow and denormal-operand flags (the pluck shape's far cells), and the first soft note after a sleep stored a subnormal in a string's running-energy ring. Reason is not known to set flush-to-zero. | Fixed, 0.25.9 (`b14a5cc`) and 0.25.10 (`f98397e`), the same bits. `Acukoto.Subnormals` is the contract. |
 | 3 | In Reason's build (`-fno-builtin`) a note-on made about 2600 `erfc` and `exp` calls for a low string, and `lround` and `floor` ran on the playing path. | Fixed, 0.25.9 and 0.25.12 (`c06a415`), the same bits. |
-| 4 | The blocks in which an engine clears its strings cost 18 to 35% of a core: falling asleep, `Performer::reset()` and the end of a preset switch's crossfade. `Loop::silence()` zeroes 6.8 MB. | **Not fixed.** Aculyre's bounded clears (`91c8b86`) are the fix to port; see the CPU document. |
+| 4 | The blocks in which an engine clears its strings cost 18 to 35% of a core: falling asleep, `Performer::reset()` and the end of a preset switch's crossfade. `Loop::silence()` zeroes 6.8 MB. | Fixed, 0.25.13, the same bits: a clear zeroes the 0.18 MB that can still be read. The idea is Aculyre's bounded clears (`91c8b86`); see the CPU document. |
 | 5 | The FMA3 kernel stepped the modes and then read every velocity back for the radiation sums. | 0.25.8 (`2ce02f1`): one pass, 8.5% fewer instructions, rounding only (165 dB under the signal). |
 | 6 | Comments still named the lyre's yoke for the koto's fixed ends, and the engine header called itself a proof of concept. | Fixed (`c15e276`), no behaviour change. |
 | 7 | README figures that had drifted: the strings' own spread with and without touches, the CPU gap (34-38% of a core, from 0.15.x), the key touches' spread by velocity. | Rewritten from this pass's measurements. |
@@ -201,8 +201,10 @@ against the block copied from Acustra 1.9.0.
   Acukoto does not have), `4b067cb` (contact taps: `Loop::setHand` and
   `Acukoto.HandContact` already do it), `e793ef5` (output reserve, above),
   `097f01c` (a table Acukoto does not use).
-- Not taken, and wanted: Aculyre `91c8b86`, the bounded ring clears
-  (finding 4).
+- Taken in 0.25.13: Aculyre `91c8b86`, the bounded ring clears
+  (finding 4), with Acukoto's own bounds: four loops a string, the bend
+  table, the hand's presses, the moved-ji keys, the running-energy rings
+  and the room.
 - Offered to Aculyre: the release following the touch (`93aae28`), the
   pluck shape's far-field shortcut (`b14a5cc`), the one-pass FMA3 step
   (`2ce02f1`), the subnormal guard on the energy ring with its sticky-flag
@@ -242,6 +244,13 @@ Added in this pass, each failing without its fix:
 - `Acukoto.LoopPair`, a new block: `floorInt` and `nearestInt` against
   `std::floor` and `std::lround`. An `int(x + 0.5)` rounding fails it at
   0.5 − 2^−54.
+- `Acukoto.BoundedClears` (unit, 0.25.13): every loop of every preset at
+  44.1, 48, 96 and 192 kHz stays within its longest line and round trip
+  from the lowest ratio the controls reach up 40 semitones; a loop's clear
+  zeroes exactly its reach; and an engine whose rings hold 1000 everywhere
+  a reset or a sleep left untouched plays the same bits as one whose rings
+  are zero there, bent low from the first sample. Twelve mutations of the
+  bounds and of the clears each fail it.
 - 0.25.8's one-pass FMA3 kernel added no test: `Acukoto.ModalRadiation`
   already holds every fused kernel's output to the portable bank's, and
   the null test is its evidence.
@@ -254,9 +263,16 @@ its budget of 1×); every target builds without a warning, `AcukotoDSPCxx17`
 among them. The fuzz tier's `Acukoto.DspFuzz` needs a Clang fuzzer build
 and was not run; `Acukoto.DspFuzzReplay` is in the unit tier.
 
+At 0.25.13, the same build: the unit tier passes, 15 of 15
+(`Acukoto.BoundedClears` is the fifteenth); the audio tier passes, 2 of 2;
+every target builds without a warning, `AcukotoDSPCxx17` among them. The
+perf tier was not run again. The new test reaches the engine's private
+state through an explicit template instantiation, which GCC 13 and
+clang 18 compiled here; MSVC and AppleClang have not compiled it yet.
+
 ## Not done, in order
 
-1. Bounded ring clears (finding 4): the largest blocks the instrument has.
+1. Bounded ring clears (finding 4): done in 0.25.13.
 2. The strings' own touches refitted to 0.25.11 (finding 8), after the
    owner's verdict on `soft-notes`.
 3. Pressed C5, C♯5 and F♯5 on Hirajoshi traced to their body modes or to
