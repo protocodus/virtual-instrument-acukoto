@@ -46,8 +46,12 @@ public:
     // engines agree.
     [[nodiscard]] static double usableRate(double sampleRate) noexcept
     {
-        return std::isfinite(sampleRate) && sampleRate >= 22050.0 && sampleRate <= maxEngineRate ? sampleRate
-                                                                                                  : 48000.0;
+#if defined(__clang__) || defined(__GNUC__)
+        const bool finite = __builtin_isfinite(sampleRate);
+#else
+        const bool finite = std::isfinite(sampleRate);
+#endif
+        return finite && sampleRate >= 22050.0 && sampleRate <= maxEngineRate ? sampleRate : 48000.0;
     }
     void reset() noexcept;
 
@@ -77,16 +81,16 @@ private:
     struct Decimator
     {
         static constexpr int maxTaps = 2 * decimatorDelay * maxOversampling + 1;
-        std::array<double, maxTaps> taps {};
-        // Each sample is written twice, so the newest `length` are contiguous.
-        std::array<double, 2 * maxTaps> history {};
         int length { 1 };
         int cursor { 0 };
+        std::array<double, maxTaps> taps {};
+        // Each stereo frame is written twice, so the newest `length` frames are contiguous.
+        std::array<std::array<double, 2>, 2 * maxTaps> history {};
 
         void design(int factor) noexcept;
         void clear() noexcept;
-        void push(double x) noexcept;
-        [[nodiscard]] double output() const noexcept;
+        void push(double left, double right) noexcept;
+        void output(float& left, float& right) const noexcept;
     };
 
     // Runs the output stage. Once its delay holds only silence the stage is
@@ -96,22 +100,22 @@ private:
     [[nodiscard]] bool stageResting() const noexcept { return stageSilence_ > stage_.DelaySamples(); }
 
     void render(float* left, float* right, int numSamples) noexcept;
-    void downsample(float& left,float& right) const noexcept;
 
     std::array<std::unique_ptr<AcukotoEngine>, instrumentCount> engines_;
-    std::array<Decimator, 2> decimators_ {};
-    protocodus::OutputStage<2> stage_ {};
-    int stageSilence_ { 0 };
-    std::array<std::array<float, 64 * maxOversampling>, 2> fast_ {};
-    // Fast samples of silence pushed while the engines slept; once they
-    // fill the decimators, those hold only zeros and are skipped.
-    int silentPushes_ { 0 };
-    int factor_ { 1 };
     PlayingControls controls_ {};
     int active_ { 0 };
     int fading_ { -1 };
     int fadeRemaining_ { 0 };
     int fadeLength_ { 960 };
+    int factor_ { 1 };
+    // Fast samples of silence pushed while the engines slept; once they
+    // fill the decimator, it holds only zeros and is skipped.
+    int silentPushes_ { 0 };
+    int stageSilence_ { 0 };
+    bool sustain_ { false };
+    Decimator decimator_ {};
+    std::array<std::array<float, 64 * maxOversampling>, 2> fast_ {};
+    protocodus::OutputStage<2> stage_ {};
 };
 
 } // namespace acukoto

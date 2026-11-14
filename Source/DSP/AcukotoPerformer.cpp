@@ -35,8 +35,7 @@ void Performer::prepare(double sampleRate, int oversampling)
     factor_ = 1;
     while (factor_ * 2 <= std::min(oversampling, maxOversampling) && sampleRate * factor_ * 2 <= maxEngineRate)
         factor_ *= 2;
-    for (auto& decimator : decimators_)
-        decimator.design(factor_);
+    decimator_.design(factor_);
     stage_.Prepare(sampleRate, protocodus::kVuGuard);
     stageSilence_ = stage_.DelaySamples() + 1;
     for (int index = 0; index < instrumentCount; ++index)
@@ -51,18 +50,19 @@ void Performer::prepare(double sampleRate, int oversampling)
     fadeLength_ = std::max(1, static_cast<int>(0.02 * engines_[0]->sampleRate()));
     fading_ = -1;
     silentPushes_ = 0;
+    sustain_ = false;
 }
 
 void Performer::reset() noexcept
 {
     for (auto& engine : engines_)
         engine->reset();
-    for (auto& decimator : decimators_)
-        decimator.clear();
+    decimator_.clear();
     stage_.Reset();
     stageSilence_ = stage_.DelaySamples() + 1;
     fading_ = -1;
     silentPushes_ = 0;
+    sustain_ = false;
 }
 
 void Performer::setInstrument(int index) noexcept
@@ -72,7 +72,11 @@ void Performer::setInstrument(int index) noexcept
         return;
     // A second switch within the fade cuts the tail that was fading.
     if (fading_ >= 0 && fading_ != index)
-        engines_[static_cast<std::size_t>(fading_)]->reset();
+    {
+        AcukotoEngine& cut = *engines_[static_cast<std::size_t>(fading_)];
+        cut.reset();
+        cut.setSustain(sustain_);
+    }
     fading_ = active_;
     active_ = index;
     fadeRemaining_ = fadeLength_;
@@ -97,6 +101,7 @@ void Performer::noteOff(int midiNote) noexcept
 
 void Performer::setSustain(bool down) noexcept
 {
+    sustain_ = down;
     for (auto& engine : engines_)
         engine->setSustain(down);
 }
@@ -110,7 +115,7 @@ void Performer::process(float* left, float* right, int numSamples) noexcept
         return;
     }
     if (fading_ < 0 && engines_[static_cast<std::size_t>(active_)]->idle()
-        && silentPushes_ >= decimators_[0].length && stageResting())
+        && silentPushes_ >= decimator_.length && stageResting())
     {
         std::fill(left, left + numSamples, 0.0f);
         std::fill(right, right + numSamples, 0.0f);
@@ -127,10 +132,10 @@ void Performer::process(float* left, float* right, int numSamples) noexcept
         {
             for (int k = 0; k < factor_; ++k)
             {
-                decimators_[0].push(fast_[0][static_cast<std::size_t>(i * factor_ + k)]);
-                decimators_[1].push(fast_[1][static_cast<std::size_t>(i * factor_ + k)]);
+                const auto idx = static_cast<std::size_t>(i * factor_ + k);
+                decimator_.push(fast_[0][idx], fast_[1][idx]);
             }
-            downsample(left[done+i],right[done+i]);
+            decimator_.output(left[done + i], right[done + i]);
         }
         done += count;
     }
@@ -185,6 +190,7 @@ void Performer::render(float* left, float* right, int numSamples) noexcept
         if (fadeRemaining_ <= 0)
         {
             fading.reset();
+            fading.setSustain(sustain_);
             fading_ = -1;
         }
     }
@@ -228,43 +234,52 @@ void Performer::Decimator::design(int factor) noexcept
 
 void Performer::Decimator::clear() noexcept
 {
-    history.fill(0.0);
+    history = {};
     cursor = 0;
 }
 
-void Performer::Decimator::push(double x) noexcept
+void Performer::Decimator::push(double left, double right) noexcept
 {
     cursor = (cursor == 0 ? length : cursor) - 1;
-    history[static_cast<std::size_t>(cursor)] = x;
-    history[static_cast<std::size_t>(cursor + length)] = x;
+#if defined(__clang__) || defined(__GNUC__)
+    typedef double Stereo __attribute__((vector_size(16), aligned(8), may_alias));
+    static_assert(alignof(Stereo) == 8, "unaligned 128-bit stereo vector");
+    const Stereo frame { left, right };
+    *reinterpret_cast<Stereo*>(history[static_cast<std::size_t>(cursor)].data()) = frame;
+    *reinterpret_cast<Stereo*>(history[static_cast<std::size_t>(cursor + length)].data()) = frame;
+#else
+    history[static_cast<std::size_t>(cursor)] = { left, right };
+    history[static_cast<std::size_t>(cursor + length)] = { left, right };
+#endif
 }
 
 // The two channels keep independent sums in the original tap order.
 // Parallelize channels, not taps: no reassociation of the FIR's recurrence.
-void Performer::downsample(float& left,float& right) const noexcept
+void Performer::Decimator::output(float& left, float& right) const noexcept
 {
 #if defined(__clang__) || defined(__GNUC__)
-    typedef double Stereo __attribute__((vector_size(16)));
-    const auto& a=decimators_[0];const auto& b=decimators_[1];
-    const double* l=a.history.data()+a.cursor;
-    const double* r=b.history.data()+b.cursor;
-    Stereo sum {0.0,0.0};
-    for(int i=0;i<a.length;++i)
-        sum+=Stereo{a.taps[static_cast<std::size_t>(i)],b.taps[static_cast<std::size_t>(i)]}*Stereo{l[i],r[i]};
-    left=static_cast<float>(sum[0]);right=static_cast<float>(sum[1]);
-#else
-    left=static_cast<float>(decimators_[0].output());
-    right=static_cast<float>(decimators_[1].output());
-#endif
-}
-
-double Performer::Decimator::output() const noexcept
-{
-    const double* window = history.data() + cursor;
-    double sum = 0.0;
+    typedef double Stereo __attribute__((vector_size(16), aligned(8), may_alias));
+    const auto* window = history.data() + cursor;
+    Stereo sum { 0.0, 0.0 };
     for (int i = 0; i < length; ++i)
-        sum += taps[static_cast<std::size_t>(i)] * window[i];
-    return sum;
+    {
+        const double tap = taps[static_cast<std::size_t>(i)];
+        sum += Stereo { tap, tap } * *reinterpret_cast<const Stereo*>(window[i].data());
+    }
+    left = static_cast<float>(sum[0]);
+    right = static_cast<float>(sum[1]);
+#else
+    const auto* window = history.data() + cursor;
+    double sumL = 0.0, sumR = 0.0;
+    for (int i = 0; i < length; ++i)
+    {
+        const double tap = taps[static_cast<std::size_t>(i)];
+        sumL += tap * window[i][0];
+        sumR += tap * window[i][1];
+    }
+    left = static_cast<float>(sumL);
+    right = static_cast<float>(sumR);
+#endif
 }
 
 } // namespace acukoto

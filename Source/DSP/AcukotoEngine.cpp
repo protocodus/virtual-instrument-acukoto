@@ -947,10 +947,13 @@ Complex lossSectionResponse(const LossSectionDesign& s, double omega) noexcept
 
 #if defined(__clang__) || defined(__GNUC__)
 #define ACUKOTO_FORCE_INLINE __attribute__((always_inline)) inline
+#define ACUKOTO_NOINLINE __attribute__((noinline))
 #elif defined(_MSC_VER)
 #define ACUKOTO_FORCE_INLINE __forceinline
+#define ACUKOTO_NOINLINE __declspec(noinline)
 #else
 #define ACUKOTO_FORCE_INLINE inline
+#define ACUKOTO_NOINLINE
 #endif
 
 #if defined(__clang__) || defined(__GNUC__)
@@ -960,13 +963,15 @@ static_assert(alignof(Float4) == 4 && alignof(Double2) == 8, "unaligned 128-bit 
 
 ACUKOTO_FORCE_INLINE double fastAbs(double x) noexcept { return __builtin_fabs(x); }
 ACUKOTO_FORCE_INLINE double fastSqrt(double x) noexcept { return __builtin_sqrt(x); }
+ACUKOTO_FORCE_INLINE bool fastFinite(double x) noexcept { return __builtin_isfinite(x); }
 #else
 inline double fastAbs(double x) noexcept { return std::abs(x); }
 inline double fastSqrt(double x) noexcept { return std::sqrt(x); }
+inline bool fastFinite(double x) noexcept { return std::isfinite(x); }
 #endif
 
-// The floor and the nearest integer (halves away from zero, as std::lround)
-// of a value that fits an int. Reason's toolchain makes std::floor,
+// The floor, ceiling and nearest integer (halves away from zero, as std::lround)
+// of a value that fits an int. Reason's toolchain makes std::floor, std::ceil,
 // __builtin_floor and std::lround library calls on x86-64 (no SSE4.1), on
 // paths that run whenever a loop's delay moves and every control period
 // (Aculele d6c184b, Aculyre 61889b1). A value less its whole part is exact,
@@ -976,6 +981,11 @@ ACUKOTO_FORCE_INLINE int floorInt(double x) noexcept
 {
     const int whole = static_cast<int>(x);
     return whole - (x < whole ? 1 : 0);
+}
+ACUKOTO_FORCE_INLINE int ceilInt(double x) noexcept
+{
+    const int whole = static_cast<int>(x);
+    return whole + (x > whole ? 1 : 0);
 }
 ACUKOTO_FORCE_INLINE int nearestInt(double x) noexcept
 {
@@ -1128,7 +1138,7 @@ static_assert(bendRatiosOnGrid(), "bendRatios steps by a quarter semitone from -
 // 1.3/2.3 tap switch has a substantial phase gap near Nyquist.
 int wholeFor(double samples) noexcept
 {
-    return samples < 8.0 ? std::max(1, static_cast<int>(std::ceil(samples - 2.0)))
+    return samples < 8.0 ? std::max(1, ceilInt(samples - 2.0))
                          : floorInt(samples - 1.3);
 }
 
@@ -1675,9 +1685,9 @@ struct ModeBank
     static constexpr int lanes = 8;
     static constexpr int capacity = maxModes + 3 * lanes;
     std::array<double, capacity> b0 {}, a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {}, y {};
+    std::array<float, capacity> pullState {}, drive {};
     std::array<std::array<float, capacity>, barCoordinates> participation {};
     std::array<std::array<float, capacity>, strikeKeys.size()> strike {};
-    std::array<float, capacity> pullState {}, drive {};
     int count { 0 };
 #if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
     BarVector currentVelocity {};
@@ -1724,31 +1734,33 @@ struct PhaseNetwork
         }
     }
 
-    static double run(const std::array<double, sections>& c, std::array<double, sections>& state, double x) noexcept
+#if defined(__clang__) || defined(__GNUC__)
+    ACUKOTO_FORCE_INLINE static Double2 runStereo(const std::array<double, sections>& c,
+                                                  std::array<std::array<double, 2>, sections>& state,
+                                                  Double2 x) noexcept
     {
+#if defined(__clang__)
+#pragma unroll
+#endif
         for (std::size_t i = 0; i < sections; ++i)
         {
-            const double y = c[i] * x + state[i];
-            state[i] = x - c[i] * y;
+            const Double2 ci { c[i], c[i] };
+            const Double2 s = *reinterpret_cast<const Double2*>(state[i].data());
+            const Double2 y = ci * x + s;
+            *reinterpret_cast<Double2*>(state[i].data()) = x - ci * y;
             x = y;
         }
         return x;
     }
-
-#if defined(__clang__) || defined(__GNUC__)
-    ACUKOTO_FORCE_INLINE static Double2 runStereo(const std::array<double, sections>& c,
-                                                            std::array<double, sections>& stateL,
-                                                            std::array<double, sections>& stateR,
-                                                            Double2 x) noexcept
+#else
+    static double run(const std::array<double, sections>& c,
+                      std::array<std::array<double, 2>, sections>& state,
+                      std::size_t channel, double x) noexcept
     {
         for (std::size_t i = 0; i < sections; ++i)
         {
-            const Double2 ci { c[i], c[i] };
-            const Double2 s { stateL[i], stateR[i] };
-            const Double2 y = ci * x + s;
-            const Double2 next = x - ci * y;
-            stateL[i] = next[0];
-            stateR[i] = next[1];
+            const double y = c[i] * x + state[i][channel];
+            state[i][channel] = x - c[i] * y;
             x = y;
         }
         return x;
@@ -1758,7 +1770,7 @@ struct PhaseNetwork
 
 // The sum of weight * y over the bank, each lane in its own sum so that a
 // group runs as one vector.
-ACUKOTO_FORCE_INLINE void weightedSumPair(
+[[maybe_unused]] ACUKOTO_FORCE_INLINE void weightedSumPair(
     const double* weightA, const double* weightB, const double* y, int count, double& outA, double& outB) noexcept
 {
 #if defined(__clang__) || defined(__GNUC__)
@@ -1801,6 +1813,54 @@ ACUKOTO_FORCE_INLINE void weightedSumPair(
 #endif
 }
 
+[[maybe_unused]] ACUKOTO_FORCE_INLINE void radiationSums(const ModeBank& bank,
+    double& left, double& right, double& leftQuadrature, double& rightQuadrature) noexcept
+{
+#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
+    Double2 l0 {}, l1 {}, l2 {}, l3 {};
+    Double2 r0 {}, r1 {}, r2 {}, r3 {};
+    Double2 lq0 {}, lq1 {}, lq2 {}, lq3 {};
+    Double2 rq0 {}, rq1 {}, rq2 {}, rq3 {};
+    const double* y = bank.y.data();
+    const double* wL = bank.left.data();
+    const double* wR = bank.right.data();
+    const double* wLQ = bank.leftQuadrature.data();
+    const double* wRQ = bank.rightQuadrature.data();
+    const int count = bank.count;
+    for (int group = 0; group < count; group += ModeBank::lanes)
+    {
+        const Double2 y0 = *reinterpret_cast<const Double2*>(y + group);
+        const Double2 y1 = *reinterpret_cast<const Double2*>(y + group + 2);
+        const Double2 y2 = *reinterpret_cast<const Double2*>(y + group + 4);
+        const Double2 y3 = *reinterpret_cast<const Double2*>(y + group + 6);
+        l0 += *reinterpret_cast<const Double2*>(wL + group) * y0;
+        l1 += *reinterpret_cast<const Double2*>(wL + group + 2) * y1;
+        l2 += *reinterpret_cast<const Double2*>(wL + group + 4) * y2;
+        l3 += *reinterpret_cast<const Double2*>(wL + group + 6) * y3;
+        r0 += *reinterpret_cast<const Double2*>(wR + group) * y0;
+        r1 += *reinterpret_cast<const Double2*>(wR + group + 2) * y1;
+        r2 += *reinterpret_cast<const Double2*>(wR + group + 4) * y2;
+        r3 += *reinterpret_cast<const Double2*>(wR + group + 6) * y3;
+        lq0 += *reinterpret_cast<const Double2*>(wLQ + group) * y0;
+        lq1 += *reinterpret_cast<const Double2*>(wLQ + group + 2) * y1;
+        lq2 += *reinterpret_cast<const Double2*>(wLQ + group + 4) * y2;
+        lq3 += *reinterpret_cast<const Double2*>(wLQ + group + 6) * y3;
+        rq0 += *reinterpret_cast<const Double2*>(wRQ + group) * y0;
+        rq1 += *reinterpret_cast<const Double2*>(wRQ + group + 2) * y1;
+        rq2 += *reinterpret_cast<const Double2*>(wRQ + group + 4) * y2;
+        rq3 += *reinterpret_cast<const Double2*>(wRQ + group + 6) * y3;
+    }
+    left = ((((((l0[0] + l0[1]) + l1[0]) + l1[1]) + l2[0]) + l2[1]) + l3[0]) + l3[1];
+    right = ((((((r0[0] + r0[1]) + r1[0]) + r1[1]) + r2[0]) + r2[1]) + r3[0]) + r3[1];
+    leftQuadrature = ((((((lq0[0] + lq0[1]) + lq1[0]) + lq1[1]) + lq2[0]) + lq2[1]) + lq3[0]) + lq3[1];
+    rightQuadrature = ((((((rq0[0] + rq0[1]) + rq1[0]) + rq1[1]) + rq2[0]) + rq2[1]) + rq3[0]) + rq3[1];
+#else
+    weightedSumPair(bank.left.data(), bank.right.data(), bank.y.data(), bank.count, left, right);
+    weightedSumPair(bank.leftQuadrature.data(), bank.rightQuadrature.data(), bank.y.data(), bank.count,
+                    leftQuadrature, rightQuadrature);
+#endif
+}
+
 // The striking hands (AcukotoStrikes.h). A hand keeps 40% of its speed on
 // leaving (Hunt and Crossley's restitution; an estimate, like the rest). The
 // key's velocity sets the arrival speed, 0.02 to 0.5 m/s, geometrically, times
@@ -1836,10 +1896,16 @@ ACUKOTO_FORCE_INLINE void driveModes(const ModeBank& bank, const float* share, i
     {
         const Float4* p = reinterpret_cast<const Float4*>(bank.participation[c].data() + first);
         const Float4 f { share[c], share[c], share[c], share[c] };
+#if defined(__clang__)
+#pragma unroll
+#endif
         for (int v = 0; v < width / 4; ++v)
             sum[v] += p[v] * f;
     }
     Float4* out = reinterpret_cast<Float4*>(drive + first);
+#if defined(__clang__)
+#pragma unroll
+#endif
     for (int v = 0; v < width / 4; ++v)
         out[v] = sum[v];
 #else
@@ -1858,7 +1924,7 @@ ACUKOTO_FORCE_INLINE void driveModes(const ModeBank& bank, const float* share, i
 // The modes' pull on `coordinates` bar coordinates from `first`: each
 // coordinate's participations times the states, in lanes, then the lanes.
 #if defined(__aarch64__)
-constexpr std::size_t pullBlock = 9;
+constexpr std::size_t pullBlock = 13;
 #else
 constexpr std::size_t pullBlock = 6;
 #endif
@@ -1925,7 +1991,8 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
     // coordinate in turn, so its sums stay in registers instead of going
     // through memory once per coordinate; each still adds the coordinates
     // in order, so the result is the same to the bit.
-    float share[barCoordinates];
+    std::array<float, barCoordinates> shareBuf;
+    float* share = shareBuf.data();
     for (std::size_t c = 0; c < barCoordinates; ++c)
         share[c] = static_cast<float>(force[c]);
     float* drive = bank.drive.data();
@@ -1955,7 +2022,66 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
     double* s2 = bank.s2.data();
     float* pullState = bank.pullState.data();
     double* y = bank.y.data();
-#if defined(__clang__) || defined(__GNUC__)
+#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
+    Double2 l0 {}, l1 {}, l2 {}, l3 {};
+    Double2 r0 {}, r1 {}, r2 {}, r3 {};
+    Double2 lq0 {}, lq1 {}, lq2 {}, lq3 {};
+    Double2 rq0 {}, rq1 {}, rq2 {}, rq3 {};
+    const double* wL = bank.left.data();
+    const double* wR = bank.right.data();
+    const double* wLQ = bank.leftQuadrature.data();
+    const double* wRQ = bank.rightQuadrature.data();
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    const bool needY = true;
+#else
+    const bool needY = strike.shape != nullptr;
+#endif
+    const auto stepHalf = [&] (int k, Double2& la, Double2& lb, Double2& ra, Double2& rb,
+                               Double2& lqa, Double2& lqb, Double2& rqa, Double2& rqb) __attribute__((always_inline)) noexcept
+    {
+        const Float4 d4 = *reinterpret_cast<const Float4*>(drive + k);
+        const Double2 d0 { static_cast<double>(d4[0]), static_cast<double>(d4[1]) };
+        const Double2 d1 { static_cast<double>(d4[2]), static_cast<double>(d4[3]) };
+        const Double2 x0 = *reinterpret_cast<const Double2*>(b0 + k) * d0;
+        const Double2 x1 = *reinterpret_cast<const Double2*>(b0 + k + 2) * d1;
+        const Double2 v0 = x0 + *reinterpret_cast<const Double2*>(s1 + k);
+        const Double2 v1 = x1 + *reinterpret_cast<const Double2*>(s1 + k + 2);
+        const Double2 n0 = *reinterpret_cast<const Double2*>(s2 + k)
+                         - *reinterpret_cast<const Double2*>(a1 + k) * v0;
+        const Double2 n1 = *reinterpret_cast<const Double2*>(s2 + k + 2)
+                         - *reinterpret_cast<const Double2*>(a1 + k + 2) * v1;
+        *reinterpret_cast<Double2*>(s2 + k) = -x0 - *reinterpret_cast<const Double2*>(a2 + k) * v0;
+        *reinterpret_cast<Double2*>(s2 + k + 2) = -x1 - *reinterpret_cast<const Double2*>(a2 + k + 2) * v1;
+        *reinterpret_cast<Double2*>(s1 + k) = n0;
+        *reinterpret_cast<Double2*>(s1 + k + 2) = n1;
+        if (needY)
+        {
+            *reinterpret_cast<Double2*>(y + k) = v0;
+            *reinterpret_cast<Double2*>(y + k + 2) = v1;
+        }
+        *reinterpret_cast<Float4*>(pullState + k) = Float4 {
+            static_cast<float>(n0[0]), static_cast<float>(n0[1]),
+            static_cast<float>(n1[0]), static_cast<float>(n1[1])
+        };
+        la += *reinterpret_cast<const Double2*>(wL + k) * v0;
+        lb += *reinterpret_cast<const Double2*>(wL + k + 2) * v1;
+        ra += *reinterpret_cast<const Double2*>(wR + k) * v0;
+        rb += *reinterpret_cast<const Double2*>(wR + k + 2) * v1;
+        lqa += *reinterpret_cast<const Double2*>(wLQ + k) * v0;
+        lqb += *reinterpret_cast<const Double2*>(wLQ + k + 2) * v1;
+        rqa += *reinterpret_cast<const Double2*>(wRQ + k) * v0;
+        rqb += *reinterpret_cast<const Double2*>(wRQ + k + 2) * v1;
+    };
+    for (int group = 0; group < count; group += ModeBank::lanes)
+    {
+        stepHalf(group, l0, l1, r0, r1, lq0, lq1, rq0, rq1);
+        stepHalf(group + 4, l2, l3, r2, r3, lq2, lq3, rq2, rq3);
+    }
+    left = ((((((l0[0] + l0[1]) + l1[0]) + l1[1]) + l2[0]) + l2[1]) + l3[0]) + l3[1];
+    right = ((((((r0[0] + r0[1]) + r1[0]) + r1[1]) + r2[0]) + r2[1]) + r3[0]) + r3[1];
+    leftQuadrature = ((((((lq0[0] + lq0[1]) + lq1[0]) + lq1[1]) + lq2[0]) + lq2[1]) + lq3[0]) + lq3[1];
+    rightQuadrature = ((((((rq0[0] + rq0[1]) + rq1[0]) + rq1[1]) + rq2[0]) + rq2[1]) + rq3[0]) + rq3[1];
+#elif defined(__clang__) || defined(__GNUC__)
     for (int k = 0; k < count; k += 4)
     {
         const Float4 d4 = *reinterpret_cast<const Float4*>(drive + k);
@@ -2010,8 +2136,9 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
         for (int k = 0; k < count; ++k)
             strike.velocity += static_cast<double>(strike.shape[k]) * y[k];
     }
-    weightedSumPair(bank.left.data(), bank.right.data(), y, count, left, right);
-    weightedSumPair(bank.leftQuadrature.data(), bank.rightQuadrature.data(), y, count, leftQuadrature, rightQuadrature);
+#if !(defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__)))
+    radiationSums(bank, left, right, leftQuadrature, rightQuadrature);
+#endif
     // The pull on the bar, a few coordinates at a time over every group, so
     // their lane sums stay in registers instead of all 26 spilling and each
     // load of the states serves them all.
@@ -2390,11 +2517,18 @@ struct BarMatrix
         {
             const Double2 vj { v[j], v[j] };
             const Double2* row = reinterpret_cast<const Double2*>(m[j].data());
+#if defined(__clang__)
+#pragma unroll
+#endif
             for (std::size_t i = 0; i < barCoordinates / 2; ++i)
                 r[i] += row[i] * vj;
         }
         BarVector out;
-        __builtin_memcpy(out.data(), r, sizeof(out));
+#if defined(__clang__)
+#pragma unroll
+#endif
+        for (std::size_t i = 0; i < barCoordinates / 2; ++i)
+            *reinterpret_cast<Double2*>(out.data() + 2 * i) = r[i];
         return out;
 #else
         BarVector r {};
@@ -2515,7 +2649,7 @@ struct Random
     double gaussian() noexcept
     {
         const double u = (static_cast<double>(next() >> 11) + 1.0) * (1.0 / 9007199254740992.0);
-        return std::clamp(std::sqrt(-2.0 * std::log(u)) * std::cos(pi * bipolar()), -3.0, 3.0);
+        return std::clamp(fastSqrt(-2.0 * std::log(u)) * std::cos(pi * bipolar()), -3.0, 3.0);
     }
 };
 
@@ -2538,25 +2672,26 @@ struct Room
     // A power of two above the longest early tap, the right channel's 31.7 ms,
     // at the Performer's highest engine rate, 192 kHz.
     static constexpr int earlyCapacity = 8192;
-    std::array<std::array<float, capacity>, lineCount> lines {};
+    static constexpr int diffuserCount = 4;
+    // A power of two above the longest diffuser, 12.7 ms, at 192 kHz.
+    static constexpr int diffuserCapacity = 4096;
     std::array<int, lineCount> lengths {};
     std::array<int, lineCount> positions {};
     std::array<double, lineCount> gains {};
     std::array<double, lineCount> poles {};
+    std::array<double, lineCount> oneMinusPoles {};
     std::array<double, lineCount> filterStates {};
-    std::array<float, earlyCapacity> early {};
     int earlyPosition { 0 };
     // The longest of the early taps and the predelay.
     int earlyReach { 0 };
+    int predelay { 0 };
+    int diffuserPosition { 0 };
     std::array<int, 6> earlyTapsLeft {}, earlyTapsRight {};
     std::array<double, 6> earlyGainsLeft {}, earlyGainsRight {};
-    int predelay { 0 };
-    static constexpr int diffuserCount = 4;
-    // A power of two above the longest diffuser, 12.7 ms, at 192 kHz.
-    static constexpr int diffuserCapacity = 4096;
-    std::array<std::array<float, diffuserCapacity>, diffuserCount> diffusers {};
     std::array<int, diffuserCount> diffuserLengths {};
-    int diffuserPosition { 0 };
+    std::array<float, earlyCapacity> early {};
+    std::array<std::array<float, diffuserCapacity>, diffuserCount> diffusers {};
+    std::array<std::array<float, capacity>, lineCount> lines {};
 
     void prepare(double sampleRate) noexcept
     {
@@ -2588,8 +2723,10 @@ struct Room
                 else
                     upper = pole;
             }
-            gains[static_cast<std::size_t>(index)] = low;
-            poles[static_cast<std::size_t>(index)] = 0.5 * (lower + upper);
+            const auto i = static_cast<std::size_t>(index);
+            gains[i] = low;
+            poles[i] = 0.5 * (lower + upper);
+            oneMinusPoles[i] = 1.0 - poles[i];
         }
         constexpr double earlyMs[6] { 7.3, 11.9, 14.6, 19.2, 23.8, 27.1 };
         constexpr double earlyGain[6] { 0.42, -0.33, 0.29, -0.24, 0.2, -0.16 };
@@ -2650,14 +2787,15 @@ struct Room
         }
         diffuserPosition = (diffuserPosition + 1) & (diffuserCapacity - 1);
 
-        std::array<double, lineCount> outputs {};
+        const int pos = positions[0];
+        std::array<double, lineCount> outputs;
         double sum = 0.0;
         for (std::size_t index = 0; index < lineCount; ++index)
         {
-            const int readPosition = positions[index] - lengths[index];
+            const int readPosition = pos - lengths[index];
             const double value = lines[index][static_cast<std::size_t>(
                 readPosition & (capacity - 1))];
-            filterStates[index] = (1.0 - poles[index]) * value + poles[index] * filterStates[index];
+            filterStates[index] = oneMinusPoles[index] * value + poles[index] * filterStates[index];
             outputs[index] = gains[index] * filterStates[index];
             sum += outputs[index];
         }
@@ -2666,12 +2804,12 @@ struct Room
         for (std::size_t index = 0; index < lineCount; ++index)
         {
             const double feedback = outputs[index] - householder;
-            lines[index][static_cast<std::size_t>(positions[index])]
+            lines[index][static_cast<std::size_t>(pos)]
                 = static_cast<float>(feedback + 0.35 * delayed);
-            positions[index] = (positions[index] + 1) & (capacity - 1);
             lateLeft += (index & 1u) ? -outputs[index] : outputs[index];
             lateRight += (index & 2u) ? -outputs[index] : outputs[index];
         }
+        positions.fill((pos + 1) & (capacity - 1));
         left = earlyLeft + 0.5 * lateLeft;
         right = earlyRight + 0.5 * lateRight;
     }
@@ -4394,12 +4532,18 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
     return count;
 }
 
+ACUKOTO_NOINLINE void recomputeModalPast(const ModeBank& bank, BarVector& modalPast) noexcept
+{
+    modalPast = {};
+    for (std::size_t c = 0; c < barCoordinates; ++c)
+        for (int k = 0; k < bank.count; ++k)
+            modalPast[c] += bank.participation[c][static_cast<std::size_t>(k)] * bank.s1[static_cast<std::size_t>(k)];
+}
+
 } // namespace
 
 struct AcukotoEngine::State
 {
-    InstrumentSpec instrument {};
-
     // A string's open pitch, or a keyboard extension made by moving its ji
     // to another speaking length at the same tension.
     struct PitchDesign
@@ -4523,8 +4667,10 @@ struct AcukotoEngine::State
             leftParallel.setHand(handPoint, restRate, left[1].frequency, loopRatio);
         }
 
-        void setLoopsRatio(double ratio) noexcept
+        void setLoopsRatio(double ratio, bool force = false) noexcept
         {
+            if (ratio == loopRatio && !force)
+                return;
             if (ratio == 1.0)
             {
                 normal.setLineDelay(normal.restLineDelay - normal.muteDelay);
@@ -4562,20 +4708,6 @@ struct AcukotoEngine::State
         }
         std::size_t tipCoordinate() const noexcept { return maxStrings + static_cast<std::size_t>(ji); }
     };
-    std::array<StringVoice, maxStrings> strings {};
-    // Keys above the lowest string that no string sounds by its own note or
-    // by oshide, up to highestKey: the nearest string below the key with its
-    // ji moved to sound the key, its speaking length scaled at its own
-    // tension, as a player retunes a string by moving its ji. The rest of the
-    // string, from the ji on, keeps its own length. Above about C6 the ji
-    // would stand nearer the ryukaku than the tsume plays: no koto has those
-    // strings, an artificial range so that every key of a piano sounds
-    // (owner requirement, 2026-10-30). extensionString is the string, or -1
-    // where a string's own note is the key or the key lies below every
-    // string (the twelve under it strike the body, the rest play techniques).
-    std::array<PitchDesign, 128> extension {};
-    std::array<int, 128> extensionString {};
-    int lowestStringNote { 0 };
 
     // A hand striking the body: a mass pressing into the surface through a
     // Hertzian spring with Hunt and Crossley's damping, the force going into
@@ -4591,59 +4723,6 @@ struct AcukotoEngine::State
         double surfaceVelocity { 0.0 };  // outward
         double damping { 0.0 };          // s/m
     };
-    Strike strike {};
-
-    std::array<Mode, maxModes> modes {};
-    int modeCount { 0 };
-    ModeBank bank {};
-#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
-    decltype(&runModes) renderModes {runModes};
-    decltype(&transposeApplyPlain) applyTransposed {transposeApplyPlain};
-    bool fusedProcess { false };
-#endif
-    // The modes' state at the bridge, sum(pull s1): process() sums it as it
-    // updates them, noteOn's preload makes it stale.
-    BarVector modalPast {};
-    bool modalPastStale { true };
-
-    // The ji junction (process() derives it): the immediate generalized
-    // mobility Y0 of the modes, which hold each ji's own mass and feet, the
-    // strings' generalized impedance Zg (both stretches of every string; it
-    // is diagonal, kept as its diagonal) and solve = (I + Y0 Zg)^-1. The
-    // two matrices are kept transposed for BarMatrix::transposeApply.
-    BarMatrix immediateMobilityTransposed {};
-    BarVector stringImpedance {};
-    BarMatrix solveTransposed {};
-    // Direct motion of each ji under one newton at a strike patch. Its
-    // present-sample force participates in the same implicit junction as
-    // the strings; adding it only to the modes leaves two bridge velocities.
-    std::array<BarVector, strikeKeys.size()> strikeMobility {};
-    BodyWork work {};
-#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
-    JunctionEnergyReport junctionEnergy {};
-#endif
-
-    double radiationScale { 0.0 };
-    PhaseNetwork phase {};
-    // In phase left, quadrature left, in phase right, quadrature right.
-    std::array<std::array<double, PhaseNetwork::sections>, 4> phaseState {};
-    double previousLeft { 0.0 };
-    double previousRight { 0.0 };
-    double pressureLeft { 0.0 };
-    double pressureRight { 0.0 };
-    Room room {};
-    double outputGain { 1.0 };
-    bool sustain { false };
-    Random random {};
-    // The left hand's own draws, so a press leaves the plucks' unchanged.
-    Random hand {};
-    double waverPole { 0.0 };
-    double waverNormalization { 1.0 };
-    PluckReport lastPluck {};
-    bool idle { true };
-    int quietSamples { 0 };
-    int controlCountdown { 0 };
-    std::array<double, delayCapacity> pluckWave {};
 
     // What the right hand does a little later: the second string of one
     // stroke across two (kakite), or the thumb landing on the next string
@@ -4663,13 +4742,7 @@ struct AcukotoEngine::State
         bool keyUp { false };
         int style { 0 };
     };
-    std::array<Scheduled, maxScheduled> scheduled {};
-    int scheduledCount { 0 };
-    // Notes played at one moment (no sample between them) are one gesture of
-    // the hand: a chord, or one stroke across neighbouring strings.
-    std::int64_t clock { 0 };
-    std::int64_t momentClock { -1 };
-    std::array<int, maxStrings> momentDelay {};  // -1: not played this moment
+
     // The hand's deviations at each string's last pluck (place, force, angle,
     // release, in standard deviations) and when it was (clock).
     struct PluckMemory
@@ -4677,15 +4750,7 @@ struct AcukotoEngine::State
         std::array<double, 4> deviation {};
         std::int64_t at { std::numeric_limits<std::int64_t>::min() / 2 };
     };
-    std::array<PluckMemory, maxStrings> pluckMemory {};
-    int lastPlucked { -1 };
-    // The right hand's motor delay on its last timed stroke, in samples.
-    double strokeDelay { 0.0 };
 
-    // The techniques the free keys latch (StrokeStyle bits), and the left
-    // hand's gestures on the last string played: a tsuki-iro's push under
-    // way, yuri while its key is held. Counted in control periods.
-    int latched { 0 };
     struct Sway
     {
         bool active { false };
@@ -4694,8 +4759,7 @@ struct AcukotoEngine::State
         bool up { false };
         int periods { 0 };    // until the next movement
     };
-    Sway tsukiIro {};
-    Sway yuri {};
+
     // The tsume's edge scraping along a string (chirashi-zume, suri-zume):
     // friction noise, its force band-passed to the band the recordings show,
     // at a point moving along the string.
@@ -4713,8 +4777,44 @@ struct AcukotoEngine::State
         double x1 { 0.0 }, x2 { 0.0 }, y1 { 0.0 }, y2 { 0.0 };
         float pluckAtEnd { 0.0f };  // a velocity, or 0
     };
-    std::array<Scrape, 2> scrapes {};
 
+    // Hot per-sample and per-control-tick fields first so every scalar, small
+    // state vector and 26x26 junction matrix sits within immediate-offset
+    // addressing range of State* (no base-pointer spills onto the stack).
+    bool idle { true };
+    bool sustain { false };
+    bool modalPastStale { false };
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
+    bool fusedProcess { false };
+    decltype(&runModes) renderModes {runModes};
+    decltype(&transposeApplyPlain) applyTransposed {transposeApplyPlain};
+#endif
+    int quietSamples { 0 };
+    int controlCountdown { 0 };
+    int scheduledCount { 0 };
+    // PlayingControls::handPress as a pitch ratio, on handString: the last
+    // string plucked, or -1.
+    int handString { -1 };
+    int lastPlucked { -1 };
+    // The techniques the free keys latch (StrokeStyle bits), and the left
+    // hand's gestures on the last string played: a tsuki-iro's push under
+    // way, yuri while its key is held. Counted in control periods.
+    int latched { 0 };
+    int lowestStringNote { 0 };
+    int modeCount { 0 };
+    // Notes played at one moment (no sample between them) are one gesture of
+    // the hand: a chord, or one stroke across neighbouring strings.
+    std::int64_t clock { 0 };
+    std::int64_t momentClock { -1 };
+
+    double radiationScale { 0.0 };
+    double previousLeft { 0.0 };
+    double previousRight { 0.0 };
+    double pressureLeft { 0.0 };
+    double pressureRight { 0.0 };
+    double outputGain { 1.0 };
+    double outputSmoothing { 0.0 };
+    double bendSmoothing { 0.0 };
     // PlayingControls as the signal path uses them. The hands' damping as
     // decay rates (1/s, they add); the output gains glide to their targets
     // over about 10 ms (per sample), the bend at the control rate.
@@ -4723,15 +4823,71 @@ struct AcukotoEngine::State
     double muteRate { 0.0 };
     double bendTarget { 1.0 };
     double bend { 1.0 };
-    // PlayingControls::handPress as a pitch ratio, on handString: the last
-    // string plucked, or -1.
     double handTarget { 1.0 };
-    int handString { -1 };
     // Room send, direct and crossed gain, volume.
     std::array<double, 4> outputTarget {};
     std::array<double, 4> output {};
-    double outputSmoothing { 0.0 };
-    double bendSmoothing { 0.0 };
+
+    PhaseNetwork phase {};
+    // Chain 0: in-phase [section][L/R]; chain 1: quadrature [section][L/R].
+    std::array<std::array<std::array<double, 2>, PhaseNetwork::sections>, 2> phaseState {};
+    Random random {};
+
+    Strike strike {};
+    Sway tsukiIro {};
+    Sway yuri {};
+    std::array<Scrape, 2> scrapes {};
+
+    // The modes' state at the bridge, sum(pull s1): process() sums it as it
+    // updates them, noteOn's preload makes it stale.
+    BarVector modalPast {};
+    // The ji junction (process() derives it): the immediate generalized
+    // mobility Y0 of the modes, which hold each ji's own mass and feet, the
+    // strings' generalized impedance Zg (both stretches of every string; it
+    // is diagonal, kept as its diagonal) and solve = (I + Y0 Zg)^-1. The
+    // two matrices are kept transposed for BarMatrix::transposeApply.
+    BarVector stringImpedance {};
+    BarMatrix immediateMobilityTransposed {};
+    BarMatrix solveTransposed {};
+    // Direct motion of each ji under one newton at a strike patch. Its
+    // present-sample force participates in the same implicit junction as
+    // the strings; adding it only to the modes leaves two bridge velocities.
+    std::array<BarVector, strikeKeys.size()> strikeMobility {};
+
+    ModeBank bank {};
+    Room room {};
+    std::array<StringVoice, maxStrings> strings {};
+
+    // The left hand's own draws, so a press leaves the plucks' unchanged.
+    Random hand {};
+    double waverPole { 0.0 };
+    double waverNormalization { 1.0 };
+    // The right hand's motor delay on its last timed stroke, in samples.
+    double strokeDelay { 0.0 };
+    std::array<double, maxStrings> notePress {};  // settled oshide press, semitones
+    std::array<int, maxStrings> momentDelay {};  // -1: not played this moment
+    std::array<Scheduled, maxScheduled> scheduled {};
+    std::array<PluckMemory, maxStrings> pluckMemory {};
+    std::array<int, 128> extensionString {};
+    PluckReport lastPluck {};
+    InstrumentSpec instrument {};
+    // Keys above the lowest string that no string sounds by its own note or
+    // by oshide, up to highestKey: the nearest string below the key with its
+    // ji moved to sound the key, its speaking length scaled at its own
+    // tension, as a player retunes a string by moving its ji. The rest of the
+    // string, from the ji on, keeps its own length. Above about C6 the ji
+    // would stand nearer the ryukaku than the tsume plays: no koto has those
+    // strings, an artificial range so that every key of a piano sounds
+    // (owner requirement, 2026-10-30). extensionString is the string, or -1
+    // where a string's own note is the key or the key lies below every
+    // string (the twelve under it strike the body, the rest play techniques).
+    std::array<PitchDesign, 128> extension {};
+    std::array<Mode, maxModes> modes {};
+    BodyWork work {};
+    std::array<double, delayCapacity> pluckWave {};
+#if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
+    JunctionEnergyReport junctionEnergy {};
+#endif
 };
 
 AcukotoEngine::AcukotoEngine() : state_(std::make_unique<State>()) {}
@@ -4739,7 +4895,7 @@ AcukotoEngine::~AcukotoEngine() = default;
 
 void AcukotoEngine::prepare(double sampleRate)
 {
-    sampleRate_ = std::isfinite(sampleRate) && sampleRate >= 22050.0 && sampleRate <= 192000.0
+    sampleRate_ = fastFinite(sampleRate) && sampleRate >= 22050.0 && sampleRate <= 192000.0
         ? sampleRate : 48000.0;
     state_->room.prepare(sampleRate_);
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
@@ -5185,6 +5341,7 @@ void AcukotoEngine::reset() noexcept
         voice.handPoint = State::StringVoice::restingHandPoint;
         voice.contactRate = 0.0;
         voice.loopRatio = 1.0;
+        s.notePress[static_cast<std::size_t>(index)] = 0.0;
         voice.raised = false;
         voice.normal.reset();
         voice.parallel.reset();
@@ -5214,7 +5371,7 @@ void AcukotoEngine::reset() noexcept
     s.bank.s1.fill(0.0);
     s.bank.s2.fill(0.0);
     s.modalPast = {};
-    s.modalPastStale = true;
+    s.modalPastStale = false;
     s.strike.active = false;
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
@@ -5281,7 +5438,9 @@ void AcukotoEngine::applyPitch(int string, int extensionKey) noexcept
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
     const State::PitchDesign& pitch = extensionKey >= 0 ? state_->extension[static_cast<std::size_t>(extensionKey)]
                                                         : voice.pitch;
+    state_->notePress[static_cast<std::size_t>(string)] = 0.0;
     voice.raised = false;
+    voice.loopRatio = 1.0;
     voice.extensionKey = extensionKey;
     voice.frequency = pitch.planes[0].frequency;
     voice.length = pitch.length;
@@ -5304,7 +5463,7 @@ void AcukotoEngine::applyPitch(int string, int extensionKey) noexcept
 // Every hand on the string, as one loss per round trip reached over a round
 // trip: the palm on all strings, and on a string nobody holds, the playing
 // hand (plucked) or the resting hand (idle).
-void AcukotoEngine::updateDamping(int string) noexcept
+ACUKOTO_NOINLINE void AcukotoEngine::updateDamping(int string) noexcept
 {
     const State& s = *state_;
     State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
@@ -5357,7 +5516,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     const PlayingControls previous = controls_;
     PlayingControls& c = controls_;
     c = controls;
-    c.pluckDistance = std::isfinite(c.pluckDistance) ? std::clamp(c.pluckDistance, 0.005, 0.5) : 0.05;
+    c.pluckDistance = fastFinite(c.pluckDistance) ? std::clamp(c.pluckDistance, 0.005, 0.5) : 0.05;
     c.normalShare = std::clamp(unitClamp(c.normalShare), 0.01, 0.9);
     c.release = unitClamp(c.release);
     c.mute = unitClamp(c.mute);
@@ -5373,7 +5532,7 @@ void AcukotoEngine::setControls(const PlayingControls& controls) noexcept
     // (https://www.promusica.or.jp/english/koto.html). Allow the conservative
     // half-tone downward gesture, beside the existing upward press. This is
     // a pitch/tension gesture; the finger's frictional slip is not modelled.
-    c.handPress = std::isfinite(c.handPress) ? std::clamp(c.handPress, lowestHandPress, 3.0) : 0.0;
+    c.handPress = fastFinite(c.handPress) ? std::clamp(c.handPress, lowestHandPress, 3.0) : 0.0;
 
     s.releaseRate = handRate(c.release);
     s.sympathyRate = handRate(c.sympathy);
@@ -5526,11 +5685,10 @@ void AcukotoEngine::techniqueKey(int key, float velocity) noexcept
     };
     const auto periods = [this] (double seconds)
     {
-        return std::max(1, static_cast<int>(std::lround(seconds * sampleRate_ / controlPeriod)));
+        return std::max(1, nearestInt(seconds * sampleRate_ / controlPeriod));
     };
     const int string = s.handString;
-    const double base = string >= 0
-        ? 12.0 * std::log2(s.strings[static_cast<std::size_t>(string)].pressTarget) : 0.0;
+    const double base = string >= 0 ? s.notePress[static_cast<std::size_t>(string)] : 0.0;
     const auto schedule = [&s] (const State::Scheduled& event)
     {
         if (s.scheduledCount < maxScheduled)
@@ -5551,15 +5709,19 @@ void AcukotoEngine::techniqueKey(int key, float velocity) noexcept
         case tsukiIroKey:
             if (string >= 0)
             {
+                if (s.yuri.string == string)
+                    s.yuri.active = false;
                 s.tsukiIro = { true, string, base, true, periods(tsukiIroUp) };
-                press(string, base + tsukiIroRise, tsukiIroUp);
+                setPressGlide(string, base + tsukiIroRise, tsukiIroUp);
             }
             break;
         case yuriKey:
             if (string >= 0)
             {
+                if (s.tsukiIro.string == string)
+                    s.tsukiIro.active = false;
                 s.yuri = { true, string, base, true, periods(yuriHalf) };
-                press(string, base + yuriPeak, yuriHalf);
+                setPressGlide(string, base + yuriPeak, yuriHalf);
             }
             break;
         case oshiHanashiKey:
@@ -5623,6 +5785,7 @@ void AcukotoEngine::startScrape(bool suri, float velocity) noexcept
         s.controlCountdown = 0;
     }
     s.quietSamples = 0;
+    s.scrapes = {};
     const double v = std::clamp(static_cast<double>(velocity), 0.0, 1.0);
     for (int k = 0; k < found; ++k)
     {
@@ -5633,7 +5796,7 @@ void AcukotoEngine::startScrape(bool suri, float velocity) noexcept
         scrape.active = true;
         scrape.string = string;
         scrape.twoWay = suri;
-        scrape.length = std::max(1, static_cast<int>(std::lround((suri ? 2.0 * suriTime : chirashiTime) * sampleRate_)));
+        scrape.length = std::max(1, nearestInt((suri ? 2.0 * suriTime : chirashiTime) * sampleRate_));
         scrape.from = 0.01;
         scrape.to = std::min(scrape.from + (suri ? suriTravel : chirashiTravel), 0.8 * voice.length);
         const double touch = s.instrument.strings[static_cast<std::size_t>(string)].touch;
@@ -5644,7 +5807,7 @@ void AcukotoEngine::startScrape(bool suri, float velocity) noexcept
         const double q = suri ? suriQ : chirashiQ;
         const double w0 = 2.0 * pi * centre / sampleRate_;
         const double alpha = std::sin(w0) / (2.0 * q);
-        const double norm = std::sqrt(sampleRate_ * q / (pi * centre));
+        const double norm = fastSqrt(sampleRate_ * q / (pi * centre));
         scrape.b0 = alpha / (1.0 + alpha) * norm;
         scrape.b2 = -scrape.b0;
         scrape.a1 = -2.0 * std::cos(w0) / (1.0 + alpha);
@@ -5657,18 +5820,22 @@ void AcukotoEngine::startScrape(bool suri, float velocity) noexcept
 // The scrapes' friction force this sample, each a velocity F / (2 Z) leaving
 // its point both ways: straight to the ji, (L - x) / c away, and turned over
 // by the ryukaku, (L + x) / c away (x from the ryukaku).
-void AcukotoEngine::runScrapes() noexcept
+ACUKOTO_NOINLINE void AcukotoEngine::runScrapes() noexcept
 {
     State& s = *state_;
+    const double share = std::clamp(controls_.normalShare, 0.0, 1.0);
+    const double planeGain[2] { fastSqrt(share), fastSqrt(1.0 - share) };
     for (State::Scrape& scrape : s.scrapes)
     {
         if (!scrape.active)
             continue;
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(scrape.string)];
         const double t = static_cast<double>(scrape.samples) / scrape.length;
-        const double travel = scrape.twoWay ? 1.0 - std::abs(1.0 - 2.0 * t) : t;
-        const double stroke = scrape.twoWay ? std::fmod(2.0 * t, 1.0) : t;
-        const double x = scrape.from + (scrape.to - scrape.from) * travel;
+        const double doubled = 2.0 * t;
+        const double travel = scrape.twoWay ? 1.0 - fastAbs(1.0 - doubled) : t;
+        const double stroke = scrape.twoWay ? (doubled >= 1.0 ? doubled - 1.0 : doubled) : t;
+        const double length = voice.length;
+        const double x = std::clamp(scrape.from + (scrape.to - scrape.from) * travel, 0.0, 0.8 * length);
         const double noise = s.random.gaussian();
         const double y = scrape.b0 * (noise - scrape.x2) - scrape.a1 * scrape.y1 - scrape.a2 * scrape.y2;
         scrape.x2 = scrape.x1;
@@ -5676,16 +5843,16 @@ void AcukotoEngine::runScrapes() noexcept
         scrape.y2 = scrape.y1;
         scrape.y1 = y;
         const double force = scrape.force * std::sin(pi * stroke) * y;
-        const double share = std::clamp(controls_.normalShare, 0.0, 1.0);
+        const double baseWave = force / (2.0 * voice.impedance);
         for (int plane = 0; plane < 2; ++plane)
         {
             Loop& loop = plane == 0 ? voice.normal : voice.parallel;
-            const double wave = force / (2.0 * voice.impedance) * std::sqrt(plane == 0 ? share : 1.0 - share);
-            const double period = loop.whole + loop.fraction + loop.muteDelay + (loop.loopDelay - loop.restLineDelay);
-            const double length = voice.length;
+            const double wave = baseWave * planeGain[plane];
+            const double period = loop.loopDelay / voice.loopRatio;
             for (const double sign : { 1.0, -1.0 })
             {
-                const double delay = 0.5 * period * (length + (sign > 0.0 ? -x : x)) / length;
+                const double delay = std::clamp(0.5 * period * (length + (sign > 0.0 ? -x : x)) / length,
+                                                0.0, static_cast<double>(delayCapacity - 2));
                 const int whole = static_cast<int>(delay);
                 const double fraction = delay - whole;
                 loop.pending[static_cast<std::size_t>((loop.write + whole) & (delayCapacity - 1))]
@@ -5811,7 +5978,7 @@ void AcukotoEngine::startNote(int index, int midiNote, float velocity, int press
         style |= cornerStroke;
     const auto crossing = [&] (float v)
     {
-        return std::max(1, static_cast<int>(std::lround(s.instrument.body.stringSpacing / strokeSpeed(v) * sampleRate_)));
+        return std::max(1, nearestInt(s.instrument.body.stringSpacing / strokeSpeed(v) * sampleRate_));
     };
     int delay = 0;
     bool thumb = tsume && s.momentDelay[static_cast<std::size_t>(index)] < 0;
@@ -5864,18 +6031,20 @@ int AcukotoEngine::strokeInterval(double nominal) noexcept
     const double motor = strokeMotorSpread * sampleRate_ * s.random.gaussian();
     const double samples = (nominal + strokeTimerSpread * s.random.gaussian()) * sampleRate_ + motor - s.strokeDelay;
     s.strokeDelay = motor;
-    return std::max(1, static_cast<int>(std::lround(samples)));
+    return std::max(1, nearestInt(samples));
 }
 
 // The left hand's gestures, a control period at a time: tsuki-iro's push
 // returns once it has arrived, and yuri sways between its peak and trough
 // until its key is let go.
-void AcukotoEngine::runSways() noexcept
+ACUKOTO_NOINLINE void AcukotoEngine::runSways() noexcept
 {
     State& s = *state_;
+    if (!s.tsukiIro.active && !s.yuri.active)
+        return;
     const auto periods = [this] (double seconds)
     {
-        return std::max(1, static_cast<int>(std::lround(seconds * sampleRate_ / controlPeriod)));
+        return std::max(1, nearestInt(seconds * sampleRate_ / controlPeriod));
     };
     State::Sway& tsuki = s.tsukiIro;
     if (tsuki.active && --tsuki.periods <= 0)
@@ -5884,7 +6053,7 @@ void AcukotoEngine::runSways() noexcept
         {
             tsuki.up = false;
             tsuki.periods = periods(tsukiIroDown);
-            press(tsuki.string, tsuki.base, tsukiIroDown);
+            setPressGlide(tsuki.string, tsuki.base, tsukiIroDown);
         }
         else
         {
@@ -5896,11 +6065,11 @@ void AcukotoEngine::runSways() noexcept
     {
         yuri.up = !yuri.up;
         yuri.periods = periods(yuriHalf);
-        press(yuri.string, yuri.base + (yuri.up ? yuriPeak : yuriTrough), yuriHalf);
+        setPressGlide(yuri.string, yuri.base + (yuri.up ? yuriPeak : yuriTrough), yuriHalf);
     }
 }
 
-void AcukotoEngine::runScheduled() noexcept
+ACUKOTO_NOINLINE void AcukotoEngine::runScheduled() noexcept
 {
     State& s = *state_;
     for (int k = 0; k < s.scheduledCount;)
@@ -5991,21 +6160,36 @@ void AcukotoEngine::pluckString(int string, float velocity) noexcept
     pluck(string, state_->strings[static_cast<std::size_t>(string)].midiNote, velocity, 0);
 }
 
+void AcukotoEngine::setPressGlide(int string, double semitones, double seconds) noexcept
+{
+    if (string < 0 || string >= stringCount_)
+        return;
+    State& s = *state_;
+    State::StringVoice& voice = s.strings[static_cast<std::size_t>(string)];
+    const double amount = fastFinite(semitones) ? std::clamp(semitones, 0.0, 3.0) : 0.0;
+    voice.pressTarget = std::pow(2.0, amount / 12.0);
+    voice.raised = amount > 0.0 || s.notePress[static_cast<std::size_t>(string)] > 0.0;
+    voice.dampingDirty = true;
+    const double time = fastFinite(seconds) ? std::clamp(seconds, 0.0, 60.0) : 0.0;
+    voice.pressFrom = voice.pressRatio;
+    voice.pressElapsed = 0;
+    voice.pressPeriods = nearestInt(time * sampleRate_ / controlPeriod);
+    if (voice.pressPeriods <= 0)
+        voice.pressRatio = voice.pressTarget;
+}
+
 void AcukotoEngine::press(int string, double semitones, double seconds) noexcept
 {
     if (string < 0 || string >= stringCount_)
         return;
-    State::StringVoice& voice = state_->strings[static_cast<std::size_t>(string)];
-    const double amount = std::isfinite(semitones) ? std::clamp(semitones, 0.0, 3.0) : 0.0;
-    voice.pressTarget = std::pow(2.0, amount / 12.0);
-    voice.raised = amount > 0.0;
-    voice.dampingDirty = true;
-    const double time = std::isfinite(seconds) ? std::clamp(seconds, 0.0, 60.0) : 0.0;
-    voice.pressFrom = voice.pressRatio;
-    voice.pressElapsed = 0;
-    voice.pressPeriods = static_cast<int>(std::lround(time * sampleRate_ / controlPeriod));
-    if (voice.pressPeriods <= 0)
-        voice.pressRatio = voice.pressTarget;
+    State& s = *state_;
+    const double amount = fastFinite(semitones) ? std::clamp(semitones, 0.0, 3.0) : 0.0;
+    s.notePress[static_cast<std::size_t>(string)] = amount;
+    if (s.tsukiIro.string == string)
+        s.tsukiIro.active = false;
+    if (s.yuri.string == string)
+        s.yuri.active = false;
+    setPressGlide(string, amount, seconds);
 }
 
 void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) noexcept
@@ -6088,7 +6272,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     const double held = s.lastPlucked == index
         ? std::exp(-static_cast<double>(s.clock - memory.at) / (repeatMemory * sampleRate_)) : 0.0;
     s.lastPlucked = index;
-    const double fresh = std::sqrt(1.0 - held * held);
+    const double fresh = fastSqrt(1.0 - held * held);
     memory.at = s.clock;
     const auto deviation = [&] (int k)
     {
@@ -6122,7 +6306,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
                                 + (loop->loopDelay - loop->restLineDelay);
             const double lag = period - loop->whole;
             const double from = 0.5 * period * (1.0 - distance), to = 0.5 * period * (1.0 + distance);
-            for (int k = 0; k < static_cast<int>(std::ceil(period)); ++k)
+            for (int k = 0; k < ceilInt(period); ++k)
             {
                 const double cover = std::clamp(std::min(to, k + 1.0) - std::max(from, static_cast<double>(k)), 0.0, 1.0);
                 float& arriving = loop->pending[static_cast<std::size_t>((loop->write + k) & (delayCapacity - 1))];
@@ -6157,7 +6341,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // share is the angle's sine squared.
     const double forceDeviation = deviation(1);
     const double force = instrument.pluckForce * touch * std::pow(v, 1.4) * std::exp(0.14 * forceDeviation);
-    const double angle = std::asin(std::sqrt(std::clamp(controls.normalShare, 0.0, 1.0)))
+    const double angle = std::asin(fastSqrt(std::clamp(controls.normalShare, 0.0, 1.0)))
                        + 4.0 * pi / 180.0 * deviation(2);
     const double normalShare = std::clamp(std::sin(angle) * std::sin(angle), 0.01, 0.9);
 
@@ -6251,7 +6435,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         const double c = 2.0 * voice.length * voice.frequency;
         const double k = 2.0 * fingerDamping * muteOffset * muteOffset * sampleRate_ * sampleRate_
                        / (c * c * c * voice.linearMass);
-        const double a = voice.muted ? ((4.0 * k + 1.0) - std::sqrt(8.0 * k + 1.0)) / (4.0 * k) : 0.0;
+        const double a = voice.muted ? ((4.0 * k + 1.0) - fastSqrt(8.0 * k + 1.0)) / (4.0 * k) : 0.0;
         const double w = 2.0 * pi * voice.frequency / sampleRate_;
         const double delay = voice.muted ? std::atan2(a * std::sin(w), 1.0 - a * std::cos(w)) / w : 0.0;
         for (Loop* loop : { &voice.normal, &voice.parallel })
@@ -6288,7 +6472,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     {
         const double pluckPoint = position * length;
         const double amplitude = force * pluckPoint * (length - pluckPoint) / (voice.tension * length)
-                               * std::sqrt(plane == 0 ? normalShare : 1.0 - normalShare);
+                               * fastSqrt(plane == 0 ? normalShare : 1.0 - normalShare);
         releasedEnergy += length * length * frequency * frequency * amplitude * amplitude
                         * (1.0 / pluckPoint + 1.0 / (length - pluckPoint)) / length;
     }
@@ -6301,7 +6485,7 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     // over the unpressed period.
     const double releasedRatio = (tensionModulation_ ? 1.0 + voice.glidePerEnergy * releasedEnergy : 1.0)
                                * s.bend * voice.pressRatio * voice.handRatio;
-    voice.setLoopsRatio(releasedRatio);
+    voice.setLoopsRatio(releasedRatio, true);
     const int releasedRoundTrip = std::clamp(
         nearestInt(sampleRate_ / (voice.frequency * releasedRatio)), 1, voice.longestRoundTrip);
     while (voice.roundTrip < releasedRoundTrip)
@@ -6416,12 +6600,19 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
         voice.squaresSum += voice.squares[static_cast<std::size_t>((voice.squaresIndex - k) & (delayCapacity - 1))];
     voice.energy = voice.squaresSum / voice.roundTrip;
     ModeBank& bank = s.bank;
+    const auto c0 = static_cast<std::size_t>(voice.ji);
+    const std::size_t c1 = voice.tipCoordinate();
+    const double preload0 = preload[c0];
+    const double preload1 = preload[c1];
+    const float* p0 = bank.participation[c0].data();
+    const float* p1 = bank.participation[c1].data();
     for (int k = 0; k < bank.count; ++k)
     {
         const auto m = static_cast<std::size_t>(k);
-        double modal = 0.0;
-        for (std::size_t c = 0; c < barCoordinates; ++c)
-            modal += bank.participation[c][m] * preload[c];
+        double modal = static_cast<double>(p0[m]) * preload0;
+        modal += static_cast<double>(p1[m]) * preload1;
+        if (modal == 0.0)
+            modal = 0.0;
         modal *= bank.b0[m];
         bank.s1[m] -= modal;
         bank.s2[m] -= modal;
@@ -6437,7 +6628,7 @@ void AcukotoEngine::noteOff(int midiNote) noexcept
         if (s.yuri.active)
         {
             s.yuri.active = false;
-            press(s.yuri.string, s.yuri.base, yuriHalf);
+            setPressGlide(s.yuri.string, s.yuri.base, yuriHalf);
         }
         return;
     }
@@ -6501,7 +6692,7 @@ void AcukotoEngine::setSustain(bool down) noexcept
     }
 }
 
-void AcukotoEngine::sleep() noexcept
+ACUKOTO_NOINLINE void AcukotoEngine::sleep() noexcept
 {
     State& s = *state_;
     for (int index = 0; index < stringCount_; ++index)
@@ -6522,7 +6713,8 @@ void AcukotoEngine::sleep() noexcept
     }
     s.bank.s1.fill(0.0);
     s.bank.s2.fill(0.0);
-    s.modalPastStale = true;
+    s.modalPast = {};
+    s.modalPastStale = false;
     s.strike.active = false;
     s.previousLeft = s.previousRight = 0.0;
     s.pressureLeft = s.pressureRight = 0.0;
@@ -6557,6 +6749,110 @@ __attribute__((target("avx2,fma"))) void AcukotoEngine::processFused(float* left
 }
 #endif
 
+ACUKOTO_NOINLINE void AcukotoEngine::runControlTick() noexcept
+{
+    State& s = *state_;
+    const int count = stringCount_;
+    const int silencePeriod = static_cast<int>(0.5 * sampleRate_);
+    s.controlCountdown = controlPeriod - 1;
+    s.bend += (s.bendTarget - s.bend) * s.bendSmoothing;
+    runSways();
+    for (int index = 0; index < count; ++index)
+    {
+        State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+        // The rest stretch has its own silence witness. The
+        // speaking energy can vanish much sooner after a left
+        // pluck, but a hand must also leave that rest stretch once
+        // it really is quiet while other strings keep sounding.
+        if (voice.pluckedLeft && !voice.keyDown && !voice.sustained
+            && voice.leftQuietSamples >= silencePeriod)
+        {
+            voice.plucked = voice.pluckedLeft = false;
+            voice.dampingDirty = true;
+        }
+        voice.energy = voice.squaresSum / voice.roundTrip;
+        // A released string that has died away is idle again: the
+        // playing hand has left it.
+        if (voice.plucked && !voice.keyDown && !voice.sustained && voice.energy < silentEnergy)
+        {
+            voice.plucked = false;
+            voice.dampingDirty = true;
+        }
+        // The left hand leaves a pressed string only once it is
+        // inaudible. silentEnergy is too high for that: a pressed E4
+        // released there, about 32 dB under its first half second,
+        // was heard to drop to E-flat 4 in Recon (0.11.0). idleEnergy
+        // is where a string radiates about -170 dBFS.
+        if (voice.raised && !voice.keyDown && !voice.sustained && voice.energy < idleEnergy)
+        {
+            s.notePress[static_cast<std::size_t>(index)] = 0.0;
+            voice.pressTarget = voice.pressRatio = 1.0;
+            voice.pressPeriods = 0;
+            voice.raised = false;
+            voice.dampingDirty = true;
+        }
+        if (voice.thumbRest > 0 && (voice.thumbRest -= controlPeriod) <= 0)
+        {
+            voice.thumbRest = 0;
+            voice.dampingDirty = true;
+        }
+        if (voice.dampingDirty)
+            updateDamping(index);
+        // A held key or pedal does not keep a string sounding: a
+        // string that has died away under it lets the engine sleep.
+        if (voice.energy > idleEnergy)
+            s.quietSamples = 0;
+        // Tension modulation (Kirchhoff-Carrier): the string's mean
+        // squared slope stretches it, Delta f / f = EA <y'^2> / (4T);
+        // the pitch bend scales every string alike.
+        // The left hand's press glides to its target.
+        if (voice.pressElapsed < voice.pressPeriods)
+        {
+            const double share = leastJerk(static_cast<double>(++voice.pressElapsed) / voice.pressPeriods);
+            voice.pressRatio = voice.pressFrom * std::pow(voice.pressTarget / voice.pressFrom, share);
+        }
+        else
+        {
+            voice.pressRatio = voice.pressTarget;
+        }
+        double press = voice.pressRatio;
+        if (voice.pressTarget > 1.0 || voice.pressRatio > 1.0 + 1.0e-9)
+        {
+            // A unit-variance one-pole of the hand's draws.
+            voice.pressWaver = s.waverPole * voice.pressWaver
+                             + s.waverNormalization * s.hand.gaussian();
+            press = fastSqrt(1.0 + (press * press - 1.0)
+                                 * (1.0 + 2.0 * pressForceSpread * voice.pressWaver));
+        }
+        else
+        {
+            voice.pressWaver = 0.0;
+        }
+        // The hand's press follows it as the bend does.
+        voice.handRatio += ((index == s.handString ? s.handTarget : 1.0) - voice.handRatio)
+                         * s.bendSmoothing;
+        const double ratio = (tensionModulation_
+            ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press * voice.handRatio;
+        voice.setLoopsRatio(ratio);
+        // The mean follows the period the bend and the glide set.
+        const int roundTrip = std::clamp(nearestInt(sampleRate_ / (voice.frequency * ratio)),
+                                         1, voice.longestRoundTrip);
+        while (voice.roundTrip < roundTrip)
+        {
+            ++voice.roundTrip;
+            voice.squaresSum += voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip)
+                                                                       & (delayCapacity - 1))];
+        }
+        while (voice.roundTrip > roundTrip)
+        {
+            voice.squaresSum = std::max(0.0, voice.squaresSum
+                - voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip)
+                                                         & (delayCapacity - 1))]);
+            --voice.roundTrip;
+        }
+    }
+}
+
 ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* right, int numSamples) noexcept
 {
     State& s = *state_;
@@ -6571,10 +6867,10 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
     }
     const int count = stringCount_;
     const int silencePeriod = static_cast<int>(0.5 * sampleRate_);
-    std::array<double, maxStrings> normalIn {};
-    std::array<double, maxStrings> parallelIn {};
-    std::array<double, maxStrings> leftNormalIn {};
-    std::array<double, maxStrings> leftParallelIn {};
+    std::array<double, maxStrings> normalIn;
+    std::array<double, maxStrings> parallelIn;
+    std::array<double, maxStrings> leftNormalIn;
+    std::array<double, maxStrings> leftParallelIn;
     const BarMatrix& y0 = s.immediateMobilityTransposed;
     const BarVector& zg = s.stringImpedance;
     const BarMatrix& solve = s.solveTransposed;
@@ -6587,104 +6883,7 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
         if (s.scrapes[0].active || s.scrapes[1].active)
             runScrapes();
         if (s.controlCountdown-- <= 0)
-        {
-            s.controlCountdown = controlPeriod - 1;
-            s.bend += (s.bendTarget - s.bend) * s.bendSmoothing;
-            runSways();
-            for (int index = 0; index < count; ++index)
-            {
-                State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
-                // The rest stretch has its own silence witness. The
-                // speaking energy can vanish much sooner after a left
-                // pluck, but a hand must also leave that rest stretch once
-                // it really is quiet while other strings keep sounding.
-                if (voice.pluckedLeft && !voice.keyDown && !voice.sustained
-                    && voice.leftQuietSamples >= silencePeriod)
-                {
-                    voice.plucked = voice.pluckedLeft = false;
-                    voice.dampingDirty = true;
-                }
-                voice.energy = voice.squaresSum / voice.roundTrip;
-                // A released string that has died away is idle again: the
-                // playing hand has left it.
-                if (voice.plucked && !voice.keyDown && !voice.sustained && voice.energy < silentEnergy)
-                {
-                    voice.plucked = false;
-                    voice.dampingDirty = true;
-                }
-                // The left hand leaves a pressed string only once it is
-                // inaudible. silentEnergy is too high for that: a pressed E4
-                // released there, about 32 dB under its first half second,
-                // was heard to drop to E-flat 4 in Recon (0.11.0). idleEnergy
-                // is where a string radiates about -170 dBFS.
-                if (voice.raised && !voice.keyDown && !voice.sustained && voice.energy < idleEnergy)
-                {
-                    voice.pressTarget = voice.pressRatio = 1.0;
-                    voice.pressPeriods = 0;
-                    voice.raised = false;
-                    voice.dampingDirty = true;
-                }
-                if (voice.thumbRest > 0 && (voice.thumbRest -= controlPeriod) <= 0)
-                {
-                    voice.thumbRest = 0;
-                    voice.dampingDirty = true;
-                }
-                if (voice.dampingDirty)
-                    updateDamping(index);
-                // A held key or pedal does not keep a string sounding: a
-                // string that has died away under it lets the engine sleep.
-                if (voice.energy > idleEnergy)
-                    s.quietSamples = 0;
-                // Tension modulation (Kirchhoff-Carrier): the string's mean
-                // squared slope stretches it, Delta f / f = EA <y'^2> / (4T);
-                // the pitch bend scales every string alike.
-                // The left hand's press glides to its target.
-                if (voice.pressElapsed < voice.pressPeriods)
-                {
-                    const double share = leastJerk(static_cast<double>(++voice.pressElapsed) / voice.pressPeriods);
-                    voice.pressRatio = voice.pressFrom * std::pow(voice.pressTarget / voice.pressFrom, share);
-                }
-                else
-                {
-                    voice.pressRatio = voice.pressTarget;
-                }
-                double press = voice.pressRatio;
-                if (voice.pressTarget > 1.0 || voice.pressRatio > 1.0 + 1.0e-9)
-                {
-                    // A unit-variance one-pole of the hand's draws.
-                    voice.pressWaver = s.waverPole * voice.pressWaver
-                                     + s.waverNormalization * s.hand.gaussian();
-                    press = fastSqrt(1.0 + (press * press - 1.0)
-                                         * (1.0 + 2.0 * pressForceSpread * voice.pressWaver));
-                }
-                else
-                {
-                    voice.pressWaver = 0.0;
-                }
-                // The hand's press follows it as the bend does.
-                voice.handRatio += ((index == s.handString ? s.handTarget : 1.0) - voice.handRatio)
-                                 * s.bendSmoothing;
-                const double ratio = (tensionModulation_
-                    ? 1.0 + voice.glidePerEnergy * voice.energy : 1.0) * s.bend * press * voice.handRatio;
-                voice.setLoopsRatio(ratio);
-                // The mean follows the period the bend and the glide set.
-                const int roundTrip = std::clamp(nearestInt(sampleRate_ / (voice.frequency * ratio)),
-                                                 1, voice.longestRoundTrip);
-                while (voice.roundTrip < roundTrip)
-                {
-                    ++voice.roundTrip;
-                    voice.squaresSum += voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip)
-                                                                               & (delayCapacity - 1))];
-                }
-                while (voice.roundTrip > roundTrip)
-                {
-                    voice.squaresSum = std::max(0.0, voice.squaresSum
-                        - voice.squares[static_cast<std::size_t>((voice.squaresIndex - voice.roundTrip)
-                                                                 & (delayCapacity - 1))]);
-                    --voice.roundTrip;
-                }
-            }
-        }
+            runControlTick();
 
         BarVector drive {};
         for (int index = 0; index < count; ++index)
@@ -6728,10 +6927,7 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
         ModeBank& bank = s.bank;
         if (s.modalPastStale)
         {
-            s.modalPast = {};
-            for (std::size_t c = 0; c < barCoordinates; ++c)
-                for (int k = 0; k < bank.count; ++k)
-                    s.modalPast[c] += bank.participation[c][static_cast<std::size_t>(k)] * bank.s1[static_cast<std::size_t>(k)];
+            recomputeModalPast(bank, s.modalPast);
             s.modalPastStale = false;
         }
         // A hand in contact with the body: it closes on the surface at its own
@@ -6833,13 +7029,18 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
 
         for (int index = 0; index < count; ++index)
         {
-            State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
+            const auto idx = static_cast<std::size_t>(index);
+            State::StringVoice& voice = s.strings[idx];
             const double heave = velocity[static_cast<std::size_t>(voice.ji)];
             const double rock = velocity[voice.tipCoordinate()];
-            voice.normal.writeSample(normalIn[static_cast<std::size_t>(index)] - heave);
-            voice.parallel.writeSample(parallelIn[static_cast<std::size_t>(index)] - rock);
-            voice.leftNormal.writeSample(leftNormalIn[static_cast<std::size_t>(index)] - heave);
-            voice.leftParallel.writeSample(leftParallelIn[static_cast<std::size_t>(index)] - rock);
+            const int write = voice.normal.write;
+            const auto slot = static_cast<std::size_t>(write);
+            const int nextWrite = (write + 1) & (delayCapacity - 1);
+            voice.normal.line[slot] = static_cast<float>(normalIn[idx] - heave);
+            voice.parallel.line[slot] = static_cast<float>(parallelIn[idx] - rock);
+            voice.leftNormal.line[slot] = static_cast<float>(leftNormalIn[idx] - heave);
+            voice.leftParallel.line[slot] = static_cast<float>(leftParallelIn[idx] - rock);
+            voice.normal.write = voice.parallel.write = voice.leftNormal.write = voice.leftParallel.write = nextWrite;
             if (voice.normal.handShare != 0.0 && voice.energy > idleEnergy)
             {
                 voice.normal.touch();
@@ -6865,17 +7066,17 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
         // acceleration brought it to 1.7 to 2.0. The parts in quadrature
         // join before it, 90 degrees on (PhaseNetwork).
 #if defined(__clang__) || defined(__GNUC__)
-        const Double2 vol = PhaseNetwork::runStereo(s.phase.inPhase, s.phaseState[0], s.phaseState[2],
+        const Double2 vol = PhaseNetwork::runStereo(s.phase.inPhase, s.phaseState[0],
                                                     Double2 { radiatedLeft, radiatedRight })
-                          + PhaseNetwork::runStereo(s.phase.quadrature, s.phaseState[1], s.phaseState[3],
+                          + PhaseNetwork::runStereo(s.phase.quadrature, s.phaseState[1],
                                                     Double2 { quadratureLeft, quadratureRight });
         const double volumeLeft = vol[0];
         const double volumeRight = vol[1];
 #else
-        const double volumeLeft = PhaseNetwork::run(s.phase.inPhase, s.phaseState[0], radiatedLeft)
-                                + PhaseNetwork::run(s.phase.quadrature, s.phaseState[1], quadratureLeft);
-        const double volumeRight = PhaseNetwork::run(s.phase.inPhase, s.phaseState[2], radiatedRight)
-                                 + PhaseNetwork::run(s.phase.quadrature, s.phaseState[3], quadratureRight);
+        const double volumeLeft = PhaseNetwork::run(s.phase.inPhase, s.phaseState[0], 0, radiatedLeft)
+                                + PhaseNetwork::run(s.phase.quadrature, s.phaseState[1], 0, quadratureLeft);
+        const double volumeRight = PhaseNetwork::run(s.phase.inPhase, s.phaseState[0], 1, radiatedRight)
+                                 + PhaseNetwork::run(s.phase.quadrature, s.phaseState[1], 1, quadratureRight);
 #endif
         const double pressureLeft = (volumeLeft - s.previousLeft) * s.radiationScale - s.pressureLeft;
         const double pressureRight = (volumeRight - s.previousRight) * s.radiationScale - s.pressureRight;

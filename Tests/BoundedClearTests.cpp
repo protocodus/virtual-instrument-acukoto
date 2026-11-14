@@ -396,6 +396,20 @@ int main()
             longestCoversTheControls(*instrument, rate);
     clearsLeaveNothingToRead(*acukoto::presets[0], 48000.0);
     clearsLeaveNothingToRead(*acukoto::presets[1], 96000.0);
+    // Moving a ji to shorten a string while suri-zume scrapes it must keep
+    // every injected pending sample ahead of the cursor and cleared on reset.
+    {
+        Player scraped(*acukoto::presets[0], 48000.0);
+        scraped.engine->noteOn(81, 0.8f);   // A5, string 12 (0.211 m)
+        scraped.run(256);
+        scraped.engine->noteOff(81);
+        scraped.engine->noteOn(37, 0.8f);   // suri-zume (0.7 s, travels to ~0.11 m)
+        scraped.run(8192);                  // mid-stroke near maximum travel
+        scraped.engine->noteOn(108, 0.8f);  // C8 moved ji on string 12 (0.044 m < 0.11 m)
+        scraped.run(2048);
+        scraped.engine->reset();
+        clearedIsZero(*scraped.engine, "reset after moved-ji during suri-zume");
+    }
     for (acukoto::Technique technique : { acukoto::Technique::Plectrum, acukoto::Technique::Finger })
     {
         aRepluckKeepsToTheRoundTrip(*acukoto::presets[0], 48000.0, technique);
