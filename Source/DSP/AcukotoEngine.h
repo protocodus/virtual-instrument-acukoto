@@ -332,6 +332,7 @@ private:
 
     struct State;
     void applyPitch(int string, int extensionKey = -1) noexcept;
+    void setPressGlide(int string, double semitones, double seconds) noexcept;
     void pluck(int index, int midiNote, float velocity, int style) noexcept;
     void startNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
     void playNote(int index, int midiNote, float velocity, int pressed, int extensionKey, int style) noexcept;
@@ -343,6 +344,7 @@ private:
     int strokeInterval(double nominal) noexcept;
     void runSways() noexcept;
     void runScheduled() noexcept;
+    void runControlTick() noexcept;
     void strike(int key, float velocity) noexcept;
     void updateDamping(int string) noexcept;
     void sleep() noexcept;

@@ -630,6 +630,31 @@ int main()
         // Yuri sways the press while its key is held, then lets it back.
         render(*performer, { { 0.0, 67, 0.7f }, { 0.1, 32, 0.6f } }, 0.4, { 256 });
         check(engine.stringActivity(6).raised, "yuri does not press", 0.0);
+        // Repeated tsuki-iro gestures mid-rise sway around the note's own press
+        // rather than ratcheting off the temporary peak, and let an open string
+        // back to unpressed once the gesture settles.
+        const auto repeatedTsuki = render(*performer,
+                                          { { 0.0, 67, 0.8f }, { 0.08, 31, 0.7f }, { 0.10, 31, 0.7f }, { 0.12, 31, 0.7f } },
+                                          0.65, { 256 });
+        const double settledG4 = peakDb(repeatedTsuki, rate, 0.35, 0.65, 392.0, 0.008);
+        const double ratchetedBb4 = peakDb(repeatedTsuki, rate, 0.35, 0.65, 466.2, 0.008);
+        check(!engine.stringActivity(6).raised && settledG4 > ratchetedBb4 + 25.0,
+              "repeated tsuki-iro ratchets or leaves an open string pressed", settledG4 - ratchetedBb4);
+        // Playing a new note on a swaying string cancels the old sway instead of
+        // letting a later sway tick bend the new note back to the old base.
+        const auto newNoteCancelsSway = render(*performer,
+                                               { { 0.0, 70, 0.7f }, { 0.05, 32, 0.6f }, { 0.10, 70, 0.0f }, { 0.12, 71, 0.8f } },
+                                               0.9, { 256 });
+        const auto plainB4 = render(*performer,
+                                    { { 0.0, 70, 0.7f }, { 0.10, 70, 0.0f }, { 0.12, 71, 0.8f } },
+                                    0.9, { 256 });
+        const double swayCancelledDiff = std::abs(peakDb(newNoteCancelsSway, rate, 0.5, 0.9, 493.9, 0.004)
+                                                  - peakDb(plainB4, rate, 0.5, 0.9, 493.9, 0.004));
+        check(engine.stringActivity(8).raised && swayCancelledDiff < 2.0,
+              "an active sway overwrites a new pressed note on the same string", swayCancelledDiff);
+        // A 1-string chirashi after a 2-string suri retires the second scrape slot.
+        render(*performer, { { 0.0, 67, 0.7f }, { 0.05, 37, 0.6f }, { 0.10, 36, 0.6f } }, 0.30, { 256 });
+        check(!engine.stringActivity(5).plucked, "a 1-string chirashi left suri's second string active", 0.0);
         // A glissando plucks every string and holds none.
         render(*performer, { { 0.0, 34, 0.6f } }, 0.8, { 256 });
         bool every = true;
@@ -739,6 +764,27 @@ int main()
         }
 
     performer->setControls(acukoto::Performer::defaultControls(0));
+    // Sustain held across an instrument switch (and switch back after the fade
+    // resets the faded engine) stays held on both engines.
+    {
+        auto sustainer = std::make_unique<acukoto::Performer>();
+        sustainer->prepare(48000.0, 1);
+        sustainer->setControls(acukoto::Performer::defaultControls(0));
+        sustainer->setSustain(true);
+        sustainer->setInstrument(1);
+        std::vector<float> l(64), r(64);
+        for (int b = 0; b < 30; ++b)
+            sustainer->process(l.data(), r.data(), 64);
+        sustainer->setInstrument(0);
+        for (int b = 0; b < 30; ++b)
+            sustainer->process(l.data(), r.data(), 64);
+        sustainer->noteOn(62, 0.8f);
+        sustainer->process(l.data(), r.data(), 64);
+        sustainer->noteOff(62);
+        sustainer->process(l.data(), r.data(), 64);
+        check(sustainer->engine().stringActivity(4).held,
+              "sustain was lost when a faded engine reset across instrument switches", 0.0);
+    }
     checkStrikes(*performer);
 
     if (failures == 0)
