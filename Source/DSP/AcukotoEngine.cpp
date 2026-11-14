@@ -1571,7 +1571,7 @@ struct Loop
             return;
         }
         const double baseShare = std::min(0.25, rate / (2.0 * frequency * ratio));
-        const int last = std::max(2, whole - 2);
+        const int maxTap = std::max(2, whole - 2);
         // The stored wave left the ji at delay zero, reaches point x on its
         // outward journey after x P/2, and returns there after (1-x/2) P.
         // P is the *current full* round trip, not whole+fraction: the line
@@ -1580,8 +1580,8 @@ struct Loop
         // retain the nearest accessible tap; this is a waveguide contact,
         // not a distributed model of the string's dispersive displacement.
         const double period = loopDelay / ratio;
-        const double outDelay = std::clamp(0.5 * point * period, 1.0, static_cast<double>(last));
-        const double backDelay = std::clamp((1.0 - 0.5 * point) * period, 1.0, static_cast<double>(last));
+        const double outDelay = std::clamp(0.5 * point * period, 1.0, static_cast<double>(maxTap));
+        const double backDelay = std::clamp((1.0 - 0.5 * point) * period, 1.0, static_cast<double>(maxTap));
         handOut = floorInt(outDelay);
         handBack = floorInt(backDelay);
         handOutAlpha = outDelay - handOut;
@@ -1769,6 +1769,7 @@ struct PhaseNetwork
 #endif
 };
 
+#if defined(__clang__) || defined(__GNUC__)
 // Reduces eight float accumulation lanes pairwise in double, matching AVX2
 // pullOnBarFma's (lo + hi) pair reduction across platforms.
 ACUKOTO_FORCE_INLINE double reduceFloat8Pairwise(const Float4& lo, const Float4& hi) noexcept
@@ -1779,6 +1780,7 @@ ACUKOTO_FORCE_INLINE double reduceFloat8Pairwise(const Float4& lo, const Float4&
                       + Double2 { static_cast<double>(hi[2]), static_cast<double>(hi[3]) };
     return (s01[0] + s01[1]) + (s23[0] + s23[1]);
 }
+#endif
 
 // The sum of double(weight) * y over the bank, keeping y in double so every
 // mode's bilinear zero at Nyquist cancels the pressure differentiator's pole
@@ -2020,14 +2022,14 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
         driveModes<ModeBank::lanes>(bank, share, first, drive);
     if (strike.shape)
     {
-        const auto share = static_cast<float>(strike.force);
+        const auto strikeShare = static_cast<float>(strike.force);
 #if defined(__clang__) || defined(__GNUC__)
-        const Float4 f { share, share, share, share };
+        const Float4 f { strikeShare, strikeShare, strikeShare, strikeShare };
         for (int k = 0; k < count; k += 4)
             *reinterpret_cast<Float4*>(drive + k) += *reinterpret_cast<const Float4*>(strike.shape + k) * f;
 #else
         for (int k = 0; k < count; ++k)
-            drive[k] += strike.shape[k] * share;
+            drive[k] += strike.shape[k] * strikeShare;
 #endif
     }
     // Plain pointers: the compiler vectorizes these loops only when it can
