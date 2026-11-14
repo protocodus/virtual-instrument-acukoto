@@ -65,14 +65,14 @@ inline constexpr std::array<StrikeKey, 12> strikeKeys {{
     { 0, StrikeSurface::Top, 0.62, 0.754 },
     { 0, StrikeSurface::NearSide, 0.45, 1.606 },
     { 0, StrikeSurface::Back, 0.35, 0.662 },
-    { 1, StrikeSurface::Top, 0.22, 1.086 },
-    { 1, StrikeSurface::Top, 0.55, 0.840 },
-    { 1, StrikeSurface::NearSide, 0.33, 0.726 },
-    { 1, StrikeSurface::Back, 0.58, 0.463 },
-    { 2, StrikeSurface::Top, 0.40, 0.762 },
-    { 2, StrikeSurface::Top, 0.76, 0.768 },
-    { 2, StrikeSurface::NearSide, 0.72, 0.820 },
-    { 2, StrikeSurface::Back, 0.22, 0.305 },
+    { 1, StrikeSurface::Top, 0.22, 0.958 },
+    { 1, StrikeSurface::Top, 0.55, 0.759 },
+    { 1, StrikeSurface::NearSide, 0.33, 0.695 },
+    { 1, StrikeSurface::Back, 0.58, 0.479 },
+    { 2, StrikeSurface::Top, 0.40, 0.723 },
+    { 2, StrikeSurface::Top, 0.76, 0.741 },
+    { 2, StrikeSurface::NearSide, 0.72, 0.750 },
+    { 2, StrikeSurface::Back, 0.22, 0.307 },
 }};
 
 } // namespace acukoto

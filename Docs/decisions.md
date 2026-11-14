@@ -8,6 +8,70 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-14 — Each striking hand meets its own patch on the body
+
+What was decided: whether the three striking hands on `D2` to `C#3` average the
+body's modal displacement over one palm-sized patch or each over a patch of its
+own size on the `120 × 10 × 5` surface grid (`~1.52 cm` per station along,
+`~2.5 cm` per top or back cell, `~1.5 cm` per near-side cell):
+
+- **A**, the shipping engine (0.25.17): palm (`D2-F2`), knuckle (`F#2-A2`) and
+  hard rap (`A#2-C#3`) all average over five stations along by three cells on
+  the top, five on the near side or four on the back (`~7.6 × 7.5-10.0 cm`).
+- **B**: the palm keeps that patch (`5 × 3/5/4` cells), the knuckle averages
+  over `3 × 2/3/2` cells (`~4.5 × 4.5-5.0 cm`), and the hard rap meets a single
+  centred cell (`1 × 1`, `~1.5 × 1.5-2.5 cm`), with `strikeKeys[4..11].touch`
+  re-levelled by `AcukotoLevels`.
+
+Spatial averaging over a palm patch low-passes short flexural wavelengths on
+the walls above about `800 Hz`, softening a knuckle or a rap toward a palm,
+while no recorded koto strike fixes how much contact area each hand meets. With
+K-weighted strike loudness held level, `0.8-6.0 kHz` over `60-500 Hz` in the
+first `30 ms` stands unchanged on the palm (`+0.00 dB` on `D2`) and rises
+`+0.93` to `+1.54 dB` on the knuckles and `+0.91` to `+1.15 dB` on the raps;
+B's difference from A in the phrase is `13.7 dB` under A in RMS. The owner was
+sent the pair (Koto Hirajoshi, one `8.50 s` phrase with three-hand strike runs
+and plucked passages through the Performer at `48 kHz` and `1x`; B trimmed
+`-0.07 dB` (`-0.065 dB`) to A's whole-file RMS; not committed) alongside the
+modal-radiation pair below, and answered `"approvel all b and push"`: **B**. It
+is recorded as the owner's selection, not as a measured strike contact or a
+listening score.
+
+That licenses 0.25.18's per-hand strike patches in `AcukotoEngine.cpp` and the
+re-levelled `strikeKeys` touches in `AcukotoStrikes.h`. Mass, stiffness,
+restitution and the key layout remain unmeasured estimates (README, Known gaps).
+
+## 2026-11-14 — Single-precision modal radiation weights and pairwise lane sums
+
+What was decided: whether `ModeBank` stores its four feed-forward microphone
+radiation weight tables (`left`, `right`, `leftQuadrature`, `rightQuadrature`)
+in single precision and reduces its eight modal lanes pairwise in double
+precision:
+
+- **A**, the shipping engine (0.25.17): 64-bit `double` radiation weight tables
+  and sequential `0..7` lane sums in `radiationSums` and `pullOnBar`.
+- **B**: 32-bit `float` radiation weight tables (matching `participation`,
+  `drive` and `pullState`, shrinking `ModeBank` by `8,320` bytes = `130 × 64 B`)
+  widened to `Double2` on load so each mode's `double` velocity keeps its exact
+  bilinear Nyquist zero (`z = -1`) against the pressure differentiator's pole,
+  with pairwise `double` reductions in `radiationSums` and `pullOnBar` (matching
+  `pullOnBarFma`). All recursive biquad coefficients and states, waveguides and
+  the phase network stay in `double`.
+
+B is not bit-identical to A, so under the A–Z rule it went to the owner rather
+than landing unannounced: its float32 null against A sits `-147.7 dB` below A
+in RMS (`-172.4 dBFS`, max sample diff `5.96e-8`) and its 24-bit WAV null sits
+`-134.8 dB` below `A.wav` (`-159.6 dBFS`, at most `1` 24-bit LSB across all
+`816,000` samples), while `AcukotoCpuProbe` takes `3.5%` less calling-thread
+CPU across five alternating rounds on both presets at `1x`, `2x` and `4x`. The
+owner was sent the pair (Koto Hirajoshi, one `8.50 s` phrase through the
+Performer at `48 kHz` and `1x`; B trimmed `0.00 dB` to A's whole-file RMS; not
+committed) and answered `"approvel all b and push"`: **B**. It is recorded as
+the owner's selection.
+
+That licenses 0.25.18's `float` modal radiation tables and pairwise lane
+reductions in `AcukotoEngine.cpp` and `ModalRadiationTests.cpp`.
+
 ## 2026-11-10 — The walls keep every mode to 2.2 kHz
 
 What was decided: how many of the walls' modes the body runs. Every wall

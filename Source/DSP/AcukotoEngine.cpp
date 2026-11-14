@@ -1678,14 +1678,15 @@ struct Mode
 // states it runs the two sums over 26 coordinates and the body's modes (291
 // at 48 kHz) four to a vector. The participations are rounded to single precision where the
 // modes are built (Mode::participation), so the junction's mobility is
-// exactly the bank's. The states, the filters and the radiation stay double.
-// Every ji meets every mode, so the bank is one part.
+// exactly the bank's. The recursive states and filters stay double; the four
+// feed-forward microphone radiation weights run in single precision beside
+// the participations. Every ji meets every mode, so the bank is one part.
 struct ModeBank
 {
     static constexpr int lanes = 8;
     static constexpr int capacity = maxModes + 3 * lanes;
-    std::array<double, capacity> b0 {}, a1 {}, a2 {}, left {}, right {}, leftQuadrature {}, rightQuadrature {}, s1 {}, s2 {}, y {};
-    std::array<float, capacity> pullState {}, drive {};
+    std::array<double, capacity> b0 {}, a1 {}, a2 {}, s1 {}, s2 {}, y {};
+    std::array<float, capacity> left {}, right {}, leftQuadrature {}, rightQuadrature {}, pullState {}, drive {};
     std::array<std::array<float, capacity>, barCoordinates> participation {};
     std::array<std::array<float, capacity>, strikeKeys.size()> strike {};
     int count { 0 };
@@ -1768,10 +1769,22 @@ struct PhaseNetwork
 #endif
 };
 
-// The sum of weight * y over the bank, each lane in its own sum so that a
-// group runs as one vector.
+// Reduces eight float accumulation lanes pairwise in double, matching AVX2
+// pullOnBarFma's (lo + hi) pair reduction across platforms.
+ACUKOTO_FORCE_INLINE double reduceFloat8Pairwise(const Float4& lo, const Float4& hi) noexcept
+{
+    const Double2 s01 = Double2 { static_cast<double>(lo[0]), static_cast<double>(lo[1]) }
+                      + Double2 { static_cast<double>(hi[0]), static_cast<double>(hi[1]) };
+    const Double2 s23 = Double2 { static_cast<double>(lo[2]), static_cast<double>(lo[3]) }
+                      + Double2 { static_cast<double>(hi[2]), static_cast<double>(hi[3]) };
+    return (s01[0] + s01[1]) + (s23[0] + s23[1]);
+}
+
+// The sum of double(weight) * y over the bank, keeping y in double so every
+// mode's bilinear zero at Nyquist cancels the pressure differentiator's pole
+// at z = -1 while halving the four radiation weight tables in cache.
 [[maybe_unused]] ACUKOTO_FORCE_INLINE void weightedSumPair(
-    const double* weightA, const double* weightB, const double* y, int count, double& outA, double& outB) noexcept
+    const float* weightA, const float* weightB, const double* y, int count, double& outA, double& outB) noexcept
 {
 #if defined(__clang__) || defined(__GNUC__)
     Double2 a0 {}, a1 {}, a2 {}, a3 {};
@@ -1782,34 +1795,34 @@ struct PhaseNetwork
         const Double2 y1 = *reinterpret_cast<const Double2*>(y + group + 2);
         const Double2 y2 = *reinterpret_cast<const Double2*>(y + group + 4);
         const Double2 y3 = *reinterpret_cast<const Double2*>(y + group + 6);
-        a0 += *reinterpret_cast<const Double2*>(weightA + group) * y0;
-        a1 += *reinterpret_cast<const Double2*>(weightA + group + 2) * y1;
-        a2 += *reinterpret_cast<const Double2*>(weightA + group + 4) * y2;
-        a3 += *reinterpret_cast<const Double2*>(weightA + group + 6) * y3;
-        b0 += *reinterpret_cast<const Double2*>(weightB + group) * y0;
-        b1 += *reinterpret_cast<const Double2*>(weightB + group + 2) * y1;
-        b2 += *reinterpret_cast<const Double2*>(weightB + group + 4) * y2;
-        b3 += *reinterpret_cast<const Double2*>(weightB + group + 6) * y3;
+        const Float4 wa0 = *reinterpret_cast<const Float4*>(weightA + group);
+        const Float4 wa1 = *reinterpret_cast<const Float4*>(weightA + group + 4);
+        const Float4 wb0 = *reinterpret_cast<const Float4*>(weightB + group);
+        const Float4 wb1 = *reinterpret_cast<const Float4*>(weightB + group + 4);
+        a0 += Double2 { static_cast<double>(wa0[0]), static_cast<double>(wa0[1]) } * y0;
+        a1 += Double2 { static_cast<double>(wa0[2]), static_cast<double>(wa0[3]) } * y1;
+        a2 += Double2 { static_cast<double>(wa1[0]), static_cast<double>(wa1[1]) } * y2;
+        a3 += Double2 { static_cast<double>(wa1[2]), static_cast<double>(wa1[3]) } * y3;
+        b0 += Double2 { static_cast<double>(wb0[0]), static_cast<double>(wb0[1]) } * y0;
+        b1 += Double2 { static_cast<double>(wb0[2]), static_cast<double>(wb0[3]) } * y1;
+        b2 += Double2 { static_cast<double>(wb1[0]), static_cast<double>(wb1[1]) } * y2;
+        b3 += Double2 { static_cast<double>(wb1[2]), static_cast<double>(wb1[3]) } * y3;
     }
-    outA = ((((((a0[0] + a0[1]) + a1[0]) + a1[1]) + a2[0]) + a2[1]) + a3[0]) + a3[1];
-    outB = ((((((b0[0] + b0[1]) + b1[0]) + b1[1]) + b2[0]) + b2[1]) + b3[0]) + b3[1];
+    const Double2 sa = (a0 + a2) + (a1 + a3);
+    const Double2 sb = (b0 + b2) + (b1 + b3);
+    outA = sa[0] + sa[1];
+    outB = sb[0] + sb[1];
 #else
     double laneA[ModeBank::lanes] {};
     double laneB[ModeBank::lanes] {};
     for (int group = 0; group < count; group += ModeBank::lanes)
         for (int i = 0; i < ModeBank::lanes; ++i)
         {
-            laneA[i] += weightA[group + i] * y[group + i];
-            laneB[i] += weightB[group + i] * y[group + i];
+            laneA[i] += static_cast<double>(weightA[group + i]) * y[group + i];
+            laneB[i] += static_cast<double>(weightB[group + i]) * y[group + i];
         }
-    double totalA = 0.0, totalB = 0.0;
-    for (int i = 0; i < ModeBank::lanes; ++i)
-    {
-        totalA += laneA[i];
-        totalB += laneB[i];
-    }
-    outA = totalA;
-    outB = totalB;
+    outA = ((laneA[0] + laneA[4]) + (laneA[2] + laneA[6])) + ((laneA[1] + laneA[5]) + (laneA[3] + laneA[7]));
+    outB = ((laneB[0] + laneB[4]) + (laneB[2] + laneB[6])) + ((laneB[1] + laneB[5]) + (laneB[3] + laneB[7]));
 #endif
 }
 
@@ -1822,10 +1835,10 @@ struct PhaseNetwork
     Double2 lq0 {}, lq1 {}, lq2 {}, lq3 {};
     Double2 rq0 {}, rq1 {}, rq2 {}, rq3 {};
     const double* y = bank.y.data();
-    const double* wL = bank.left.data();
-    const double* wR = bank.right.data();
-    const double* wLQ = bank.leftQuadrature.data();
-    const double* wRQ = bank.rightQuadrature.data();
+    const float* wL = bank.left.data();
+    const float* wR = bank.right.data();
+    const float* wLQ = bank.leftQuadrature.data();
+    const float* wRQ = bank.rightQuadrature.data();
     const int count = bank.count;
     for (int group = 0; group < count; group += ModeBank::lanes)
     {
@@ -1833,27 +1846,39 @@ struct PhaseNetwork
         const Double2 y1 = *reinterpret_cast<const Double2*>(y + group + 2);
         const Double2 y2 = *reinterpret_cast<const Double2*>(y + group + 4);
         const Double2 y3 = *reinterpret_cast<const Double2*>(y + group + 6);
-        l0 += *reinterpret_cast<const Double2*>(wL + group) * y0;
-        l1 += *reinterpret_cast<const Double2*>(wL + group + 2) * y1;
-        l2 += *reinterpret_cast<const Double2*>(wL + group + 4) * y2;
-        l3 += *reinterpret_cast<const Double2*>(wL + group + 6) * y3;
-        r0 += *reinterpret_cast<const Double2*>(wR + group) * y0;
-        r1 += *reinterpret_cast<const Double2*>(wR + group + 2) * y1;
-        r2 += *reinterpret_cast<const Double2*>(wR + group + 4) * y2;
-        r3 += *reinterpret_cast<const Double2*>(wR + group + 6) * y3;
-        lq0 += *reinterpret_cast<const Double2*>(wLQ + group) * y0;
-        lq1 += *reinterpret_cast<const Double2*>(wLQ + group + 2) * y1;
-        lq2 += *reinterpret_cast<const Double2*>(wLQ + group + 4) * y2;
-        lq3 += *reinterpret_cast<const Double2*>(wLQ + group + 6) * y3;
-        rq0 += *reinterpret_cast<const Double2*>(wRQ + group) * y0;
-        rq1 += *reinterpret_cast<const Double2*>(wRQ + group + 2) * y1;
-        rq2 += *reinterpret_cast<const Double2*>(wRQ + group + 4) * y2;
-        rq3 += *reinterpret_cast<const Double2*>(wRQ + group + 6) * y3;
+        const Float4 wl0 = *reinterpret_cast<const Float4*>(wL + group);
+        const Float4 wl1 = *reinterpret_cast<const Float4*>(wL + group + 4);
+        const Float4 wr0 = *reinterpret_cast<const Float4*>(wR + group);
+        const Float4 wr1 = *reinterpret_cast<const Float4*>(wR + group + 4);
+        const Float4 wlq0 = *reinterpret_cast<const Float4*>(wLQ + group);
+        const Float4 wlq1 = *reinterpret_cast<const Float4*>(wLQ + group + 4);
+        const Float4 wrq0 = *reinterpret_cast<const Float4*>(wRQ + group);
+        const Float4 wrq1 = *reinterpret_cast<const Float4*>(wRQ + group + 4);
+        l0 += Double2 { static_cast<double>(wl0[0]), static_cast<double>(wl0[1]) } * y0;
+        l1 += Double2 { static_cast<double>(wl0[2]), static_cast<double>(wl0[3]) } * y1;
+        l2 += Double2 { static_cast<double>(wl1[0]), static_cast<double>(wl1[1]) } * y2;
+        l3 += Double2 { static_cast<double>(wl1[2]), static_cast<double>(wl1[3]) } * y3;
+        r0 += Double2 { static_cast<double>(wr0[0]), static_cast<double>(wr0[1]) } * y0;
+        r1 += Double2 { static_cast<double>(wr0[2]), static_cast<double>(wr0[3]) } * y1;
+        r2 += Double2 { static_cast<double>(wr1[0]), static_cast<double>(wr1[1]) } * y2;
+        r3 += Double2 { static_cast<double>(wr1[2]), static_cast<double>(wr1[3]) } * y3;
+        lq0 += Double2 { static_cast<double>(wlq0[0]), static_cast<double>(wlq0[1]) } * y0;
+        lq1 += Double2 { static_cast<double>(wlq0[2]), static_cast<double>(wlq0[3]) } * y1;
+        lq2 += Double2 { static_cast<double>(wlq1[0]), static_cast<double>(wlq1[1]) } * y2;
+        lq3 += Double2 { static_cast<double>(wlq1[2]), static_cast<double>(wlq1[3]) } * y3;
+        rq0 += Double2 { static_cast<double>(wrq0[0]), static_cast<double>(wrq0[1]) } * y0;
+        rq1 += Double2 { static_cast<double>(wrq0[2]), static_cast<double>(wrq0[3]) } * y1;
+        rq2 += Double2 { static_cast<double>(wrq1[0]), static_cast<double>(wrq1[1]) } * y2;
+        rq3 += Double2 { static_cast<double>(wrq1[2]), static_cast<double>(wrq1[3]) } * y3;
     }
-    left = ((((((l0[0] + l0[1]) + l1[0]) + l1[1]) + l2[0]) + l2[1]) + l3[0]) + l3[1];
-    right = ((((((r0[0] + r0[1]) + r1[0]) + r1[1]) + r2[0]) + r2[1]) + r3[0]) + r3[1];
-    leftQuadrature = ((((((lq0[0] + lq0[1]) + lq1[0]) + lq1[1]) + lq2[0]) + lq2[1]) + lq3[0]) + lq3[1];
-    rightQuadrature = ((((((rq0[0] + rq0[1]) + rq1[0]) + rq1[1]) + rq2[0]) + rq2[1]) + rq3[0]) + rq3[1];
+    const Double2 sl = (l0 + l2) + (l1 + l3);
+    const Double2 sr = (r0 + r2) + (r1 + r3);
+    const Double2 slq = (lq0 + lq2) + (lq1 + lq3);
+    const Double2 srq = (rq0 + rq2) + (rq1 + rq3);
+    left = sl[0] + sl[1];
+    right = sr[0] + sr[1];
+    leftQuadrature = slq[0] + slq[1];
+    rightQuadrature = srq[0] + srq[1];
 #else
     weightedSumPair(bank.left.data(), bank.right.data(), bank.y.data(), bank.count, left, right);
     weightedSumPair(bank.leftQuadrature.data(), bank.rightQuadrature.data(), bank.y.data(), bank.count,
@@ -1953,14 +1978,7 @@ ACUKOTO_FORCE_INLINE void pullOnBar(const ModeBank& bank, std::size_t first, Bar
 #pragma unroll
 #endif
     for (std::size_t c = 0; c < coordinates; ++c)
-    {
-        double total = 0.0;
-        for (int i = 0; i < 4; ++i)
-            total += lo[c][i];
-        for (int i = 0; i < 4; ++i)
-            total += hi[c][i];
-        pull[first + c] = total;
-    }
+        pull[first + c] = reduceFloat8Pairwise(lo[c], hi[c]);
 #else
     const float* pullState = bank.pullState.data();
     float lane[coordinates][ModeBank::lanes] {};
@@ -1972,11 +1990,10 @@ ACUKOTO_FORCE_INLINE void pullOnBar(const ModeBank& bank, std::size_t first, Bar
                 lane[c][i] += participation[i] * pullState[group + i];
         }
     for (std::size_t c = 0; c < coordinates; ++c)
-    {
-        pull[first + c] = 0.0;
-        for (int i = 0; i < ModeBank::lanes; ++i)
-            pull[first + c] += lane[c][i];
-    }
+        pull[first + c] = ((static_cast<double>(lane[c][0]) + static_cast<double>(lane[c][4]))
+                         + (static_cast<double>(lane[c][1]) + static_cast<double>(lane[c][5])))
+                        + ((static_cast<double>(lane[c][2]) + static_cast<double>(lane[c][6]))
+                         + (static_cast<double>(lane[c][3]) + static_cast<double>(lane[c][7])));
 #endif
 }
 
@@ -2027,10 +2044,10 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
     Double2 r0 {}, r1 {}, r2 {}, r3 {};
     Double2 lq0 {}, lq1 {}, lq2 {}, lq3 {};
     Double2 rq0 {}, rq1 {}, rq2 {}, rq3 {};
-    const double* wL = bank.left.data();
-    const double* wR = bank.right.data();
-    const double* wLQ = bank.leftQuadrature.data();
-    const double* wRQ = bank.rightQuadrature.data();
+    const float* wL = bank.left.data();
+    const float* wR = bank.right.data();
+    const float* wLQ = bank.leftQuadrature.data();
+    const float* wRQ = bank.rightQuadrature.data();
 #if defined(ACUKOTO_ENERGY_DIAGNOSTICS)
     const bool needY = true;
 #else
@@ -2063,24 +2080,32 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
             static_cast<float>(n0[0]), static_cast<float>(n0[1]),
             static_cast<float>(n1[0]), static_cast<float>(n1[1])
         };
-        la += *reinterpret_cast<const Double2*>(wL + k) * v0;
-        lb += *reinterpret_cast<const Double2*>(wL + k + 2) * v1;
-        ra += *reinterpret_cast<const Double2*>(wR + k) * v0;
-        rb += *reinterpret_cast<const Double2*>(wR + k + 2) * v1;
-        lqa += *reinterpret_cast<const Double2*>(wLQ + k) * v0;
-        lqb += *reinterpret_cast<const Double2*>(wLQ + k + 2) * v1;
-        rqa += *reinterpret_cast<const Double2*>(wRQ + k) * v0;
-        rqb += *reinterpret_cast<const Double2*>(wRQ + k + 2) * v1;
+        const Float4 wl = *reinterpret_cast<const Float4*>(wL + k);
+        const Float4 wr = *reinterpret_cast<const Float4*>(wR + k);
+        const Float4 wlq = *reinterpret_cast<const Float4*>(wLQ + k);
+        const Float4 wrq = *reinterpret_cast<const Float4*>(wRQ + k);
+        la += Double2 { static_cast<double>(wl[0]), static_cast<double>(wl[1]) } * v0;
+        lb += Double2 { static_cast<double>(wl[2]), static_cast<double>(wl[3]) } * v1;
+        ra += Double2 { static_cast<double>(wr[0]), static_cast<double>(wr[1]) } * v0;
+        rb += Double2 { static_cast<double>(wr[2]), static_cast<double>(wr[3]) } * v1;
+        lqa += Double2 { static_cast<double>(wlq[0]), static_cast<double>(wlq[1]) } * v0;
+        lqb += Double2 { static_cast<double>(wlq[2]), static_cast<double>(wlq[3]) } * v1;
+        rqa += Double2 { static_cast<double>(wrq[0]), static_cast<double>(wrq[1]) } * v0;
+        rqb += Double2 { static_cast<double>(wrq[2]), static_cast<double>(wrq[3]) } * v1;
     };
     for (int group = 0; group < count; group += ModeBank::lanes)
     {
         stepHalf(group, l0, l1, r0, r1, lq0, lq1, rq0, rq1);
         stepHalf(group + 4, l2, l3, r2, r3, lq2, lq3, rq2, rq3);
     }
-    left = ((((((l0[0] + l0[1]) + l1[0]) + l1[1]) + l2[0]) + l2[1]) + l3[0]) + l3[1];
-    right = ((((((r0[0] + r0[1]) + r1[0]) + r1[1]) + r2[0]) + r2[1]) + r3[0]) + r3[1];
-    leftQuadrature = ((((((lq0[0] + lq0[1]) + lq1[0]) + lq1[1]) + lq2[0]) + lq2[1]) + lq3[0]) + lq3[1];
-    rightQuadrature = ((((((rq0[0] + rq0[1]) + rq1[0]) + rq1[1]) + rq2[0]) + rq2[1]) + rq3[0]) + rq3[1];
+    const Double2 sl = (l0 + l2) + (l1 + l3);
+    const Double2 sr = (r0 + r2) + (r1 + r3);
+    const Double2 slq = (lq0 + lq2) + (lq1 + lq3);
+    const Double2 srq = (rq0 + rq2) + (rq1 + rq3);
+    left = sl[0] + sl[1];
+    right = sr[0] + sr[1];
+    leftQuadrature = slq[0] + slq[1];
+    rightQuadrature = srq[0] + srq[1];
 #elif defined(__clang__) || defined(__GNUC__)
     for (int k = 0; k < count; k += 4)
     {
@@ -2163,42 +2188,31 @@ __attribute__((target("avx2,no-fma"))) void radiationSumsAvx(const ModeBank& ban
     double& left, double& right, double& leftQuadrature, double& rightQuadrature) noexcept
 {
     typedef double V __attribute__((vector_size(32), aligned(8), may_alias));
-    static_assert(alignof(V) == 8, "modal arrays require unaligned SIMD loads");
+    typedef float F __attribute__((vector_size(16), aligned(4), may_alias));
+    static_assert(alignof(V) == 8 && alignof(F) == 4, "modal arrays require unaligned SIMD loads");
     V l0 {}, l1 {}, r0 {}, r1 {}, lq0 {}, lq1 {}, rq0 {}, rq1 {};
     for (int group = 0; group < bank.count; group += ModeBank::lanes)
     {
         const V y0 = *reinterpret_cast<const V*>(bank.y.data() + group);
         const V y1 = *reinterpret_cast<const V*>(bank.y.data() + group + 4);
-        l0 += *reinterpret_cast<const V*>(bank.left.data() + group) * y0;
-        l1 += *reinterpret_cast<const V*>(bank.left.data() + group + 4) * y1;
-        r0 += *reinterpret_cast<const V*>(bank.right.data() + group) * y0;
-        r1 += *reinterpret_cast<const V*>(bank.right.data() + group + 4) * y1;
-        lq0 += *reinterpret_cast<const V*>(bank.leftQuadrature.data() + group) * y0;
-        lq1 += *reinterpret_cast<const V*>(bank.leftQuadrature.data() + group + 4) * y1;
-        rq0 += *reinterpret_cast<const V*>(bank.rightQuadrature.data() + group) * y0;
-        rq1 += *reinterpret_cast<const V*>(bank.rightQuadrature.data() + group + 4) * y1;
+        l0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + group), V) * y0;
+        l1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + group + 4), V) * y1;
+        r0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + group), V) * y0;
+        r1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + group + 4), V) * y1;
+        lq0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group), V) * y0;
+        lq1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group + 4), V) * y1;
+        rq0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group), V) * y0;
+        rq1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group + 4), V) * y1;
     }
-    double l = 0.0, r = 0.0, lq = 0.0, rq = 0.0;
-    for (int i = 0; i < 4; ++i)
+    const auto reduce = [] (const V& a, const V& b) __attribute__((always_inline, target("avx2,no-fma")))
     {
-        l += l0[i];
-        r += r0[i];
-        lq += lq0[i];
-        rq += rq0[i];
-    }
-    for (int i = 0; i < 4; ++i)
-    {
-        l += l1[i];
-        r += r1[i];
-        lq += lq1[i];
-        rq += rq1[i];
-    }
-    // Store only completed sums: these independent outputs need not be
-    // repeatedly reloaded through potentially aliasing references.
-    left = l;
-    right = r;
-    leftQuadrature = lq;
-    rightQuadrature = rq;
+        const V s = a + b;
+        return (s[0] + s[2]) + (s[1] + s[3]);
+    };
+    left = reduce(l0, l1);
+    right = reduce(r0, r1);
+    leftQuadrature = reduce(lq0, lq1);
+    rightQuadrature = reduce(rq0, rq1);
 }
 // 64 modes take eight of the sixteen registers as sums, 32 the rest of
 // the bank before single groups do.
@@ -2238,8 +2252,13 @@ __attribute__((target("avx2,no-fma"))) void pullOnBarAvx(const ModeBank& bank, s
     }
     for(std::size_t c=0;c<coordinates;++c)
     {
-        pull[first+c]=0.0;
-        for(int i=0;i<ModeBank::lanes;++i)pull[first+c]+=lane[c][i];
+        typedef float H __attribute__((vector_size(16)));
+        typedef double D __attribute__((vector_size(32)));
+        H low,high;
+        __builtin_memcpy(&low,&lane[c],sizeof(H));
+        __builtin_memcpy(&high,reinterpret_cast<const char*>(&lane[c])+sizeof(H),sizeof(H));
+        const D sum=__builtin_convertvector(low,D)+__builtin_convertvector(high,D);
+        pull[first+c]=(sum[0]+sum[1])+(sum[2]+sum[3]);
     }
 }
 
@@ -2434,10 +2453,10 @@ __attribute__((target("avx2,fma"))) void runModesFma(ModeBank& bank, const BarVe
         *reinterpret_cast<D*>(bank.s1.data() + k) = next;
         *reinterpret_cast<D*>(bank.y.data() + k) = velocity;
         *reinterpret_cast<F*>(bank.pullState.data() + k) = __builtin_convertvector(next, F);
-        l = __builtin_ia32_vfmaddpd256(*reinterpret_cast<const D*>(bank.left.data() + k), velocity, l);
-        r = __builtin_ia32_vfmaddpd256(*reinterpret_cast<const D*>(bank.right.data() + k), velocity, r);
-        lq = __builtin_ia32_vfmaddpd256(*reinterpret_cast<const D*>(bank.leftQuadrature.data() + k), velocity, lq);
-        rq = __builtin_ia32_vfmaddpd256(*reinterpret_cast<const D*>(bank.rightQuadrature.data() + k), velocity, rq);
+        l = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + k), D), velocity, l);
+        r = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + k), D), velocity, r);
+        lq = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + k), D), velocity, lq);
+        rq = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + k), D), velocity, rq);
     };
     for (int k = 0; k < count; k += ModeBank::lanes)
     {
@@ -2447,7 +2466,7 @@ __attribute__((target("avx2,fma"))) void runModesFma(ModeBank& bank, const BarVe
     const auto total = [] (const D& a, const D& b) __attribute__((always_inline, target("avx2,fma")))
     {
         const D sum = a + b;
-        return (sum[0] + sum[1]) + (sum[2] + sum[3]);
+        return (sum[0] + sum[2]) + (sum[1] + sum[3]);
     };
     left = total(l0, l1);
     right = total(r0, r1);
@@ -4463,13 +4482,15 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
             monopole += psi(holeBase + h);
         }
         // The hand at each strike key's place: the mean of the surface's
-        // displacement under a patch five stations long, which at 120 stations
-        // is a palm's width. The top is the three cells beside the first
-        // string, the near side its full height, the back its four middle
-        // cells.
-        constexpr int patchReach = 2;
+        // displacement under each hand's own grid patch at 120 stations along
+        // (~1.5 cm per station, ~2.5 cm per top/back cell, ~1.5 cm per side
+        // cell) — 5 stations x 3/5/4 cells for the palm (~7.6 x 7.5-10 cm),
+        // 3 stations x 2/3/2 cells for the knuckle (~4.5 x 4.5-5 cm), and one
+        // cell (~1.5 x 1.5-2.5 cm) for a hard rap.
         for (std::size_t key = 0; key < strikeKeys.size(); ++key)
         {
+            const int hand = strikeKeys[key].hand;
+            const int patchReach = hand == 0 ? 2 : hand == 1 ? 1 : 0;
             const StrikeSurface surface = strikeKeys[key].surface;
             const int centre = std::clamp(static_cast<int>(strikeKeys[key].along * gridAlong), patchReach,
                                           gridAlong - 1 - patchReach);
@@ -4479,12 +4500,17 @@ int designBody(const InstrumentSpec& instrument, int stringCount, double fs, Bod
             {
                 if (surface == StrikeSurface::NearSide)
                 {
-                    for (int iz = 0; iz < gridUp; ++iz, ++cells)
+                    const int zFirst = hand == 0 ? 0 : hand == 1 ? 1 : 2;
+                    const int zLast  = hand == 0 ? gridUp - 1 : hand == 1 ? 3 : 2;
+                    for (int iz = zFirst; iz <= zLast; ++iz, ++cells)
                         sum += u[static_cast<std::size_t>(2 * gridAlong * gridAcross + ix * gridUp + iz)];
                     continue;
                 }
                 const bool top = surface == StrikeSurface::Top;
-                const int first = top ? 0 : 3, last = top ? 2 : 6;
+                const int first = top ? (hand == 2 ? 1 : 0)
+                                      : (hand == 0 ? 3 : 4);
+                const int last  = top ? (hand == 0 ? 2 : 1)
+                                      : (hand == 0 ? 6 : hand == 1 ? 5 : 4);
                 const int base = top ? 0 : gridAlong * gridAcross;
                 for (int iy = first; iy <= last; ++iy, ++cells)
                     sum += u[static_cast<std::size_t>(base + ix * gridAcross + iy)];
@@ -5128,10 +5154,10 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
         // quadrature takes its j from PhaseNetwork.
         const double omega = 2.0 * pi * mode.frequency;
         const double warp = omega / std::tan(omega / (2.0 * fs)) / (2.0 * fs);
-        bank.left[k] = mode.radiationLeft * warp;
-        bank.right[k] = mode.radiationRight * warp;
-        bank.leftQuadrature[k] = mode.radiationLeftQuadrature * warp;
-        bank.rightQuadrature[k] = mode.radiationRightQuadrature * warp;
+        bank.left[k] = static_cast<float>(mode.radiationLeft * warp);
+        bank.right[k] = static_cast<float>(mode.radiationRight * warp);
+        bank.leftQuadrature[k] = static_cast<float>(mode.radiationLeftQuadrature * warp);
+        bank.rightQuadrature[k] = static_cast<float>(mode.radiationRightQuadrature * warp);
     }
     bank.count = (bank.count + ModeBank::lanes - 1) / ModeBank::lanes * ModeBank::lanes;
     // Both stretches of a string meet at its ji, each a wave impedance.

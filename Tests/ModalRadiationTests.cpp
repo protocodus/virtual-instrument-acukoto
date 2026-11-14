@@ -35,10 +35,10 @@ int main()
                 {
                     const auto i = static_cast<std::size_t>(k);
                     bank->y[i] = trial == 0 ? 0.0 : draw();
-                    bank->left[i] = draw();
-                    bank->right[i] = draw();
-                    bank->leftQuadrature[i] = draw();
-                    bank->rightQuadrature[i] = draw();
+                    bank->left[i] = static_cast<float>(draw());
+                    bank->right[i] = static_cast<float>(draw());
+                    bank->leftQuadrature[i] = static_cast<float>(draw());
+                    bank->rightQuadrature[i] = static_cast<float>(draw());
                     if (k >= count)
                         bank->y[i] = std::numeric_limits<double>::quiet_NaN();
                 }
@@ -78,10 +78,10 @@ int main()
             {
                 const auto i = static_cast<std::size_t>(k);
                 bank->y[i] = trial == 0 ? 0.0 : draw();
-                bank->left[i] = draw();
-                bank->right[i] = draw();
-                bank->leftQuadrature[i] = draw();
-                bank->rightQuadrature[i] = draw();
+                bank->left[i] = static_cast<float>(draw());
+                bank->right[i] = static_cast<float>(draw());
+                bank->leftQuadrature[i] = static_cast<float>(draw());
+                bank->rightQuadrature[i] = static_cast<float>(draw());
                 if (k >= count)
                     bank->y[i] = std::numeric_limits<double>::quiet_NaN();
             }
@@ -116,10 +116,10 @@ int main()
                 bank->a2[i] = draw();
                 bank->s1[i] = draw();
                 bank->s2[i] = draw();
-                bank->left[i] = draw();
-                bank->right[i] = draw();
-                bank->leftQuadrature[i] = draw();
-                bank->rightQuadrature[i] = draw();
+                bank->left[i] = static_cast<float>(draw());
+                bank->right[i] = static_cast<float>(draw());
+                bank->leftQuadrature[i] = static_cast<float>(draw());
+                bank->rightQuadrature[i] = static_cast<float>(draw());
                 bank->pullState[i] = static_cast<float>(draw());
                 shape[i] = static_cast<float>(draw());
                 for (auto& row : bank->participation)
@@ -214,10 +214,10 @@ int main()
                 bank->a2[i] = draw();
                 bank->s1[i] = draw();
                 bank->s2[i] = draw();
-                bank->left[i] = draw();
-                bank->right[i] = draw();
-                bank->leftQuadrature[i] = draw();
-                bank->rightQuadrature[i] = draw();
+                bank->left[i] = static_cast<float>(draw());
+                bank->right[i] = static_cast<float>(draw());
+                bank->leftQuadrature[i] = static_cast<float>(draw());
+                bank->rightQuadrature[i] = static_cast<float>(draw());
                 bank->pullState[i] = static_cast<float>(draw());
                 shape[i] = static_cast<float>(draw());
                 for (auto& row : bank->participation)
