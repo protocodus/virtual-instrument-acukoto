@@ -230,6 +230,13 @@ if(BUILD_TESTING)
     add_test(NAME Acukoto.BoundedClears COMMAND AcukotoBoundedClearTests)
     set_tests_properties(Acukoto.BoundedClears PROPERTIES TIMEOUT 300)
 
+    # U11: every control reaches held and new notes after long play, through
+    # the shared matrix's --reach (Tests/ParameterMatrix.h).
+    add_executable(AcukotoParameterReachTests Tests/ParameterReachTests.cpp)
+    target_link_libraries(AcukotoParameterReachTests PRIVATE AcukotoDSP Threads::Threads)
+    add_test(NAME Acukoto.ParameterReach COMMAND AcukotoParameterReachTests --reach --jobs 4)
+    set_tests_properties(Acukoto.ParameterReach PROPERTIES LABELS unit TIMEOUT 1800)
+
     get_property(ACUKOTO_TESTS DIRECTORY PROPERTY TESTS)
     foreach(test IN LISTS ACUKOTO_TESTS)
         get_test_property(${test} LABELS test_labels)

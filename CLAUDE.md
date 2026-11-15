@@ -175,7 +175,7 @@ it is the owner's step.
 
 ## Testing
 
-Tests follow the portfolio testing standard (U1–U10); the `portfolio-testing`
+Tests follow the portfolio testing standard (U1–U13); the `portfolio-testing`
 skill has the procedures. These hold in every session:
 
 - Every CTest test is `<Name>.<Suite>` with exactly one tier label: `unit`,
@@ -190,6 +190,14 @@ skill has the procedures. These hold in every session:
   figures, never Reason or DAW CPU.
 - A fixed fuzz crash's input goes in `Tests/Fixtures/fuzz/`, which
   `<Name>.DspFuzzReplay` replays in the `unit` tier.
+- No parameter goes stale: `<Name>.ParameterReach` (U11) proves every change,
+  from the editor or the host, reaches held and new notes after long play.
+  Declare a parameter `NewNotes` or `Exempt` only where the design says so,
+  with the reason beside it; a reach failure is a bug, not an exemption.
+- At the default settings, which start at the lowest oversampling (U13), no
+  block of a demo or the stress phrase should take more than 10% of one core
+  on the CI runner (U12). `<Name>.CpuBudget` warns above that and never fails
+  on it (owner, 2026-11-10); a product above it keeps a Known gap.
 - A DSP change is done when the suites it touches, the `unit`, `audio` and
   `perf` tiers and `<Name>DSPCxx17` pass.
 
@@ -201,11 +209,15 @@ cmake --build build-dsp --parallel 2
 ctest --test-dir build-dsp -L unit --output-on-failure
 ```
 
-Every test is `Acukoto.<Suite>`: `Tuning`, `Engine`, `DspFuzzReplay` and
-`DemoMidiSources` (`unit`), `AudioDemos` (`audio`, every preset demo rendered
+Every test is `Acukoto.<Suite>`: `Tuning`, `Engine`, `DspFuzzReplay`,
+`DemoMidiSources` and `ParameterReach` (`unit`, every control of the Rack
+device changed while a chord is held and twice more by automation, after long
+play, `AcukotoParameterReachTests --reach`; `--case <control>` runs one),
+`AudioDemos` (`audio`, every preset demo rendered
 twice), `Levels` (`audio`, every string, strike and key within 0.5 dB of the
 level its touch is meant to give it, `AcukotoLevels --check`; `AcukotoLevels`
-prints the touches that give it, `--write-keys` the key table), `CpuBudget` (`perf`, Release builds without sanitizers) and, with
+prints the touches that give it, `--write-keys` the key table), `CpuBudget` (`perf`, every demo and the stress phrase through its preset, Release
+builds without sanitizers; a worst block above 10% of one core warns) and, with
 `-DACUKOTO_BUILD_FUZZER=ON` and Clang, `DspFuzz` (`fuzz`).
 `-DACUKOTO_ENABLE_SANITIZERS=ON` builds everything under ASan + UBSan, as the
 `sanitizers` job does. Select the suites that cover a change with `-R`, then
