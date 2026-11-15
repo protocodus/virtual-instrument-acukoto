@@ -4,9 +4,15 @@ Acukoto is a physically modelled koto (箏): thirteen silk strings, each raised 
 
 ## Audio demos
 
-The main build renders these demos once Acukoto has a plug-in to build. Until then, `RenderAcukotoPresetDemos` renders them locally from the phrases in `Docs/audio/midi/` (see Build).
+One demo per factory preset, one for each tuning: the opening of *Sakura sakura* in hirajoshi, the melody every koto student learns, its last note struck with the lowest string; and a phrase in hankumoijoshi that walks through the two strings it retunes, 8 to A♭ and 9 to C, down to an octave awase over the low strings. Each is rendered from `Docs/audio/midi/` through the Performer the Rack Extension plays, with each preset's default controls and no per-demo trims. `RenderAcukotoPresetDemos` renders them (see Build).
 
 <!-- audio-demos-begin -->
+
+| # | Preset | Demo | Length | Peak |
+| --- | --- | --- | --- | --- |
+| 1 | Koto Hirajoshi | [01-koto-hirajoshi.wav](Docs/audio/01-koto-hirajoshi.wav) | 11.7 s | -8.8 dBFS |
+| 2 | Koto Hankumoijoshi | [02-koto-hankumoijoshi.wav](Docs/audio/02-koto-hankumoijoshi.wav) | 11.2 s | -7.4 dBFS |
+
 <!-- audio-demos-end -->
 
 ## Version history
