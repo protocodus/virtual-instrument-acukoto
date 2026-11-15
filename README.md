@@ -1,6 +1,6 @@
 # Acukoto
 
-Acukoto is a physically modelled koto (箏): thirteen silk strings, each raised on its own movable ivory ji, over a hollow paulownia body built as the instrument is made, and plucked with ivory tsume. The koto has been at the heart of Japanese music for centuries, and Acukoto tries to earn its name by modelling it from what has been measured of the instrument and its materials, and by fitting what has not to five professional koto recordings. It is DSP only for now: a JUCE-free C++17 engine with a demo renderer and analysis tools. There is no VST3, AU, CLAP or standalone build yet.
+Acukoto is a physically modelled koto (箏): thirteen silk strings, each raised on its own movable ivory ji, over a hollow paulownia body built as the instrument is made, and plucked with ivory tsume. The koto has been at the heart of Japanese music for centuries, and Acukoto tries to earn its name by modelling it from what has been measured of the instrument and its materials, and by fitting what has not to five professional koto recordings. It is DSP only for now: a JUCE-free C++17 engine with a demo renderer and analysis tools. There is no VST3, AU, CLAP or standalone build yet. In Reason it plays as the Acukoto Rack Extension, which builds this engine from a pinned copy of this repository; the plug-in front end those formats need is not built yet.
 
 ## Audio demos
 
