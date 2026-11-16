@@ -6,8 +6,10 @@ This is Acukoto's canonical repository: a physically modelled koto whose
 engine and Performer live in `Source/DSP/`, forked from Aculyre 0.6.0's lyre
 engine and rebuilt as a koto: thirteen silk strings on movable ji, a
 paulownia body built as the instrument is made, played with ivory tsume.
-There is no JUCE plug-in, editor or release yet. A Reason Rack Extension
-would live in the private `protocodus/reason-rack-extensions` repository as a
+There is no JUCE plug-in, editor or release yet: Acukoto is a Rack-first
+instrument (standard P4), so `Source/` holds only `DSP/`, ready for a plug-in
+to be added beside it. Its Reason Rack Extension lives in the private
+`protocodus/reason-rack-extensions` repository as a
 thin adapter that mounts this repository as the pinned submodule
 `Examples/Acukoto/Instrument` and compiles `Source/DSP/*.cpp` directly,
 playing through `acukoto::Performer`. DSP and playing-model changes land here
