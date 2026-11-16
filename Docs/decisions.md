@@ -37,9 +37,10 @@ The owner was sent three pairs on Koto Hirajoshi through the Performer, the
 room and the output stage at `48 kHz` and `1x` (G3, E♭4, G4, A4 and G5
 alone, `14.0 s`; four intervals on them, `13.0 s`; the README's hirajoshi
 demo phrase, `12.2 s`; B trimmed `+0.13`, `-0.15` and `+0.06 dB` to A's
-whole-file RMS; not committed) and chose **B** on the decision card that
-asked which letter ships after listening. It is recorded as the owner's
-selection, not as a measurement of a koto's strings or a listening score.
+whole-file RMS; not committed), chose **B** on the decision card that
+asked which letter ships after listening, and answered `"use B, it is
+better"`. It is recorded as the owner's selection by ear, not as a
+measurement of a koto's strings or a listening score.
 
 That licenses 0.25.19's `reflectionLead` in `setInstrument`, the refitted
 touches in `AcukotoPresets.h` and `AcukotoKeyTouches.h`, and the Known gap
