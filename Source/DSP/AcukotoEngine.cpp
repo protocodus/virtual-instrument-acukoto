@@ -5183,7 +5183,15 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
 
     // ---- Tuning: each port's reflection phase from the continuous model --
     // Each stretch's loop, both planes, sees the ji loaded by every other
-    // stretch's wave impedance.
+    // stretch's wave impedance. A string has one length, so both planes take
+    // one line: the one that cancels the mean of their two reflection leads
+    // at the fundamental. That puts the pitch the pair beats about on the
+    // tuning and leaves the ji's pull on each plane to separate their
+    // fundamentals. Until 0.25.19 each plane's line cancelled its own lead,
+    // which gave the planes two lengths wherever a body mode pulls one of
+    // them at the fundamental: G3's lines stood 3.96 cents apart, E-flat 4's
+    // 3.12 and A4's 2.36, so every partial above the fundamental sounded
+    // twice, that far apart, and beat.
     for (int index = 0; index < stringCount_; ++index)
     {
         State::StringVoice& voice = s.strings[static_cast<std::size_t>(index)];
@@ -5198,7 +5206,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             // Each port's admittance with every other port loading the ji;
             // both planes share the stretch's frequency and the body's
             // mobility there.
-            const auto reflectionLeads = [&] (double frequency)
+            const auto reflectionLead = [&] (double frequency)
             {
                 const double omega = 2.0 * pi * frequency;
                 // Summed as real and imaginary parts apart, which a complex
@@ -5245,7 +5253,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                     // R = (ZY - 1)/(1 + ZY); the loop carries -R.
                     leads[static_cast<std::size_t>(plane)] = std::arg((1.0 - zy) / (1.0 + zy));
                 }
-                return leads;
+                return 0.5 * (leads[0] + leads[1]);
             };
             const auto lagAt = [&] (const LoopDesign& loop, double omega, double lineDelay, double lead)
             {
@@ -5260,16 +5268,16 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                 return omega * whole + allpassLag(order, t1, t2, omega) + loop.filterLag(omega) - lead;
             };
             const double omega0 = 2.0 * pi * f0 / fs;
-            const auto lead0 = reflectionLeads(f0);
+            const double lead0 = reflectionLead(f0);
             for (int plane = 0; plane < 2; ++plane)
             {
                 LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
-                double lower = lagAt(loop, omega0, 6.0, lead0[static_cast<std::size_t>(plane)]) < 2.0 * pi ? 6.0 : minimumLineDelay;
+                double lower = lagAt(loop, omega0, 6.0, lead0) < 2.0 * pi ? 6.0 : minimumLineDelay;
                 double upper = delayCapacity - 16.0;
                 for (int iteration = 0; iteration < 60; ++iteration)
                 {
                     const double middle = 0.5 * (lower + upper);
-                    if (lagAt(loop, omega0, middle, lead0[static_cast<std::size_t>(plane)]) < 2.0 * pi)
+                    if (lagAt(loop, omega0, middle, lead0) < 2.0 * pi)
                         lower = middle;
                     else
                         upper = middle;
@@ -5279,15 +5287,15 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
             for (std::size_t k = 0; k < bendRatios.size(); ++k)
             {
                 const double omega = omega0 * bendRatios[k];
-                const auto lead = bends ? reflectionLeads(omega * fs / (2.0 * pi)) : lead0;
+                const double lead = bends ? reflectionLead(omega * fs / (2.0 * pi)) : lead0;
                 for (int plane = 0; plane < 2; ++plane)
                 {
                     LoopDesign& loop = planes[static_cast<std::size_t>(plane)];
-                    loop.lagCycles[k] = (lagAt(loop, omega, loop.restLineDelay, lead[static_cast<std::size_t>(plane)])
+                    loop.lagCycles[k] = (lagAt(loop, omega, loop.restLineDelay, lead)
                                          - omega * loop.restLineDelay) / (2.0 * pi);
                     const double estimated = (1.0 - loop.lagCycles[k]) * loop.loopDelay / bendRatios[k];
                     if (estimated < 8.0
-                        && lagAt(loop, omega, 8.0, lead[static_cast<std::size_t>(plane)]) >= 2.0 * pi)
+                        && lagAt(loop, omega, 8.0, lead) >= 2.0 * pi)
                     {
                         // Near Nyquist the interpolator's phase depends strongly
                         // on its own fractional delay. Solve that actual section,
@@ -5296,7 +5304,7 @@ void AcukotoEngine::setInstrument(const InstrumentSpec& instrument, const Acukot
                         for (int iteration = 0; iteration < 60; ++iteration)
                         {
                             const double middle = 0.5 * (lower + upper);
-                            if (lagAt(loop, omega, middle, lead[static_cast<std::size_t>(plane)]) < 2.0 * pi)
+                            if (lagAt(loop, omega, middle, lead) < 2.0 * pi)
                                 lower = middle;
                             else
                                 upper = middle;

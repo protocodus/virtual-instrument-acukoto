@@ -6,11 +6,22 @@
 // Include the implementation only in this test to reach the private Loop;
 // no test hooks or diagnostic work enter the shipping engine.
 #include "EngineTestImplementation.h"
+#include "DSP/AcukotoPresets.h"
 
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+
+// AcukotoEngine keeps its state private, and its type with it; this is the
+// friend it names for its tests.
+namespace acukoto
+{
+struct AcukotoEngineTestAccess
+{
+    static auto& state(AcukotoEngine& engine) { return *engine.state_; }
+};
+}
 
 namespace
 {
@@ -247,14 +258,51 @@ void libraryIntegers()
     }
 }
 
+// A string has one length, so its two planes take one line, at rest and at
+// every bend: only the ji's pull on each separates their pitches. Until
+// 0.25.19 each plane's line cancelled its own reflection lead at the
+// fundamental, so beside a body mode the planes stood up to 3.96 cents apart
+// in length (G3) and every partial above the fundamental beat between them.
+// Both stretches of every string and every moved ji, of every preset.
+void planesShareTheirLine()
+{
+    auto engine = std::make_unique<acukoto::AcukotoEngine>();
+    for (const acukoto::InstrumentSpec* instrument : acukoto::presets)
+        for (double rate : { 44100.0, 48000.0, 96000.0 })
+        {
+            engine->prepare(rate);
+            engine->setInstrument(*instrument);
+            const auto& s = acukoto::AcukotoEngineTestAccess::state(*engine);
+            const auto shared = [&] (const std::array<acukoto::LoopDesign, 2>& planes, const char* what, int which)
+            {
+                if (planes[0].restLineDelay != planes[1].restLineDelay || planes[0].lagCycles != planes[1].lagCycles)
+                {
+                    ++failures;
+                    std::fprintf(stderr, "FAIL %s at %.0f Hz: %s %d's planes take lines %.6f and %.6f samples\n",
+                                 instrument->name, rate, what, which, planes[0].restLineDelay, planes[1].restLineDelay);
+                }
+            };
+            for (int index = 0; index < engine->stringCount(); ++index)
+            {
+                const auto& voice = s.strings[static_cast<std::size_t>(index)];
+                shared(voice.pitch.planes, "string", index + 1);
+                shared(voice.left, "the rest of string", index + 1);
+            }
+            for (int key = 0; key < 128; ++key)
+                if (s.extensionString[static_cast<std::size_t>(key)] >= 0)
+                    shared(s.extension[static_cast<std::size_t>(key)].planes, "the moved ji of key", key);
+        }
+}
+
 int main()
 {
     libraryIntegers();
     stableShortDelays();
+    planesShareTheirLine();
     for (int configuration = 0; configuration < 4; ++configuration)
         for (bool shortLines : {false, true})
             exercise(configuration, shortLines);
     if (failures == 0)
-        std::puts("Acukoto.LoopPair: exact scalar/paired histories, independent delays and pending waves, loss, dispersion, mute, damping ramps, cursor wrap and reset; the library's floors and roundings");
+        std::puts("Acukoto.LoopPair: exact scalar/paired histories, independent delays and pending waves, loss, dispersion, mute, damping ramps, cursor wrap and reset; the library's floors and roundings; every string's two planes on one line");
     return failures == 0 ? 0 : 1;
 }

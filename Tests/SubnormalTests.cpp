@@ -114,11 +114,15 @@ int main()
     performer->noteOn(other.strings[4].midiNote, 0.6f);
     render(*performer, 6.0);
     performer->noteOff(other.strings[4].midiNote);
-    check(render(*performer, 8.0) == 0.0, "the instrument did not come to rest", "after a tuning switch");
+    // 10 s, not the 8 s of the other release: since 0.25.19 gave both planes
+    // of a string one line, this note played alone leaves the instrument
+    // awake 8.03 s after its key-up, where it took 7.55 s. The 8 s had that
+    // engine's 0.45 s to spare; nothing limits the release to it.
+    check(render(*performer, 10.0) == 0.0, "the instrument did not come to rest", "after a tuning switch");
     expectNone("after a tuning switch");
 
 #if defined(ACUKOTO_HAS_MXCSR)
-    std::printf("subnormals: no subnormal operand and no underflow in 49 s of playing with flush-to-zero off\n");
+    std::printf("subnormals: no subnormal operand and no underflow in 51 s of playing with flush-to-zero off\n");
 #else
     std::printf("subnormals: rendered; the flags are read on x86-64 only\n");
 #endif
