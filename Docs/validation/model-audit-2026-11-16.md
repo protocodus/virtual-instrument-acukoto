@@ -4,8 +4,8 @@ An audit of 0.25.18's model (`113c2bf`) for defects in its physics and its
 numerics: the strings' loops and their fitted sections, the junction at the
 ji, the modal body, the pluck, the radiation, the tuning, the Performer and
 the Rack adapter's mapping. One defect was found and is changed in 0.25.19,
-a local candidate until the owner has listened. Five more suspicions were
-measured and are not defects.
+which the owner chose in A/B listening. Five more suspicions were measured
+and are not defects.
 
 A is 0.25.18 and B is 0.25.19 throughout.
 
@@ -148,7 +148,7 @@ MIDI and default controls for both letters: the five strings alone (G3,
 E♭4, G4, A4, G5), four intervals on them, and the README's hirajoshi demo
 phrase. B is trimmed to A's whole-file RMS (+0.13, −0.15 and +0.06 dB); A is
 untouched. The set and its key were handed to the owner and are not
-committed. The verdict belongs in `Docs/decisions.md` once there is one.
+committed. The owner chose B (`Docs/decisions.md`, 2026-11-16).
 
 ## Checked and not defects
 

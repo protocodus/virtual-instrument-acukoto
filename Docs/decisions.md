@@ -8,6 +8,43 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-16 — A string's two planes take one line
+
+What was decided: whether a string's two planes of vibration, the one
+heaving the ji and the one rocking it, are tuned to one length or each to
+its own:
+
+- **A**, the shipping engine (0.25.18): each plane's line cancels that
+  plane's own reflection lead at the ji, so beside a body mode the planes
+  have two lengths (G3's `3.96` cents apart, E♭4's `3.12`, A4's `2.36`,
+  Hankumoijoshi's C5 `5.46`) and every partial above the fundamental sounds
+  twice and beats.
+- **B**: both planes take the line that cancels the mean of their two leads,
+  with the string and key touches re-levelled by `AcukotoLevels`.
+
+Both keep `Acukoto.Tuning`'s limits, and the model's documents already said
+the planes share a length (2026-10-29), so B is the model as described. But
+it is a trade the measurements do not close. In B the partials above the
+fundamental sound once (G3's partials 2-6 wobble `0.7 dB` RMS where they
+wobbled `4.2`, E♭4's `1.4` where `3.0`) and the planes' difference sits in
+the fundamental, which moves more: G3's reads `8.5` cents over its tuning
+from 1 to 2 s with a component `10.5` under, 3 dB lower, where A's read
+`3.0` over with one `17.5` under, 9 dB lower; E♭4 `3.5` over where it kept
+within `2`; A4 `6` under from 0.5 to 1 s where it kept on its tuning
+([audit](validation/model-audit-2026-11-16.md)).
+
+The owner was sent three pairs on Koto Hirajoshi through the Performer, the
+room and the output stage at `48 kHz` and `1x` (G3, E♭4, G4, A4 and G5
+alone, `14.0 s`; four intervals on them, `13.0 s`; the README's hirajoshi
+demo phrase, `12.2 s`; B trimmed `+0.13`, `-0.15` and `+0.06 dB` to A's
+whole-file RMS; not committed) and chose **B** on the decision card that
+asked which letter ships after listening. It is recorded as the owner's
+selection, not as a measurement of a koto's strings or a listening score.
+
+That licenses 0.25.19's `reflectionLead` in `setInstrument`, the refitted
+touches in `AcukotoPresets.h` and `AcukotoKeyTouches.h`, and the Known gap
+that now says where the planes' difference shows.
+
 ## 2026-11-14 — Each striking hand meets its own patch on the body
 
 What was decided: whether the three striking hands on `D2` to `C#3` average the
