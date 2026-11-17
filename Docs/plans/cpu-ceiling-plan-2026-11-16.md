@@ -33,3 +33,21 @@ work of thirteen strings and the body, not an occasional spike.
    `Docs/decisions.md`.
 4. Re-measure on CI after each step; close this plan and the Known gap when the
    worst block stays under 10%.
+
+## Progress
+
+- **Steps 1 and 2, 0.25.20** ([measurements](../benchmarks/cpu-kernels-2026-11-16.md)):
+  profiled by stage in the native FMA3 build and in the Reason stand-in.
+  Two exact changes ship, the same bits in every build: one-instruction
+  widening in the FMA3 kernels and an unrolled drive. On the development
+  machine the native build takes 5.8% less time and the stand-in 2.7% less.
+  The body's kernels are now at the floor of their arithmetic in both builds;
+  the largest exact saving left is the strings' paired state (about a third
+  of their instructions natively), which needs a quiet machine. Skipping
+  silent strings is not exact: every string is driven by its ji while the
+  body moves.
+- **Step 3, open**: three bodies with fewer modes above 2.2 kHz were
+  rendered (268, 244 and 214 modes for 291, 4 to 15% less time); the two
+  finest went to the owner as an A–Z set on 2026-11-16.
+- **Step 4, open**: not re-measured on CI. At 6% the native build's worst
+  blocks would still be about 13.5-15.3% on the CI runner, over the ceiling.

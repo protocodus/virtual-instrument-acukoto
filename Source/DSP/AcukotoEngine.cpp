@@ -1919,6 +1919,13 @@ ACUKOTO_FORCE_INLINE void driveModes(const ModeBank& bank, const float* share, i
 {
 #if defined(__clang__) || defined(__GNUC__)
     Float4 sum[width / 4] {};
+    // Unrolled, the 26 coordinates' loads take fixed offsets: the loop's own
+    // count, step and jump were an eighth of the drive's instructions.
+#if defined(__clang__)
+#pragma unroll
+#else
+#pragma GCC unroll 26
+#endif
     for (std::size_t c = 0; c < barCoordinates; ++c)
     {
         const Float4* p = reinterpret_cast<const Float4*>(bank.participation[c].data() + first);
@@ -2178,6 +2185,21 @@ void runModes(ModeBank& bank, const BarVector& force, StrikeDrive& strike, doubl
 
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__)) && !defined(ACUKOTO_DISABLE_AVX2)
 
+// Four floats widened to four doubles, exactly. GCC 13 converts the generic
+// form in two halves through the stack, five instructions where its builtin
+// is one vcvtps2pd: in the FMA kernel's radiation sums that was a quarter
+// of the bank's instructions.
+typedef double WideAvx __attribute__((vector_size(32), aligned(8), may_alias));
+typedef float NarrowAvx __attribute__((vector_size(16), aligned(4), may_alias));
+__attribute__((always_inline, target("avx2"))) inline WideAvx widenAvx(NarrowAvx f) noexcept
+{
+#if defined(__clang__)
+    return __builtin_convertvector(f, WideAvx);
+#else
+    return __builtin_ia32_cvtps2pd256(f);
+#endif
+}
+
 // Eight original float accumulation lanes, four-double oscillator vectors,
 // unchanged coordinate/reduction order, and no fused multiply-add. The
 // bank is not AVX aligned. Use attributed typedefs: Clang drops the smaller
@@ -2197,14 +2219,14 @@ __attribute__((target("avx2,no-fma"))) void radiationSumsAvx(const ModeBank& ban
     {
         const V y0 = *reinterpret_cast<const V*>(bank.y.data() + group);
         const V y1 = *reinterpret_cast<const V*>(bank.y.data() + group + 4);
-        l0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + group), V) * y0;
-        l1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + group + 4), V) * y1;
-        r0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + group), V) * y0;
-        r1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + group + 4), V) * y1;
-        lq0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group), V) * y0;
-        lq1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group + 4), V) * y1;
-        rq0 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group), V) * y0;
-        rq1 += __builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group + 4), V) * y1;
+        l0 += widenAvx(*reinterpret_cast<const F*>(bank.left.data() + group)) * y0;
+        l1 += widenAvx(*reinterpret_cast<const F*>(bank.left.data() + group + 4)) * y1;
+        r0 += widenAvx(*reinterpret_cast<const F*>(bank.right.data() + group)) * y0;
+        r1 += widenAvx(*reinterpret_cast<const F*>(bank.right.data() + group + 4)) * y1;
+        lq0 += widenAvx(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group)) * y0;
+        lq1 += widenAvx(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + group + 4)) * y1;
+        rq0 += widenAvx(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group)) * y0;
+        rq1 += widenAvx(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + group + 4)) * y1;
     }
     const auto reduce = [] (const V& a, const V& b) __attribute__((always_inline, target("avx2,no-fma")))
     {
@@ -2259,7 +2281,7 @@ __attribute__((target("avx2,no-fma"))) void pullOnBarAvx(const ModeBank& bank, s
         H low,high;
         __builtin_memcpy(&low,&lane[c],sizeof(H));
         __builtin_memcpy(&high,reinterpret_cast<const char*>(&lane[c])+sizeof(H),sizeof(H));
-        const D sum=__builtin_convertvector(low,D)+__builtin_convertvector(high,D);
+        const D sum=widenAvx(low)+widenAvx(high);
         pull[first+c]=(sum[0]+sum[1])+(sum[2]+sum[3]);
     }
 }
@@ -2310,7 +2332,7 @@ __attribute__((target("avx2,no-fma"))) void runModesAvx(ModeBank& bank, const Ba
     for(int k=0;k<count;k+=4)
     {
         const D x=*reinterpret_cast<const D*>(b0+k)
-            *__builtin_convertvector(*reinterpret_cast<const F*>(drive+k),D);
+            *widenAvx(*reinterpret_cast<const F*>(drive+k));
         const D velocity=x+*reinterpret_cast<const D*>(s1+k);
         const D next=*reinterpret_cast<const D*>(s2+k)-*reinterpret_cast<const D*>(a1+k)*velocity;
         *reinterpret_cast<D*>(s2+k)=-x-*reinterpret_cast<const D*>(a2+k)*velocity;
@@ -2361,6 +2383,13 @@ __attribute__((target("avx2,fma"))) void driveModesFma(const ModeBank& bank, con
 {
     typedef float V __attribute__((vector_size(32),aligned(4),may_alias));
     V sum[width/8] {};
+    // Unrolled as driveModes is: GCC 13 kept the coordinate loop, a third of
+    // this kernel's instructions.
+#if defined(__clang__)
+#pragma unroll
+#else
+#pragma GCC unroll 26
+#endif
     for(std::size_t c=0;c<barCoordinates;++c)
     {
         const V* p=reinterpret_cast<const V*>(bank.participation[c].data()+first);
@@ -2395,7 +2424,7 @@ __attribute__((target("avx2,fma"))) void pullOnBarFma(const ModeBank& bank, std:
         H low,high;
         __builtin_memcpy(&low,&lane[c],sizeof(H));
         __builtin_memcpy(&high,reinterpret_cast<const char*>(&lane[c])+sizeof(H),sizeof(H));
-        const D sum=__builtin_convertvector(low,D)+__builtin_convertvector(high,D);
+        const D sum=widenAvx(low)+widenAvx(high);
         pull[first+c]=(sum[0]+sum[1])+(sum[2]+sum[3]);
     }
 }
@@ -2440,12 +2469,7 @@ __attribute__((target("avx2,fma"))) void runModesFma(ModeBank& bank, const BarVe
     // Four modes: the step, then their share of each microphone's sum.
     const auto step = [&bank] (int k, D& l, D& r, D& lq, D& rq) __attribute__((always_inline, target("avx2,fma")))
     {
-#if defined(__clang__)
-        const D d = __builtin_convertvector(*reinterpret_cast<const F*>(bank.drive.data() + k), D);
-#else
-        // GCC 13 converts the generic form in two halves.
-        const D d = __builtin_ia32_cvtps2pd256(*reinterpret_cast<const F*>(bank.drive.data() + k));
-#endif
+        const D d = widenAvx(*reinterpret_cast<const F*>(bank.drive.data() + k));
         const D b0 = *reinterpret_cast<const D*>(bank.b0.data() + k);
         const D velocity = __builtin_ia32_vfmaddpd256(b0, d, *reinterpret_cast<const D*>(bank.s1.data() + k));
         const D next = __builtin_ia32_vfmaddpd256(-*reinterpret_cast<const D*>(bank.a1.data() + k), velocity,
@@ -2455,10 +2479,10 @@ __attribute__((target("avx2,fma"))) void runModesFma(ModeBank& bank, const BarVe
         *reinterpret_cast<D*>(bank.s1.data() + k) = next;
         *reinterpret_cast<D*>(bank.y.data() + k) = velocity;
         *reinterpret_cast<F*>(bank.pullState.data() + k) = __builtin_convertvector(next, F);
-        l = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.left.data() + k), D), velocity, l);
-        r = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.right.data() + k), D), velocity, r);
-        lq = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + k), D), velocity, lq);
-        rq = __builtin_ia32_vfmaddpd256(__builtin_convertvector(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + k), D), velocity, rq);
+        l = __builtin_ia32_vfmaddpd256(widenAvx(*reinterpret_cast<const F*>(bank.left.data() + k)), velocity, l);
+        r = __builtin_ia32_vfmaddpd256(widenAvx(*reinterpret_cast<const F*>(bank.right.data() + k)), velocity, r);
+        lq = __builtin_ia32_vfmaddpd256(widenAvx(*reinterpret_cast<const F*>(bank.leftQuadrature.data() + k)), velocity, lq);
+        rq = __builtin_ia32_vfmaddpd256(widenAvx(*reinterpret_cast<const F*>(bank.rightQuadrature.data() + k)), velocity, rq);
     };
     for (int k = 0; k < count; k += ModeBank::lanes)
     {
