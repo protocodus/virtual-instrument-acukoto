@@ -10,8 +10,8 @@ One demo per factory preset, one for each tuning: the opening of *Sakura sakura*
 
 | # | Preset | Demo | Length | Peak |
 | --- | --- | --- | --- | --- |
-| 1 | Koto Hirajoshi | [01-koto-hirajoshi.wav](Docs/audio/01-koto-hirajoshi.wav) | 11.7 s | -8.9 dBFS |
-| 2 | Koto Hankumoijoshi | [02-koto-hankumoijoshi.wav](Docs/audio/02-koto-hankumoijoshi.wav) | 11.2 s | -7.7 dBFS |
+| 1 | Koto Hirajoshi | [01-koto-hirajoshi.wav](Docs/audio/01-koto-hirajoshi.wav) | 11.7 s | -8.7 dBFS |
+| 2 | Koto Hankumoijoshi | [02-koto-hankumoijoshi.wav](Docs/audio/02-koto-hankumoijoshi.wav) | 11.2 s | -5.8 dBFS |
 
 <!-- audio-demos-end -->
 
