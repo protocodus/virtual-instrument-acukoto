@@ -17,6 +17,7 @@ to the owner as a listening test ([Fewer body modes](#fewer-body-modes)).
 | --- | --- | --- |
 | 0.25.20 | The FMA and AVX2 kernels widen four floats to doubles with one `vcvtps2pd` under GCC | the same bits |
 | 0.25.20 | The drive of the modes unrolls its 26 coordinates, in the portable and FMA kernels | the same bits |
+| 0.25.21 | 244 body modes for 291: 62 runs of the walls above 2.2 kHz for 107 ([verdict](#the-verdict-244-modes-in-02521)) | listening: the owner's choice by ear |
 
 ## The builds and the protocol
 
@@ -168,5 +169,48 @@ mode still kept to 2.2 kHz and fewer, longer runs above it:
 sound: the difference from 0.25.19 stands 7 to 12 dB under the signal. The
 185 and 160 bodies went to the owner as an A–Z set, whose key holds their
 third octaves; 130 was left out as not barely audible, its third octaves
-from 5 to 8 kHz 8 to 10 dB under 0.25.19's in every clip. The verdict, when it comes, goes in
-[`Docs/decisions.md`](../decisions.md).
+from 5 to 8 kHz 8 to 10 dB under 0.25.19's in every clip. The owner chose
+the 160 cap ([below](#the-verdict-244-modes-in-02521)).
+
+## The verdict: 244 modes in 0.25.21
+
+The owner heard both B and C as fine and chose B, the cap of 160 and the
+larger saving ([decision](../decisions.md), 2026-11-17). 0.25.21 ships it
+with the strings', the keys' and the body strikes' touches refitted by the
+unchanged rule: `AcukotoLevels --check` holds with every string within
+0.01 dB of its intended level, every key 0.01 dB and every strike 0.15 dB
+(one strike table serves both presets). Measured on 2026-11-17 by the
+protocol above, the machine running nothing but the timing.
+
+Instructions per sample (callgrind, preset 0's demo and stress phrase,
+`Performer::process` and everything under it):
+
+| Build | 0.25.19 | 0.25.20 | 0.25.21 | Against 0.25.20 |
+| --- | ---: | ---: | ---: | ---: |
+| FMA3 | 14,192 | 12,183 | 11,524 | −5.4% |
+| Reason stand-in | 30,159 | 28,953 | 26,028 | −10.1% |
+
+Real-time factor, the median of five rounds alternating 0.25.19, 0.25.20
+and 0.25.21, and the median of the rounds' worst 256-frame blocks in percent
+of one core:
+
+| Workload | FMA3, 0.25.20 | FMA3, 0.25.21 | Stand-in, 0.25.20 | Stand-in, 0.25.21 |
+| --- | --- | --- | --- | --- |
+| 01 Koto Hirajoshi | 0.0753 / 8.0% | 0.0735 / 8.0% (−2.4%) | 0.0973 / 10.3% | 0.0869 / 9.3% (−10.7%) |
+| 01, stress phrase | 0.0779 / 9.7% | 0.0796 / 10.2% (+2.2%) | 0.0981 / 11.8% | 0.0885 / 10.7% (−9.8%) |
+| 02 Koto Hankumoijoshi | 0.0752 / 8.2% | 0.0673 / 7.3% (−10.5%) | 0.0975 / 10.4% | 0.0865 / 9.3% (−11.3%) |
+| 02, stress phrase | 0.0804 / 9.3% | 0.0689 / 8.3% (−14.3%) | 0.0982 / 11.0% | 0.0902 / 10.4% (−8.1%) |
+| All four | | −6.3% | | −10.0% |
+| All four, against 0.25.19 | | −11.2% | | −11.5% |
+
+In the stand-in every workload falls by 8 to 11%, as its instructions do.
+In the native build Koto Hirajoshi's fall by 0 to 3% and Koto
+Hankumoijoshi's by 11 to 14%, in these rounds and in five more of 0.25.20
+against 0.25.21 alone (−2.6, −0.1, −10.6 and −12.9%, −6.6% in all), while
+Koto Hirajoshi's instructions fall 5.4%. A split by preset rather than by
+workload points at where each preset's engine lands in memory, which the
+[2026-11-09 round](cpu-consolidation-2026-11-09.md) found can move the time
+by more than this, not at the modes; it was not pursued. By the native
+build's ratio against 0.25.19 the CI runner's worst blocks would stand near
+12.7-14.5%, still over U12's 10%. `Acukoto.CpuBudget` passes (it warns
+only).

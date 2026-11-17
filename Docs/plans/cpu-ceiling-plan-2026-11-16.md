@@ -46,8 +46,11 @@ work of thirteen strings and the body, not an occasional spike.
   of their instructions natively), which needs a quiet machine. Skipping
   silent strings is not exact: every string is driven by its ji while the
   body moves.
-- **Step 3, open**: three bodies with fewer modes above 2.2 kHz were
+- **Step 3, 0.25.21**: three bodies with fewer modes above 2.2 kHz were
   rendered (268, 244 and 214 modes for 291, 4 to 15% less time); the two
-  finest went to the owner as an A–Z set on 2026-11-16.
-- **Step 4, open**: not re-measured on CI. At 6% the native build's worst
-  blocks would still be about 13.5-15.3% on the CI runner, over the ceiling.
+  finest went to the owner as an A–Z set on 2026-11-16, who heard both as
+  fine and chose the 244-mode body by ear ([decisions](../decisions.md),
+  2026-11-17). Against 0.25.20 it takes 6.5% less time natively and 10%
+  in the stand-in, about 11% less than 0.25.19 in both.
+- **Step 4, open**: not re-measured on CI. At 11% the native build's worst
+  blocks would still be about 12.7-14.5% on the CI runner, over the ceiling.

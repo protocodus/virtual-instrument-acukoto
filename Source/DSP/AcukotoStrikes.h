@@ -61,17 +61,17 @@ struct StrikeKey
 // The lowest string's note less twelve first: D2 to C#3 under a koto whose
 // lowest string is D3.
 inline constexpr std::array<StrikeKey, 12> strikeKeys {{
-    { 0, StrikeSurface::Top, 0.28, 0.935 },
-    { 0, StrikeSurface::Top, 0.62, 0.754 },
-    { 0, StrikeSurface::NearSide, 0.45, 1.606 },
+    { 0, StrikeSurface::Top, 0.28, 0.936 },
+    { 0, StrikeSurface::Top, 0.62, 0.755 },
+    { 0, StrikeSurface::NearSide, 0.45, 1.605 },
     { 0, StrikeSurface::Back, 0.35, 0.662 },
-    { 1, StrikeSurface::Top, 0.22, 0.958 },
-    { 1, StrikeSurface::Top, 0.55, 0.759 },
-    { 1, StrikeSurface::NearSide, 0.33, 0.695 },
-    { 1, StrikeSurface::Back, 0.58, 0.479 },
-    { 2, StrikeSurface::Top, 0.40, 0.723 },
+    { 1, StrikeSurface::Top, 0.22, 0.942 },
+    { 1, StrikeSurface::Top, 0.55, 0.754 },
+    { 1, StrikeSurface::NearSide, 0.33, 0.689 },
+    { 1, StrikeSurface::Back, 0.58, 0.481 },
+    { 2, StrikeSurface::Top, 0.40, 0.721 },
     { 2, StrikeSurface::Top, 0.76, 0.741 },
-    { 2, StrikeSurface::NearSide, 0.72, 0.750 },
+    { 2, StrikeSurface::NearSide, 0.72, 0.748 },
     { 2, StrikeSurface::Back, 0.22, 0.307 },
 }};
 

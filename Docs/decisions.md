@@ -8,6 +8,38 @@ Comments in the engine that cite `Docs/decisions.md` with a date before
 2026-10-29 refer to Aculyre's log at 0.6.0, the lyre engine Acukoto was
 forked from (<https://github.com/protocodus/virtual-instrument-aculyre>).
 
+## 2026-11-17 — The walls above 2.2 kHz take 62 runs
+
+What was decided: how finely the body's walls are resolved above 2.2 kHz,
+where one mode stands for each run of the wall modes that mostly move the
+top, up to a cap (`maxWallModes`). Fewer, longer runs cost less CPU. Every
+wall mode below 2.2 kHz is kept, as chosen on 2026-11-10. Three bodies were
+rendered, alike in everything else:
+
+- **A**, the shipping engine (0.25.19, `c6ed97b`): a cap of 210, 107 runs
+  above 2.2 kHz, 291 body modes (292 on Koto Hankumoijoshi).
+- **B**: a cap of 160, 62 runs, 244 body modes.
+- **C**: a cap of 185, 87 runs, 268 body modes (269).
+
+No measurement could choose. Neither B nor C is the same sound as A: B's
+difference from A stood 7.1 to 10.6 dB under A in RMS, C's 10.7 to 12.2 dB,
+and against A B's third octaves from 5 kHz up stood up to 5 dB lower and
+11.2 dB at 6.3 kHz in the first demo, C's within 3.5 dB. Each is defensible as a
+model: the runs are a reduction of the walls' modes, and A's 107 are no more
+measured on a koto than B's 62. The owner was sent the three (both README
+demos and a phrase of hard tsume strokes on Koto Hirajoshi, through the
+Performer at 48 kHz and 1x; B trimmed +0.28, +0.06 and +0.06 dB and C +0.15,
++0.06 and +0.05 dB to A's whole-file RMS; not committed) and answered "both b
+c sound fine", then "use b" and "or keep B it does not matter": **B**, the
+larger saving. It is recorded as the owner's selection by ear, not as a
+measured equivalence or a listening score.
+
+That licenses 0.25.21's `maxWallModes = 160`, with the strings', the keys'
+and the body strikes' touches refitted to that body by the unchanged 80%
+rule. It does not establish that the two bodies sound alike on every key:
+a few keys above the strings lean on their touches by 4 to 5 dB more or less
+than before (README, Known gaps).
+
 ## 2026-11-16 — A string's two planes take one line
 
 What was decided: whether a string's two planes of vibration, the one
