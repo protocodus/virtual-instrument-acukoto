@@ -235,6 +235,98 @@ void checkHeldGestureAttack()
 // The twelve keys under the lowest string are a hand on the body
 // (AcukotoEngine::strike); those further down play techniques, and alone,
 // with no string played, only the two glissandi sound.
+// Release is the playing hand on a let-go string: it takes the whole
+// stretch it plucked at the control's rate, an amplitude time constant of
+// 0.03 x 200^Release s. Half a second after key-up, at Release 0.5 and 0.7,
+// every string of both tunings stands under the same string held by what
+// that rate asks, 10.2 and 3.6 dB, within 1 dB; at Release 0 it has fallen by
+// more than the 20 dB a stopping hand is held to (staccato, the thumb's
+// rest) 0.15 s after key-up, where the rate alone asks 43 dB and a body mode
+// under the string gives some back. From 0.25.4 to 0.25.21 Release was a
+// point contact where the tsume had plucked, beside the low partials' nodes:
+// D3 fell 8.7 dB at Release 0 and stood 1.8 dB under the held string at 0.5.
+void checkRelease()
+{
+    constexpr int block = 64;
+    constexpr double rate = 48000.0;
+    auto performer = std::make_unique<acukoto::Performer>();
+    performer->prepare(rate);
+    std::vector<float> left(block), right(block);
+    const auto fall = [&] (int preset, int string, double release, bool keyUp, double seconds)
+    {
+        performer->setInstrument(preset);
+        acukoto::PlayingControls controls = acukoto::Performer::defaultControls(preset);
+        controls.release = release;
+        controls.sympathy = 0.0;
+        performer->setControls(controls);
+        performer->reset();
+        const int key = performer->engine().instrument().strings[static_cast<std::size_t>(string)].midiNote;
+        performer->noteOn(key, 0.7f);
+        const int up = static_cast<int>(0.3 * rate) / block, end = up + static_cast<int>(seconds * rate) / block;
+        double atKeyUp = 0.0;
+        for (int b = 0; b < end; ++b)
+        {
+            if (b == up)
+            {
+                atKeyUp = performer->engine().stringEnergy(string);
+                if (keyUp)
+                    performer->noteOff(key);
+            }
+            performer->process(left.data(), right.data(), block);
+        }
+        return 10.0 * std::log10(performer->engine().stringEnergy(string) / atKeyUp);
+    };
+    const auto asked = [] (double release, double seconds)
+    {
+        return -20.0 / std::log(10.0) * seconds / (0.03 * std::pow(200.0, release));
+    };
+    for (int preset = 0; preset < acukoto::Performer::instrumentCount; ++preset)
+    {
+        double leastStop = 0.0, worstRate = 0.0;
+        for (int string = 0; string < 13; ++string)
+        {
+            const double stop = fall(preset, string, 0.0, true, 0.15);
+            leastStop = std::min(-stop, string == 0 ? -stop : leastStop);
+            check(stop < -20.0, "Release 0 leaves a string ringing", stop);
+            const double held = fall(preset, string, 1.0, false, 0.5);
+            for (const double release : { 0.5, 0.7 })
+            {
+                const double off = fall(preset, string, release, true, 0.5) - held - asked(release, 0.5);
+                worstRate = std::abs(off) > std::abs(worstRate) ? off : worstRate;
+                check(std::abs(off) < 1.0, "a let-go string does not fall at Release's rate", off);
+            }
+        }
+        std::printf("release, tuning %d: Release 0 takes at least %.1f dB in 0.15 s, and a string strays at most %.2f dB from its rate\n",
+                    preset, leastStop, worstRate);
+    }
+    // The hands keep a latched technique when the tuning changes: staccato,
+    // latched on the first tuning, still stops a note of the second by 20 dB
+    // in 0.2 s (until 0.25.22 the second tuning began with nothing latched).
+    const auto shortNote = [&] (bool latch)
+    {
+        performer->setInstrument(0);
+        performer->setControls(acukoto::Performer::defaultControls(0));
+        performer->reset();
+        if (latch)
+        {
+            performer->noteOn(29, 0.7f);
+            performer->noteOff(29);
+        }
+        performer->setInstrument(1);
+        performer->noteOn(67, 0.7f);
+        for (int b = 0; b < static_cast<int>(0.3 * rate) / block; ++b)
+        {
+            if (b == static_cast<int>(0.1 * rate) / block)
+                performer->noteOff(67);
+            performer->process(left.data(), right.data(), block);
+        }
+        return performer->engine().stringEnergy(6);
+    };
+    const double ringing = shortNote(false);
+    const double stopped = 10.0 * std::log10(shortNote(true) / ringing);
+    check(stopped < -20.0, "a latched staccato is lost when the tuning changes", stopped);
+}
+
 void checkStrikes(acukoto::Performer& performer)
 {
     constexpr double rate = 48000.0;
@@ -786,8 +878,9 @@ int main()
               "sustain was lost when a faded engine reset across instrument switches", 0.0);
     }
     checkStrikes(*performer);
+    checkRelease();
 
     if (failures == 0)
-        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses and lowers by hand, aligns pressed attacks, holds presses, shares chords, counts keys, rests sympathy and strikes the body below the strings\n");
+        std::printf("Acukoto.Engine: deterministic, block-size invariant, finite at every rate, decays, mutes, slurs with Legato, presses and lowers by hand, aligns pressed attacks, holds presses, shares chords, counts keys, rests sympathy, strikes the body below the strings, lets go at Release's rate and keeps its latches across tunings\n");
     return failures == 0 ? 0 : 1;
 }

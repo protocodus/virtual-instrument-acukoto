@@ -161,8 +161,9 @@ struct PlayingControls
     double pluckDistance { 0.05 };
     double normalShare { 0.25 };    // share of the pluck's energy normal to the top
     // How a string sounds on after its key is let go: 0, the playing hand
-    // stops it (an amplitude time constant of 30 ms); 1, it rings until it
-    // dies away by itself.
+    // lies on the stretch it plucked and stops it (an amplitude time constant
+    // of 30 ms, every partial alike); 1, it rings until it dies away by
+    // itself.
     double release { 0.0 };
     // A palm resting across every string, 0-1.
     double mute { 0.0 };
@@ -233,6 +234,11 @@ public:
     void pluckString(int string, float velocity) noexcept;
     void setControls(const PlayingControls& controls) noexcept;
     [[nodiscard]] const PlayingControls& controls() const noexcept { return controls_; }
+    // The techniques latched on the free keys, as this engine keeps them: a
+    // Performer hands them to the engine that plays the next tuning.
+    [[nodiscard]] int latchedTechniques() const noexcept;
+    void setLatchedTechniques(int latched) noexcept;
+
     // Ablation for listening: the hard pluck's pitch glide.
     void setTensionModulation(bool enabled) noexcept { tensionModulation_ = enabled; }
 

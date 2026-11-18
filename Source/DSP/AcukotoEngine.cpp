@@ -1221,10 +1221,7 @@ struct Loop
     int write { 0 };
     int whole { 64 };
     int pendingAhead { 0 };
-    int handOut { 0 }, handBack { 0 };
     bool firstOrder { false };
-    double handOutAlpha { 0.0 }, handBackAlpha { 0.0 };
-    double handShare { 0.0 };
     double fraction { 0.0 };
     double thiranA1 { 0.0 }, thiranA2 { 0.0 };
     double tx1 { 0.0 }, tx2 { 0.0 }, ty1 { 0.0 }, ty2 { 0.0 };
@@ -1277,10 +1274,9 @@ struct Loop
     // (its fraction is at least 1.1, and wholeFor() rounds samples - 2 up or
     // samples - 1.3 down) or at 1, with samples no more than `longest`. The
     // tap is read at write - whole (read, readPair) and its two past inputs
-    // at write - 1 - whole and write - 2 - whole (setLineDelay); the hand's
-    // taps lie within 2 + max(2, whole - 2) (setHand, touch) and the wave a
-    // tsume stops within whole (pluck). So nothing reaches further than
-    // whole + 2, or 4 on a line under four samples: under longest + 3.
+    // at write - 1 - whole and write - 2 - whole (setLineDelay), and the wave
+    // a tsume stops within whole (pluck). So nothing reaches further than
+    // whole + 2: under longest + 3.
     int reach() const noexcept { return longest + 3; }
 
     // Stops the wave and everything still on its way, keeping the pitch and
@@ -1314,9 +1310,6 @@ struct Loop
         pendingAhead = 0;
         write = 0;
         silence();
-        handOut = handBack = 0;
-        handOutAlpha = handBackAlpha = 0.0;
-        handShare = 0.0;
         muteCoefficient = muteDelay = 0.0;
         damping = dampingTarget = 1.0;
         dampingStep = 0.0;
@@ -1544,51 +1537,6 @@ struct Loop
     {
         line[static_cast<std::size_t>(write)] = static_cast<float>(value);
         write = (write + 1) & (delayCapacity - 1);
-    }
-
-    void touch() noexcept
-    {
-        float& out0 = line[static_cast<std::size_t>((write - 1 - handOut) & (delayCapacity - 1))];
-        float& out1 = line[static_cast<std::size_t>((write - 2 - handOut) & (delayCapacity - 1))];
-        float& back0 = line[static_cast<std::size_t>((write - 1 - handBack) & (delayCapacity - 1))];
-        float& back1 = line[static_cast<std::size_t>((write - 2 - handBack) & (delayCapacity - 1))];
-        const float ao = static_cast<float>(handOutAlpha);
-        const float ab = static_cast<float>(handBackAlpha);
-        const float out = (1.0f - ao) * out0 + ao * out1;
-        const float back = (1.0f - ab) * back0 + ab * back1;
-        const float taken = static_cast<float>(handShare) * (back - out);
-        out0 += (1.0f - ao) * taken;
-        out1 += ao * taken;
-        back0 -= (1.0f - ab) * taken;
-        back1 -= ab * taken;
-    }
-
-    void setHand(double point, double rate, double frequency, double ratio = 1.0) noexcept
-    {
-        if (rate <= 0.0)
-        {
-            handShare = 0.0;
-            return;
-        }
-        const double baseShare = std::min(0.25, rate / (2.0 * frequency * ratio));
-        const int maxTap = std::max(2, whole - 2);
-        // The stored wave left the ji at delay zero, reaches point x on its
-        // outward journey after x P/2, and returns there after (1-x/2) P.
-        // P is the *current full* round trip, not whole+fraction: the line
-        // has already given up the lumped dispersion/loss/bridge phase.
-        // Where a very short line puts a contact inside that lumped filter,
-        // retain the nearest accessible tap; this is a waveguide contact,
-        // not a distributed model of the string's dispersive displacement.
-        const double period = loopDelay / ratio;
-        const double outDelay = std::clamp(0.5 * point * period, 1.0, static_cast<double>(maxTap));
-        const double backDelay = std::clamp((1.0 - 0.5 * point) * period, 1.0, static_cast<double>(maxTap));
-        handOut = floorInt(outDelay);
-        handBack = floorInt(backDelay);
-        handOutAlpha = outDelay - handOut;
-        handBackAlpha = backDelay - handBack;
-        const double norm = 0.5 * ((1.0 - handOutAlpha) * (1.0 - handOutAlpha) + handOutAlpha * handOutAlpha
-                                 + (1.0 - handBackAlpha) * (1.0 - handBackAlpha) + handBackAlpha * handBackAlpha);
-        handShare = norm > 0.0 ? baseShare / norm : 0.0;
     }
 
     // The loss per round trip a resting hand adds, reached over one round trip.
@@ -4661,9 +4609,6 @@ struct AcukotoEngine::State
         // PlayingControls::handPress as a pitch ratio, where the hand has
         // reached on this string: 1 on every string but the hand's.
         double handRatio { 1.0 };
-        static constexpr double restingHandPoint = 0.88;
-        double handPoint { restingHandPoint };
-        double contactRate { 0.0 };
         double loopRatio { 1.0 };
         double energy { 0.0 };
         bool keyDown { false };
@@ -4712,16 +4657,6 @@ struct AcukotoEngine::State
                 squares[static_cast<std::size_t>((squaresIndex - k) & (delayCapacity - 1))] *= kept;
         }
 
-        void refreshHand() noexcept
-        {
-            const double speakingRate = pluckedLeft ? 0.0 : contactRate;
-            const double restRate = pluckedLeft ? contactRate : 0.0;
-            normal.setHand(handPoint, speakingRate, frequency, loopRatio);
-            parallel.setHand(handPoint, speakingRate, frequency, loopRatio);
-            leftNormal.setHand(handPoint, restRate, left[0].frequency, loopRatio);
-            leftParallel.setHand(handPoint, restRate, left[1].frequency, loopRatio);
-        }
-
         void setLoopsRatio(double ratio, bool force = false) noexcept
         {
             if (ratio == loopRatio && !force)
@@ -4743,15 +4678,7 @@ struct AcukotoEngine::State
                 leftNormal.setLineDelay(leftNormal.lineDelayAt(ratio, k, t));
                 leftParallel.setLineDelay(leftParallel.lineDelayAt(ratio, k, t));
             }
-            if (ratio != loopRatio)
-            {
-                loopRatio = ratio;
-                // A fixed place on a string follows its travelling period
-                // through oshide, the pitch wheel and the tension glide.
-                // Uncontacted strings need no tap/weight calculations.
-                if (contactRate > 0.0)
-                    refreshHand();
-            }
+            loopRatio = ratio;
         }
 
         // How the ji's coordinates move the string's end normal to the top.
@@ -5401,8 +5328,6 @@ void AcukotoEngine::reset() noexcept
         voice.pressPeriods = voice.pressElapsed = 0;
         voice.pressWaver = 0.0;
         voice.handRatio = 1.0;
-        voice.handPoint = State::StringVoice::restingHandPoint;
-        voice.contactRate = 0.0;
         voice.loopRatio = 1.0;
         s.notePress[static_cast<std::size_t>(index)] = 0.0;
         voice.raised = false;
@@ -5533,32 +5458,29 @@ ACUKOTO_NOINLINE void AcukotoEngine::updateDamping(int string) noexcept
     voice.dampingDirty = false;
     double rate = s.muteRate;
     double left = s.muteRate;
-    double hand = 0.0;
     if (!voice.keyDown && !voice.sustained)
     {
-        // Staccato stops the string with the left hand; its established
-        // whole-string stop must not become a soft point contact near a
-        // nodal end, which lets the fundamental ring for much longer.
-        if ((voice.plucked || voice.pluckedLeft) && !voice.staccato)
-            hand += s.releaseRate;
-        else if (voice.pluckedLeft)
-            left += handRate(0.0);
+        // The hand lies on the stretch it plucked and takes every partial at
+        // Release's rate, at once for a staccato. From 0.25.4 to 0.25.21
+        // Release was a point contact where the tsume had plucked, 4.5 cm
+        // from the ryukaku, beside every low partial's node: at Release 0,
+        // D3's fundamental stood 17 dB down a second after its key-up and
+        // A3's 26, where 30 ms asks 290 (Docs/validation/artifact-audit-2026-11-18.md).
+        const double stop = voice.staccato ? handRate(0.0) : s.releaseRate;
+        if (voice.pluckedLeft)
+            left += stop;
         else
-            rate += voice.plucked ? handRate(0.0) : s.sympathyRate;
+            rate += voice.plucked ? stop : s.sympathyRate;
     }
-    // The thumb's hard tsume rest is the existing stop, not the release
-    // fingertip's dashpot at this string's previous pluck position.
+    // The thumb's tsume resting on the string stops it as a hand does.
     if (voice.thumbRest > 0)
         rate += handRate(0.0);
     const double damping = rate > 0.0 ? std::exp(-rate / voice.frequency) : 1.0;
     voice.normal.setDamping(damping);
     voice.parallel.setDamping(damping);
-    voice.contactRate = hand;
-    voice.refreshHand();
-    // A left-of-ji stroke releases onto that stretch, at its own pluck
-    // point: the same passive hand contact as on the speaking length. It
-    // must not instead damp the speaking length and leave its directly
-    // excited stretch free (which made Release and Staccato ineffective).
+    // A left-of-ji stroke releases onto that stretch. It must not instead
+    // damp the speaking length and leave its directly excited stretch free
+    // (which made Release and Staccato ineffective).
     // The palm, an oshide press and a resting hand still reach the rest
     // stretch too: a string at rest rings in sympathy along its whole
     // length or not at all.
@@ -6481,7 +6403,6 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     }
     voice.pluckedLeft = !speaking;
     voice.leftQuietSamples = 0;
-    voice.handPoint = speaking ? position : std::min(leftDistance, 0.5 * voice.leftLength) / voice.leftLength;
     s.lastPluck = { position, force, normalShare, release };
 
     // A finger resting on the ji while the note sounds (mutedStroke) is a
@@ -7104,18 +7025,6 @@ ACUKOTO_FORCE_INLINE void AcukotoEngine::processSamples(float* left, float* righ
             voice.leftNormal.line[slot] = static_cast<float>(leftNormalIn[idx] - heave);
             voice.leftParallel.line[slot] = static_cast<float>(leftParallelIn[idx] - rock);
             voice.normal.write = voice.parallel.write = voice.leftNormal.write = voice.leftParallel.write = nextWrite;
-            if (voice.normal.handShare != 0.0 && voice.energy > idleEnergy)
-            {
-                voice.normal.touch();
-                voice.parallel.touch();
-            }
-            // The speaking stretch's energy is not an observer of a
-            // left-of-ji pluck, so it cannot gate that stretch's contact.
-            if (voice.leftNormal.handShare != 0.0)
-            {
-                voice.leftNormal.touch();
-                voice.leftParallel.touch();
-            }
         }
 
         // Far-field pressure: rho / (4 pi r) times the volume acceleration,
@@ -7212,6 +7121,16 @@ double AcukotoEngine::movedJiFrequency(int midiNote) const noexcept
 }
 
 AcukotoEngine::PluckReport AcukotoEngine::lastPluck() const noexcept { return state_->lastPluck; }
+
+int AcukotoEngine::latchedTechniques() const noexcept
+{
+    return state_->latched;
+}
+
+void AcukotoEngine::setLatchedTechniques(int latched) noexcept
+{
+    state_->latched = latched;
+}
 
 double AcukotoEngine::stringEnergy(int string) const noexcept
 {
