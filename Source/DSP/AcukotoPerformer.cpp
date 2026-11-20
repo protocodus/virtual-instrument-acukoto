@@ -77,6 +77,10 @@ void Performer::setInstrument(int index) noexcept
         cut.reset();
         cut.setSustain(sustain_);
     }
+    // The hands keep their latched techniques when the tuning changes.
+    // Until 0.25.22 the new tuning's engine began with none.
+    engines_[static_cast<std::size_t>(index)]->setLatchedTechniques(
+        engines_[static_cast<std::size_t>(active_)]->latchedTechniques());
     fading_ = active_;
     active_ = index;
     fadeRemaining_ = fadeLength_;
