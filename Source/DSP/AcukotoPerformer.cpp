@@ -103,7 +103,12 @@ void Performer::noteOn(int midiNote, float velocity) noexcept
     if (midiNote < 0 || midiNote >= static_cast<int>(keys_.size()) || !(velocity > 0.0f))
         return;
     const auto note = static_cast<std::size_t>(midiNote);
+    const auto tuning = static_cast<std::size_t>(active_);
     auto& key = keys_[note];
+    // Another pitch can steal a held string. If that pitch is now played
+    // again, a pending key-up from its earlier use cannot damp this pluck.
+    if (key.size > key.stalePrefix[tuning] && !engines_[tuning]->holdsKey(midiNote))
+        key.stalePrefix[tuning] = key.size;
     if (key.size == maxPresses)
     {
         releaseOldest(midiNote);
@@ -112,7 +117,7 @@ void Performer::noteOn(int midiNote, float velocity) noexcept
     }
     keyTunings_[note][(key.first + key.size) % maxPresses] = static_cast<unsigned char>(active_);
     ++key.size;
-    engines_[static_cast<std::size_t>(active_)]->noteOn(midiNote, velocity);
+    engines_[tuning]->noteOn(midiNote, velocity);
 }
 
 void Performer::noteOff(int midiNote) noexcept
@@ -131,11 +136,11 @@ void Performer::releaseOldest(int midiNote) noexcept
     const auto note = static_cast<std::size_t>(midiNote);
     auto& key = keys_[note];
     const auto tuning = keyTunings_[note][key.first];
-    if (key.beforeReset[tuning] == 0)
+    if (key.stalePrefix[tuning] == 0)
         engines_[tuning]->noteOff(midiNote);
     key.first = (key.first + 1) % maxPresses;
     --key.size;
-    for (auto& remaining : key.beforeReset)
+    for (auto& remaining : key.stalePrefix)
         if (remaining > 0)
             --remaining;
 }
@@ -148,7 +153,7 @@ void Performer::resetFaded(int index) noexcept
     // Queued presses of this tuning have died with its voices. Their key-ups
     // must still be consumed before a later press on the same MIDI key.
     for (auto& key : keys_)
-        key.beforeReset[tuning] = key.size;
+        key.stalePrefix[tuning] = key.size;
 }
 
 void Performer::setSustain(bool down) noexcept

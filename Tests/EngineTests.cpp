@@ -913,6 +913,19 @@ int main()
         performer->noteOff(62);
         check(!held(), "the fresh press releases on its own key-up", 0);
 
+        performer->reset();
+        performer->noteOn(106, .5f);
+        performer->noteOn(108, .5f);  // moves the same string to a different pitch
+        performer->noteOn(106, .5f);
+        performer->noteOff(108);
+        performer->noteOff(106);
+        const int upper = performer->engine().stringCount() - 1;
+        check(performer->engine().stringActivity(upper).held,
+              "an old release must not damp the reacquired upper string", 0);
+        performer->noteOff(106);
+        check(!performer->engine().stringActivity(upper).held,
+              "the reacquired upper string releases on its own key-up", 0);
+
         // At the first sample of a reversal, the string's gain is the same
         // as if its fade had continued. Compare after the limiter delay.
         auto controls = acukoto::Performer::defaultControls(0);
