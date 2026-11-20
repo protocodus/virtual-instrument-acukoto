@@ -877,6 +877,67 @@ int main()
         check(sustainer->engine().stringActivity(4).held,
               "sustain was lost when a faded engine reset across instrument switches", 0.0);
     }
+    // A note released after a tuning change must reach the tuning which
+    // played it. Revisiting that tuning during its fade used to restore a
+    // held string, even though its key had already been released.
+    {
+        performer->reset();
+        performer->setInstrument(0);
+        std::array<float, 64> left {}, right {};
+        const auto advance = [&] { performer->process(left.data(), right.data(), 64); };
+        const auto held = [&] {
+            const auto& engine = performer->engine();
+            return engine.stringActivity(engine.stringForNote(62)).held;
+        };
+        performer->noteOn(62, .8f);
+        advance();
+        performer->setInstrument(1);
+        performer->noteOn(62, .8f);
+        advance();
+        performer->noteOff(62);
+        check(held(), "releasing the old tuning must leave the new tuning's press held", 0);
+        performer->setInstrument(0);
+        check(!held(), "a released string must stay released on return during its fade", 0);
+        performer->noteOff(62);
+        performer->setInstrument(1);
+        check(!held(), "the second key-up must reach the remaining tuning", 0);
+
+        performer->noteOn(62, .8f);
+        performer->setInstrument(0);
+        for (int batch = 0; batch < 32; ++batch)
+            advance();
+        performer->setInstrument(1);
+        performer->noteOn(62, .8f);
+        performer->noteOff(62);
+        check(held(), "a faded press must not let go of a fresh press on the same tuning", 0);
+        performer->noteOff(62);
+        check(!held(), "the fresh press releases on its own key-up", 0);
+
+        // At the first sample of a reversal, the string's gain is the same
+        // as if its fade had continued. Compare after the limiter delay.
+        auto controls = acukoto::Performer::defaultControls(0);
+        controls.volume = .05;
+        performer->setControls(controls);
+        const auto atReversal = [&](bool reverse) {
+            performer->setInstrument(0);
+            performer->reset();
+            performer->noteOn(62, .8f);
+            for (int batch = 0; batch < 48; ++batch)
+                advance();
+            performer->setInstrument(1);
+            for (int batch = 0; batch < 11; ++batch)
+                advance();
+            if (reverse)
+                performer->setInstrument(0);
+            std::array<float, 256> l {}, r {};
+            performer->process(l.data(), r.data(), 256);
+            return l[static_cast<std::size_t>(performer->latency())];
+        };
+        const float continuing = atReversal(false), reversed = atReversal(true);
+        check(continuing != 0 && continuing == reversed,
+              "reversing a fade must not jump at the switch sample", reversed - continuing);
+        performer->setControls(acukoto::Performer::defaultControls(0));
+    }
     checkStrikes(*performer);
     checkRelease();
 
