@@ -222,6 +222,8 @@ public:
     // string reaches by its press alone, while no other key is down, moves the
     // press without a pluck (ato-oshi, or letting the press go).
     void noteOn(int midiNote, float velocity) noexcept;
+    // Includes a held gesture or a kakite stroke still awaiting its onset.
+    [[nodiscard]] bool holdsKey(int midiNote) const noexcept;
     // The playing hand damps the string (PlayingControls::release), unless
     // sustain holds it.
     void noteOff(int midiNote) noexcept;

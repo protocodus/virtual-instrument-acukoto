@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace acukoto
 {
@@ -48,9 +49,11 @@ void Performer::prepare(double sampleRate, int oversampling)
         engine.reset();
     }
     fadeLength_ = std::max(1, static_cast<int>(0.02 * engines_[0]->sampleRate()));
+    activeLevel_ = fadeLength_;
     fading_ = -1;
     silentPushes_ = 0;
     sustain_ = false;
+    keys_ = {};
 }
 
 void Performer::reset() noexcept
@@ -61,8 +64,10 @@ void Performer::reset() noexcept
     stage_.Reset();
     stageSilence_ = stage_.DelaySamples() + 1;
     fading_ = -1;
+    activeLevel_ = fadeLength_;
     silentPushes_ = 0;
     sustain_ = false;
+    keys_ = {};
 }
 
 void Performer::setInstrument(int index) noexcept
@@ -72,18 +77,18 @@ void Performer::setInstrument(int index) noexcept
         return;
     // A second switch within the fade cuts the tail that was fading.
     if (fading_ >= 0 && fading_ != index)
-    {
-        AcukotoEngine& cut = *engines_[static_cast<std::size_t>(fading_)];
-        cut.reset();
-        cut.setSustain(sustain_);
-    }
+        resetFaded(fading_);
     // The hands keep their latched techniques when the tuning changes.
     // Until 0.25.22 the new tuning's engine began with none.
     engines_[static_cast<std::size_t>(index)]->setLatchedTechniques(
         engines_[static_cast<std::size_t>(active_)]->latchedTechniques());
+    // When a switch is reversed, both engines start from their current
+    // gains. A silent, newly selected tuning still plays at full level.
+    const int nextLevel = index == fading_ ? fadeRemaining_ : fadeLength_;
+    fadeRemaining_ = activeLevel_;
+    activeLevel_ = nextLevel;
     fading_ = active_;
     active_ = index;
-    fadeRemaining_ = fadeLength_;
 }
 
 void Performer::setControls(const PlayingControls& controls) noexcept
@@ -95,12 +100,60 @@ void Performer::setControls(const PlayingControls& controls) noexcept
 
 void Performer::noteOn(int midiNote, float velocity) noexcept
 {
-    engines_[static_cast<std::size_t>(active_)]->noteOn(midiNote, velocity);
+    if (midiNote < 0 || midiNote >= static_cast<int>(keys_.size()) || !(velocity > 0.0f))
+        return;
+    const auto note = static_cast<std::size_t>(midiNote);
+    const auto tuning = static_cast<std::size_t>(active_);
+    auto& key = keys_[note];
+    // Another pitch can steal a held string. If that pitch is now played
+    // again, a pending key-up from its earlier use cannot damp this pluck.
+    if (key.size > key.stalePrefix[tuning] && !engines_[tuning]->holdsKey(midiNote))
+        key.stalePrefix[tuning] = key.size;
+    if (key.size == maxPresses)
+    {
+        releaseOldest(midiNote);
+        if (key.retired < std::numeric_limits<unsigned>::max())
+            ++key.retired;
+    }
+    keyTunings_[note][(key.first + key.size) % maxPresses] = static_cast<unsigned char>(active_);
+    ++key.size;
+    engines_[tuning]->noteOn(midiNote, velocity);
 }
 
 void Performer::noteOff(int midiNote) noexcept
 {
-    engines_[static_cast<std::size_t>(active_)]->noteOff(midiNote);
+    if (midiNote < 0 || midiNote >= static_cast<int>(keys_.size()))
+        return;
+    auto& key = keys_[static_cast<std::size_t>(midiNote)];
+    if (key.retired > 0)
+        --key.retired;
+    else if (key.size > 0)
+        releaseOldest(midiNote);
+}
+
+void Performer::releaseOldest(int midiNote) noexcept
+{
+    const auto note = static_cast<std::size_t>(midiNote);
+    auto& key = keys_[note];
+    const auto tuning = keyTunings_[note][key.first];
+    if (key.stalePrefix[tuning] == 0)
+        engines_[tuning]->noteOff(midiNote);
+    key.first = (key.first + 1) % maxPresses;
+    --key.size;
+    for (auto& remaining : key.stalePrefix)
+        if (remaining > 0)
+            --remaining;
+}
+
+void Performer::resetFaded(int index) noexcept
+{
+    const auto tuning = static_cast<std::size_t>(index);
+    engines_[tuning]->reset();
+    engines_[tuning]->setSustain(sustain_);
+    // Queued presses of this tuning have died with its voices. Their key-ups
+    // must still be consumed before a later press on the same MIDI key.
+    for (auto& key : keys_)
+        key.stalePrefix[tuning] = key.size;
 }
 
 void Performer::setSustain(bool down) noexcept
@@ -112,6 +165,8 @@ void Performer::setSustain(bool down) noexcept
 
 void Performer::process(float* left, float* right, int numSamples) noexcept
 {
+    if (numSamples <= 0)
+        return;
     if (factor_ == 1)
     {
         render(left, right, numSamples);
@@ -175,6 +230,14 @@ void Performer::finish(float* left, float* right, int numSamples) noexcept
 void Performer::render(float* left, float* right, int numSamples) noexcept
 {
     engines_[static_cast<std::size_t>(active_)]->process(left, right, numSamples);
+    const int rising = std::min(numSamples, fadeLength_ - activeLevel_);
+    for (int i = 0; i < rising; ++i)
+    {
+        const float gain = static_cast<float>(activeLevel_ + i) / static_cast<float>(fadeLength_);
+        left[i] *= gain;
+        right[i] *= gain;
+    }
+    activeLevel_ += rising;
     int done = 0;
     while (fading_ >= 0 && done < numSamples)
     {
@@ -193,8 +256,7 @@ void Performer::render(float* left, float* right, int numSamples) noexcept
         fadeRemaining_ -= count;
         if (fadeRemaining_ <= 0)
         {
-            fading.reset();
-            fading.setSustain(sustain_);
+            resetFaded(fading_);
             fading_ = -1;
         }
     }

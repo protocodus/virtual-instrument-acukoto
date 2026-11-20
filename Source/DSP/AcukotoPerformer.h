@@ -101,12 +101,29 @@ private:
 
     void render(float* left, float* right, int numSamples) noexcept;
 
+    // A release belongs to the oldest outstanding press of its pitch, even
+    // if the tuning changed in between. The Rack can send 256 repeats plus
+    // a CV gate on one pitch. Keep the queue bounded for other callers too.
+    static constexpr unsigned maxPresses = 512;
+    struct KeyQueue
+    {
+        unsigned first = 0;
+        unsigned size = 0;
+        unsigned retired = 0;
+        std::array<unsigned, instrumentCount> stalePrefix {};
+    };
+    std::array<KeyQueue, 128> keys_ {};
+    std::array<std::array<unsigned char, maxPresses>, 128> keyTunings_ {};
+    void releaseOldest(int note) noexcept;
+    void resetFaded(int index) noexcept;
+
     std::array<std::unique_ptr<AcukotoEngine>, instrumentCount> engines_;
     PlayingControls controls_ {};
     int active_ { 0 };
     int fading_ { -1 };
     int fadeRemaining_ { 0 };
     int fadeLength_ { 960 };
+    int activeLevel_ { 960 };
     int factor_ { 1 };
     // Fast samples of silence pushed while the engines slept; once they
     // fill the decimator, it holds only zeros and is skipped.

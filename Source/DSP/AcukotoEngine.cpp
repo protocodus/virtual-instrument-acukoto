@@ -6604,6 +6604,26 @@ void AcukotoEngine::pluck(int index, int midiNote, float velocity, int style) no
     s.modalPastStale = true;
 }
 
+bool AcukotoEngine::holdsKey(int midiNote) const noexcept
+{
+    const State& s = *state_;
+    if (midiNote == lowestKey + yuriKey && midiNote < s.lowestStringNote - strikeKeyCount)
+        return s.yuri.active;
+    for (int i = 0; i < stringCount_; ++i)
+    {
+        const auto& voice = s.strings[static_cast<std::size_t>(i)];
+        if (voice.keyDown && voice.ownerNote == midiNote)
+            return true;
+    }
+    for (int i = 0; i < s.scheduledCount; ++i)
+    {
+        const auto& event = s.scheduled[static_cast<std::size_t>(i)];
+        if (event.kind == State::Later::Note && event.midiNote == midiNote && !event.keyUp)
+            return true;
+    }
+    return false;
+}
+
 void AcukotoEngine::noteOff(int midiNote) noexcept
 {
     State& s = *state_;
